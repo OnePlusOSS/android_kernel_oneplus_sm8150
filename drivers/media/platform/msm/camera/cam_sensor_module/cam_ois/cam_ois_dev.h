@@ -31,6 +31,21 @@
 #define DEFINE_MSM_MUTEX(mutexname) \
 	static struct mutex mutexname = __MUTEX_INITIALIZER(mutexname)
 
+#define ENABLE_OIS_DELAY_POWER_DOWN
+
+#ifdef ENABLE_OIS_DELAY_POWER_DOWN
+#define OIS_POWER_DOWN_DELAY 500//ms
+enum cam_ois_power_down_thread_state {
+	CAM_OIS_POWER_DOWN_THREAD_RUNNING,
+	CAM_OIS_POWER_DOWN_THREAD_STOPPED,
+};
+
+enum cam_ois_power_state {
+	CAM_OIS_POWER_ON,
+	CAM_OIS_POWER_OFF,
+};
+#endif
+
 enum cam_ois_state {
 	CAM_OIS_INIT,
 	CAM_OIS_ACQUIRE,
@@ -129,6 +144,12 @@ struct cam_ois_ctrl_t {
 	uint8_t is_ois_calib;
 	struct cam_ois_opcode opcode;
 	uint8_t ois_gyro_id; //18821->1, 18827->2
+#ifdef ENABLE_OIS_DELAY_POWER_DOWN
+	struct mutex ois_power_down_mutex;
+	enum cam_ois_power_down_thread_state ois_power_down_thread_state;
+	enum cam_ois_power_state ois_power_state;
+	bool ois_power_down_thread_exit;
+#endif
 };
 
 #endif /*_CAM_OIS_DEV_H_ */

@@ -319,6 +319,12 @@ static int32_t cam_ois_platform_driver_probe(
 	INIT_LIST_HEAD(&(o_ctrl->i2c_calib_data.list_head));
 	INIT_LIST_HEAD(&(o_ctrl->i2c_mode_data.list_head));
 	mutex_init(&(o_ctrl->ois_mutex));
+#ifdef ENABLE_OIS_DELAY_POWER_DOWN
+	o_ctrl->ois_power_down_thread_state = CAM_OIS_POWER_DOWN_THREAD_STOPPED;
+	o_ctrl->ois_power_state = CAM_OIS_POWER_OFF;
+	o_ctrl->ois_power_down_thread_exit = false;
+	mutex_init(&(o_ctrl->ois_power_down_mutex));
+#endif
 	rc = cam_ois_driver_soc_init(o_ctrl);
 	if (rc) {
 		CAM_ERR(CAM_OIS, "failed: soc init rc %d", rc);
