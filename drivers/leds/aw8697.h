@@ -432,6 +432,7 @@ struct aw8697 {
     struct ram ram;
     bool haptic_ready;
     bool audio_ready;
+    bool ignore_sync;
     int pre_haptic_number;
     bool rtp_on;
     struct timeval start,end;

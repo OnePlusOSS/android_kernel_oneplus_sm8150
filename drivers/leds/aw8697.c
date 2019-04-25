@@ -3476,9 +3476,11 @@ static ssize_t aw8697_rtp_store(struct device *dev, struct device_attribute *att
         pr_info("%s: invalid audio ready\n", __FUNCTION__);
         return count;
     }
-    if (val != FACTORY_MODE_NORMAL_RTP_NUMBER 
+
+    if (val != FACTORY_MODE_NORMAL_RTP_NUMBER
         && val != FACTORY_MODE_HIGH_TEMP_RTP_NUMBER
-        && val != 0) {
+        && val != 0
+        && !aw8697->ignore_sync) {
         if (val == AUDIO_READY_STATUS)
            aw8697->audio_ready = true;
         else
@@ -3624,6 +3626,32 @@ static ssize_t aw8697_cali_store(struct device *dev, struct device_attribute *at
         mutex_unlock(&aw8697->lock);
     }
     return count;
+}
+
+static ssize_t aw8697_ignore_sync_tore(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	struct led_classdev *cdev = dev_get_drvdata(dev);
+	struct aw8697 *aw8697 = container_of(cdev, struct aw8697, cdev);
+
+	unsigned int val = 0;
+	int rc = 0;
+
+	rc = kstrtouint(buf, 0, &val);
+	if (rc < 0)
+		return rc;
+	pr_info("%s:val:%d\n", __func__, val);
+	aw8697->ignore_sync = val;
+	return count;
+}
+
+static ssize_t aw8697_ignore_sync_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct led_classdev *cdev = dev_get_drvdata(dev);
+	struct aw8697 *aw8697 = container_of(cdev, struct aw8697, cdev);
+
+	return snprintf(buf, PAGE_SIZE, "%lld\n", aw8697->ignore_sync);
 }
 
 static ssize_t aw8697_cont_show(struct device *dev, struct device_attribute *attr,
@@ -4879,6 +4907,7 @@ static DEVICE_ATTR(rtp, S_IWUSR | S_IRUGO, aw8697_rtp_show, aw8697_rtp_store);
 static DEVICE_ATTR(ram_update, S_IWUSR | S_IRUGO, aw8697_ram_update_show, aw8697_ram_update_store);
 static DEVICE_ATTR(rf_hz, S_IWUSR | S_IRUGO, aw8697_f0_show, aw8697_f0_store);
 static DEVICE_ATTR(cali, S_IWUSR | S_IRUGO, aw8697_cali_show, aw8697_cali_store);
+static DEVICE_ATTR(ignore_store, S_IWUSR | S_IRUGO, aw8697_ignore_sync_show, aw8697_ignore_sync_tore);
 static DEVICE_ATTR(cont, S_IWUSR | S_IRUGO, aw8697_cont_show, aw8697_cont_store);
 static DEVICE_ATTR(cont_td, S_IWUSR | S_IRUGO, aw8697_cont_td_show, aw8697_cont_td_store);
 static DEVICE_ATTR(cont_drv, S_IWUSR | S_IRUGO, aw8697_cont_drv_show, aw8697_cont_drv_store);
@@ -4917,6 +4946,7 @@ static struct attribute *aw8697_vibrator_attributes[] = {
     &dev_attr_ram_update.attr,
     &dev_attr_rf_hz.attr,
     &dev_attr_cali.attr,
+    &dev_attr_ignore_store.attr,
     &dev_attr_cont.attr,
     &dev_attr_cont_td.attr,
     &dev_attr_cont_drv.attr,
