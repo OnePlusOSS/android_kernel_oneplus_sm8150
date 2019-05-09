@@ -1769,6 +1769,10 @@ static int rt_energy_aware_wake_cpu(struct task_struct *task)
 	bool best_cpu_is_claimed = false;
 #endif
 
+	/* For surfaceflinger with util > 90, prefer to use big core */
+	if (task->compensate_need == 2 && tutil > 90)
+		boost_on_big = true;
+
 	rcu_read_lock();
 
 	start_cpu = cpu_rq(smp_processor_id())->rd->min_cap_orig_cpu;

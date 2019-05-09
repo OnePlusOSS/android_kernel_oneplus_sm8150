@@ -1770,7 +1770,7 @@ done:
 
 static u64 add_to_task_demand(struct rq *rq, struct task_struct *p, u64 delta)
 {
-	if (p->compensate_need) {
+	if (p->compensate_need == 1) {
 		delta += p->compensate_time;
 		p->compensate_time = 0;
 		p->compensate_need = 0;
