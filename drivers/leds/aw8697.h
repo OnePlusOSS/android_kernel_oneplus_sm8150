@@ -488,6 +488,8 @@ struct aw8697 {
     unsigned int lra;
     unsigned int ram_bin_index;
     unsigned int haptic_real_f0;
+    unsigned int ram_test_flag_0;
+    unsigned int ram_test_flag_1;
 
     struct trig trig[AW8697_TRIG_NUM];
     struct haptic_audio haptic_audio;

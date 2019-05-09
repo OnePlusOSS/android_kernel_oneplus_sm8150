@@ -4721,6 +4721,133 @@ static ssize_t aw8697_haptic_audio_hap_cnt_max_outside_tz_store(struct device *d
     return count;
 }
 
+static int aw8697_i2c_reads(struct aw8697 *aw8697,
+		unsigned char reg_addr, unsigned char *buf, unsigned int len)
+{
+	int ret = -1;
+
+	ret = i2c_smbus_write_byte(aw8697->i2c, reg_addr);
+	if (ret) {
+		pr_err("%s: couldn't send request, ret=%d\n",
+			__func__, ret);
+		return ret;
+	}
+	ret = i2c_master_recv(aw8697->i2c, buf, len);
+	if (ret != len) {
+		pr_err("%s: couldn't read registers, return %d bytes\n",
+			__func__,  ret);
+		return ret;
+	}
+	return ret;
+}
+
+static ssize_t aw8697_haptic_ram_test_store(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+#ifdef TIMED_OUTPUT
+	struct timed_output_dev *to_dev = dev_get_drvdata(dev);
+	struct aw8697 *aw8697 = container_of(to_dev, struct aw8697, to_dev);
+#else
+	struct led_classdev *cdev = dev_get_drvdata(dev);
+	struct aw8697 *aw8697 = container_of(cdev, struct aw8697, cdev);
+#endif
+	struct aw8697_container *aw8697_ramtest;
+	int i, j= 0;
+	unsigned int val = 0;
+	int rc = 0;
+	unsigned int start_addr;
+	unsigned int tmp_len,retries;
+	char *pbuf = NULL;
+
+	pr_info("%s enter\n", __func__);
+	rc = kstrtouint(buf, 0, &val);
+	if (rc < 0)
+		return rc;
+	start_addr = 0;
+	aw8697->ram_test_flag_0 = 0;
+	aw8697->ram_test_flag_1 = 0;
+	tmp_len = 1024;	/*1K*/
+	retries= 8;	/*tmp_len * retries  =8*1024*/
+	aw8697_ramtest = kzalloc(tmp_len*sizeof(char) +sizeof(int), GFP_KERNEL);
+	if (!aw8697_ramtest) {
+		pr_err("%s: error allocating memory\n", __func__);
+		return count ;
+	}
+	pbuf = kzalloc(tmp_len*sizeof(char), GFP_KERNEL);
+	if (!pbuf) {
+		pr_err("%s: Error allocating memory\n", __func__);
+		return count;
+	}
+	aw8697_ramtest->len = tmp_len;
+	if (val == 1){
+			/* RAMINIT Enable */
+			aw8697_i2c_write_bits(aw8697, AW8697_REG_SYSCTRL,
+				AW8697_BIT_SYSCTRL_RAMINIT_MASK, AW8697_BIT_SYSCTRL_RAMINIT_EN);
+		for (j = 0;j < retries;j++){
+			/*test 1	start*/
+			memset(aw8697_ramtest->data, 0xff, aw8697_ramtest->len);
+			memset(pbuf, 0x00, aw8697_ramtest->len);
+			/* write ram 1 test */
+			aw8697_i2c_write(aw8697, AW8697_REG_RAMADDRH, start_addr >> 8);
+			aw8697_i2c_write(aw8697, AW8697_REG_RAMADDRL, start_addr & 0x00FF);
+
+			aw8697_i2c_writes(aw8697, AW8697_REG_RAMDATA,
+							aw8697_ramtest->data, aw8697_ramtest->len);
+			/* read ram 1 test */
+			aw8697_i2c_write(aw8697, AW8697_REG_RAMADDRH, start_addr>>8);
+			aw8697_i2c_write(aw8697, AW8697_REG_RAMADDRL, start_addr&0x00FF);
+			aw8697_i2c_reads(aw8697, AW8697_REG_RAMDATA, pbuf, aw8697_ramtest->len);
+				for(i = 0;i < aw8697_ramtest->len;i++) {
+					if(pbuf[i] != 0xff )
+						aw8697->ram_test_flag_1++;
+				}
+			/*test 1  end*/
+			/*test 0 start*/
+			memset(aw8697_ramtest->data, 0x00, aw8697_ramtest->len);
+			memset(pbuf, 0xff, aw8697_ramtest->len);
+			/* write ram 0 test */
+			aw8697_i2c_write(aw8697, AW8697_REG_RAMADDRH, start_addr>>8);
+			aw8697_i2c_write(aw8697, AW8697_REG_RAMADDRL, start_addr&0x00FF);
+			aw8697_i2c_writes(aw8697, AW8697_REG_RAMDATA,
+							aw8697_ramtest->data, aw8697_ramtest->len);
+			/* read ram 0 test */
+			aw8697_i2c_write(aw8697, AW8697_REG_RAMADDRH, start_addr>>8);
+			aw8697_i2c_write(aw8697, AW8697_REG_RAMADDRL, start_addr&0x00FF);
+
+			aw8697_i2c_reads(aw8697, AW8697_REG_RAMDATA, pbuf, aw8697_ramtest->len);
+
+				for (i = 0;i < aw8697_ramtest->len;i++) {
+					if (pbuf[i] != 0)
+						aw8697->ram_test_flag_0++;
+				}
+			/*test 0 end*/
+			start_addr += tmp_len;
+		}
+		/* RAMINIT Disable */
+		 aw8697_i2c_write_bits(aw8697, AW8697_REG_SYSCTRL,
+					AW8697_BIT_SYSCTRL_RAMINIT_MASK, AW8697_BIT_SYSCTRL_RAMINIT_OFF);
+	}
+	kfree(aw8697_ramtest);
+	kfree(pbuf);
+	pbuf = NULL;
+	pr_info("%s exit\n", __func__);
+	return count;
+}
+
+static ssize_t aw8697_haptic_ram_test_show(struct device *dev, struct device_attribute *attr,
+		char *buf)
+{
+	struct led_classdev *cdev = dev_get_drvdata(dev);
+	struct aw8697 *aw8697 = container_of(cdev, struct aw8697, cdev);
+	ssize_t len = 0;
+
+	len += snprintf(buf + len, PAGE_SIZE - len,
+					"aw8697->ram_test_flag_0=%d  0:pass,!0= failed\n", aw8697->ram_test_flag_0);
+	len += snprintf(buf + len, PAGE_SIZE - len,
+					"aw8697->ram_test_flag_1=%d  0:pass,!0= failed\n", aw8697->ram_test_flag_1);
+	return len;
+}
+
 static DEVICE_ATTR(state, S_IWUSR | S_IRUGO, aw8697_state_show, aw8697_state_store);
 static DEVICE_ATTR(duration, S_IWUSR | S_IRUGO, aw8697_duration_show, aw8697_duration_store);
 static DEVICE_ATTR(activate, S_IWUSR | S_IRUGO, aw8697_activate_show, aw8697_activate_store);
@@ -4756,6 +4883,7 @@ static DEVICE_ATTR(haptic_audio_tp_size, S_IWUSR | S_IRUGO, aw8697_haptic_audio_
 static DEVICE_ATTR(haptic_audio_tz_cnt, S_IWUSR | S_IRUGO, aw8697_haptic_audio_tz_cnt_show, aw8697_haptic_audio_tz_cnt_store);
 static DEVICE_ATTR(haptic_audio_hap_cnt_max_outside_tz, S_IWUSR | S_IRUGO, aw8697_haptic_audio_hap_cnt_max_outside_tz_show, aw8697_haptic_audio_hap_cnt_max_outside_tz_store);
 static DEVICE_ATTR(haptic_osc_data, S_IWUSR | S_IRUGO, aw8697_haptic_osc_data_show, aw8697_osc_data_store);
+static DEVICE_ATTR(ram_test, S_IWUSR | S_IRUGO, aw8697_haptic_ram_test_show, aw8697_haptic_ram_test_store);
 
 static struct attribute *aw8697_vibrator_attributes[] = {
     &dev_attr_state.attr,
@@ -4793,6 +4921,7 @@ static struct attribute *aw8697_vibrator_attributes[] = {
     &dev_attr_haptic_audio_tz_cnt.attr,
     &dev_attr_haptic_audio_hap_cnt_max_outside_tz.attr,
     &dev_attr_haptic_osc_data.attr,
+    &dev_attr_ram_test.attr,
     NULL
 };
 
