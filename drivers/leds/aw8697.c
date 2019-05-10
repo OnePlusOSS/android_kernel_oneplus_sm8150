@@ -4766,6 +4766,7 @@ static ssize_t aw8697_haptic_ram_test_store(struct device *dev, struct device_at
 	start_addr = 0;
 	aw8697->ram_test_flag_0 = 0;
 	aw8697->ram_test_flag_1 = 0;
+	aw8697->ram_test_result = 0;
 	tmp_len = 1024;	/*1K*/
 	retries= 8;	/*tmp_len * retries  =8*1024*/
 	aw8697_ramtest = kzalloc(tmp_len*sizeof(char) +sizeof(int), GFP_KERNEL);
@@ -4830,6 +4831,9 @@ static ssize_t aw8697_haptic_ram_test_store(struct device *dev, struct device_at
 	kfree(aw8697_ramtest);
 	kfree(pbuf);
 	pbuf = NULL;
+	aw8697->ram_test_result = !aw8697->ram_test_flag_0 && !aw8697->ram_test_flag_1;
+	pr_info("ram_test_flag_0:%d,ram_test_flag_1:%d\n",
+			aw8697->ram_test_flag_0, aw8697->ram_test_flag_1);
 	pr_info("%s exit\n", __func__);
 	return count;
 }
@@ -4842,9 +4846,7 @@ static ssize_t aw8697_haptic_ram_test_show(struct device *dev, struct device_att
 	ssize_t len = 0;
 
 	len += snprintf(buf + len, PAGE_SIZE - len,
-					"aw8697->ram_test_flag_0=%d  0:pass,!0= failed\n", aw8697->ram_test_flag_0);
-	len += snprintf(buf + len, PAGE_SIZE - len,
-					"aw8697->ram_test_flag_1=%d  0:pass,!0= failed\n", aw8697->ram_test_flag_1);
+					"%d\n", aw8697->ram_test_result);
 	return len;
 }
 
