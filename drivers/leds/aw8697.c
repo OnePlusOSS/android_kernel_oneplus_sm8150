@@ -3481,6 +3481,7 @@ static ssize_t aw8697_f0_show(struct device *dev, struct device_attribute *attr,
     mutex_lock(&aw8697->lock);
     aw8697->f0_cali_flag = AW8697_HAPTIC_CALI_F0;
     aw8697_haptic_get_f0(aw8697);
+    aw8697->haptic_real_f0 = aw8697->f0/10;
     mutex_unlock(&aw8697->lock);
     len += snprintf(buf+len, PAGE_SIZE-len, "%d\n", aw8697->f0/10);
     return len;
@@ -3489,13 +3490,22 @@ static ssize_t aw8697_f0_show(struct device *dev, struct device_attribute *attr,
 static ssize_t aw8697_f0_store(struct device *dev, struct device_attribute *attr,
         const char *buf, size_t count)
 {
+#ifdef TIMED_OUTPUT
+	struct timed_output_dev *to_dev = dev_get_drvdata(dev);
+	struct aw8697 *aw8697 = container_of(to_dev, struct aw8697, to_dev);
+#else
+	struct led_classdev *cdev = dev_get_drvdata(dev);
+	struct aw8697 *aw8697 = container_of(cdev, struct aw8697, cdev);
+#endif
+
     unsigned int val = 0;
     int rc = 0;
 
     rc = kstrtouint(buf, 0, &val);
     if (rc < 0)
         return rc;
-
+    aw8697->haptic_real_f0 = val;
+    pr_info("aw8697->haptic_real_f0:%d\n", aw8697->haptic_real_f0);
     return count;
 }
 
