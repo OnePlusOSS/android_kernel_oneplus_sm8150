@@ -3979,6 +3979,42 @@ skip_reset_ahb2axi_bridge:
 	return rc;
 }
 
+static inline void __unprepare_ahb2axi_bridge(struct venus_hfi_device *device,
+						u32 version)
+{
+	u32 axi0_cbcr_status = 0, axi1_cbcr_status = 0;
+
+	if (!device)
+		return;
+
+	/* reset axi0 and axi1 as needed only for specific video hardware */
+	version &= ~GENMASK(15, 0);
+	if (version != (0x5 << 28 | 0x10 << 16))
+		return;
+
+	dprintk(VIDC_ERR,
+		"reset axi cbcr to recover\n");
+
+	/* read registers */
+	axi0_cbcr_status = __read_gcc_register(device, VIDEO_GCC_AXI0_CBCR);
+	axi1_cbcr_status = __read_gcc_register(device, VIDEO_GCC_AXI1_CBCR);
+
+	/* write enable clk_ares */
+	__write_gcc_register(device, VIDEO_GCC_AXI0_CBCR,
+		axi0_cbcr_status|0x4);
+	__write_gcc_register(device, VIDEO_GCC_AXI1_CBCR,
+		axi1_cbcr_status|0x4);
+
+	/* wait for deassert */
+	usleep_range(150, 250);
+
+	/* write disable clk_ares */
+	axi0_cbcr_status = axi0_cbcr_status & (~0x4);
+	axi1_cbcr_status = axi1_cbcr_status & (~0x4);
+	__write_gcc_register(device, VIDEO_GCC_AXI0_CBCR, axi0_cbcr_status);
+	__write_gcc_register(device, VIDEO_GCC_AXI1_CBCR, axi1_cbcr_status);
+}
+
 static inline int __prepare_enable_clks(struct venus_hfi_device *device)
 {
 	struct clock_info *cl = NULL, *cl_fail = NULL;
@@ -4710,16 +4746,26 @@ fail_vote_buses:
 	return rc;
 }
 
-static void __venus_power_off(struct venus_hfi_device *device)
+static void __venus_power_off(struct venus_hfi_device *device,
+				bool axi_reset)
 {
+	u32 version;
+
 	if (!device->power_enabled)
 		return;
 
 	if (!(device->intr_status & VIDC_WRAPPER_INTR_STATUS_A2HWD_BMSK))
 		disable_irq_nosync(device->hal_data->irq);
-	device->intr_status = 0;
+
+	version = __read_register(device, VIDC_WRAPPER_HW_VERSION);
 
 	__disable_unprepare_clks(device);
+
+	if (axi_reset)
+		__unprepare_ahb2axi_bridge(device, version);
+
+	device->intr_status = 0;
+
 	if (__disable_regulators(device))
 		dprintk(VIDC_WARN, "Failed to disable regulators\n");
 
@@ -4754,7 +4800,7 @@ static inline int __suspend(struct venus_hfi_device *device)
 
 	__disable_subcaches(device);
 
-	__venus_power_off(device);
+	__venus_power_off(device, false);
 	dprintk(VIDC_PROF, "Venus power off\n");
 	return rc;
 
@@ -4829,7 +4875,7 @@ exit:
 err_reset_core:
 	__tzbsp_set_video_state(TZBSP_VIDEO_STATE_SUSPEND);
 err_set_video_state:
-	__venus_power_off(device);
+	__venus_power_off(device, false);
 err_venus_power_on:
 	dprintk(VIDC_ERR, "Failed to resume from power collapse\n");
 	return rc;
@@ -4888,7 +4934,7 @@ fail_protect_mem:
 		subsystem_put(device->resources.fw.cookie);
 	device->resources.fw.cookie = NULL;
 fail_load_fw:
-	__venus_power_off(device);
+	__venus_power_off(device, true);
 fail_venus_power_on:
 fail_init_pkt:
 	__deinit_resources(device);
@@ -4909,7 +4955,7 @@ static void __unload_fw(struct venus_hfi_device *device)
 	__vote_buses(device, NULL, 0);
 	subsystem_put(device->resources.fw.cookie);
 	__interface_queues_release(device);
-	__venus_power_off(device);
+	__venus_power_off(device, true);
 	device->resources.fw.cookie = NULL;
 	__deinit_resources(device);
 
