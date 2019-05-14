@@ -19,6 +19,7 @@
 
 struct subsys_device;
 extern struct bus_type subsys_bus_type;
+extern bool modem_5G_panic;
 
 enum {
 	RESET_SOC = 0,

@@ -162,8 +162,8 @@ static int __cam_node_handle_acquire_hw_v1(struct cam_node *node,
 		return rc;
 	}
 
-	CAM_DBG(CAM_CORE, "[%s] Acquire ctx_id %d",
-		node->name, ctx->ctx_id);
+	CAM_INFO(CAM_CORE, "[%s] Done Acquire ctx_id %d session_hdl: 0x%x Device Handle: 0x%x",
+		node->name, ctx->ctx_id, acquire->session_handle, acquire->dev_handle);
 
 	return 0;
 }
@@ -197,6 +197,7 @@ static int __cam_node_handle_start_dev(struct cam_node *node,
 	rc = cam_context_handle_start_dev(ctx, start);
 	if (rc)
 		CAM_ERR(CAM_CORE, "Start failure for node %s", node->name);
+	CAM_INFO(CAM_CORE, "Start node %s ctx: %d session handle: 0x%x Device Handle: 0x%x", node->name, ctx->ctx_id, start->session_handle, start->dev_handle);
 
 	return rc;
 }
@@ -231,6 +232,7 @@ static int __cam_node_handle_stop_dev(struct cam_node *node,
 	if (rc)
 		CAM_ERR(CAM_CORE, "Stop failure for node %s", node->name);
 
+	CAM_INFO(CAM_CORE, "Stopped node %s ctx: %d session handle: 0x%x Device Handle: 0x%x", node->name, ctx->ctx_id, stop->session_handle, stop->dev_handle);
 	return rc;
 }
 
@@ -385,9 +387,9 @@ static int __cam_node_handle_release_hw_v1(struct cam_node *node,
 	if (rc)
 		CAM_ERR(CAM_CORE, "context release failed node %s", node->name);
 
-	CAM_DBG(CAM_CORE, "[%s] Release ctx_id=%d, refcount=%d",
+	CAM_INFO(CAM_CORE, "[%s] Release ctx_id=%d, refcount=%d session_handle: 0x%x Device Handle : 0x%x",
 		node->name, ctx->ctx_id,
-		atomic_read(&(ctx->refcount.refcount.refs)));
+		atomic_read(&(ctx->refcount.refcount.refs)), release->session_handle, release->dev_handle);
 
 	return rc;
 }
@@ -655,7 +657,7 @@ int cam_node_handle_ioctl(struct cam_node *node, struct cam_control *cmd)
 			rc = __cam_node_handle_acquire_hw_v1(node, acquire_ptr);
 			if (rc) {
 				CAM_ERR(CAM_CORE,
-					"acquire device failed(rc = %d)", rc);
+					"acquire hw failed(rc = %d)", rc);
 				goto acquire_kfree;
 			}
 			CAM_INFO(CAM_CORE, "Acquire HW successful");

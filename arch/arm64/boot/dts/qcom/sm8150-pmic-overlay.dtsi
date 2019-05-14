@@ -99,10 +99,35 @@
 			power-source = <0>;
 		};
 	};
+
+		haptics_boost {
+			haptics_boost_default: haptics_boost_default {
+				pins = "gpio5";
+				function = "normal";
+				output-enable;
+				input-disable;
+				bias-disable;
+				qcom,drive-strength = <3>; /* high */
+				power-source = <0>; /* VPH_PWR */
+			};
+		};
 };
 
 &usb0 {
 	extcon = <&pm8150b_pdphy>, <&eud>;
+};
+
+&vendor {
+	haptics_boost_vreg: haptics_boost_vreg {
+		compatible = "regulator-fixed";
+		regulator-name = "haptics_boost";
+		gpio = <&pm8150b_gpios 5 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-enable-ramp-delay = <300>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&haptics_boost_default>;
+		status = "disabled";
+	};
 };
 
 &usb_qmp_dp_phy {

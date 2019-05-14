@@ -105,6 +105,10 @@ static const char *const mem_cgroup_lru_names[] = {
 	"active_anon",
 	"inactive_file",
 	"active_file",
+#ifdef CONFIG_MEMPLUS
+	"inactive_anon_swpcache",
+	"active_anon_swpcache",
+#endif
 	"unevictable",
 };
 
@@ -2077,7 +2081,12 @@ static void lock_page_lru(struct page *page, int *isolated)
 
 		lruvec = mem_cgroup_page_lruvec(page, zone->zone_pgdat);
 		ClearPageLRU(page);
+#ifdef CONFIG_SMART_BOOST
+		del_page_from_lru_list(page, lruvec, page_lru(page),
+					PageUIDLRU(page) ? true:false);
+#else
 		del_page_from_lru_list(page, lruvec, page_lru(page));
+#endif
 		*isolated = 1;
 	} else
 		*isolated = 0;

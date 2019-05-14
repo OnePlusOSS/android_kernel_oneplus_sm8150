@@ -1,0 +1,10 @@
+
+#Added by Tong.han@Bsp.group.Tp for synaptics ic driver
+
+#config TOUCHPANEL_ONEPLUS
+#	default y
+#	bool "TP Synaptics "
+#	---help---
+#	say Y to enable driver for Touchpanel useing Synaptics_IC
+
+

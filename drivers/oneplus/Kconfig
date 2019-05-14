@@ -1,0 +1,17 @@
+config OEM_BOOT_MODE
+	bool "detect oem boot mode"
+	default y
+	help
+          detect oem boot mode  If unsure, say y.
+
+config OEM_TRACE_SUPPORT
+	default y
+	depends on OEM_DEBUG_SUPPORT
+	bool "OEM debug function, enable it will register the device, which under /dev/otracer."
+
+
+config WB_KERNEL_LOG
+	tristate "reserve kernel log to partition driver"
+	default n
+
+source "drivers/oneplus/coretech/Kconfig"

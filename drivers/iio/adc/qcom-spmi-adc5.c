@@ -293,14 +293,55 @@ static int adc_poll_wait_eoc(struct adc_chip *adc)
 	return -ETIMEDOUT;
 }
 
+#undef pr_debug
+#define pr_debug pr_err
+
+#define QPNP_VADC_OFFSET_DUMP	8
+static int32_t vadc_print_extra_reg(struct adc_chip *adc)
+{
+	int rc = 0, i = 0;
+	u8 buf[8], offset = 0;
+
+	pr_err("Printing for 3100\n");
+	for (i = 0; i < 31; i++) {
+	rc = regmap_bulk_read(adc->regmap, (0x3100 + offset), buf, 8);
+	if (rc < 0) {
+		pr_err("adc read reg 3100 failed with %d\n", rc);
+		return rc;
+	}
+	offset += QPNP_VADC_OFFSET_DUMP;
+	pr_err("row%d: 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
+			i, buf[0], buf[1], buf[2], buf[3], buf[4],
+			buf[5], buf[6], buf[7]);
+	}
+
+	offset = 0;
+	pr_err("Printing for 3700\n");
+	for (i = 0; i < 31; i++) {
+
+		rc = regmap_bulk_read(adc->regmap, (0x3700 + offset), buf, 8);
+		if (rc < 0) {
+		pr_err("qpnp adc read reg 3700 failed with %d\n", rc);
+		return rc;
+	}
+	 offset += QPNP_VADC_OFFSET_DUMP;
+	 pr_err("row%d: 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
+		i, buf[0], buf[1], buf[2], buf[3], buf[4],
+		buf[5], buf[6], buf[7]);
+	}
+	return 0;
+}
+
 static int adc_wait_eoc(struct adc_chip *adc)
 {
 	int ret;
 
 	if (adc->poll_eoc) {
+		pr_err("adc: poll_eoc is true!\n");
 		ret = adc_poll_wait_eoc(adc);
 		if (ret < 0) {
-			pr_err("EOC bit not set\n");
+			pr_err("EOC bit not set, ret = %d\n", ret);
+			vadc_print_extra_reg(adc);
 			return ret;
 		}
 	} else {
@@ -310,7 +351,8 @@ static int adc_wait_eoc(struct adc_chip *adc)
 			pr_debug("Did not get completion timeout.\n");
 			ret = adc_poll_wait_eoc(adc);
 			if (ret < 0) {
-				pr_err("EOC bit not set\n");
+				pr_err("EOC bit not set, ret = %d\n", ret);
+				vadc_print_extra_reg(adc);
 				return ret;
 			}
 		}
@@ -733,6 +775,10 @@ static const struct adc_channels adc_chans_pmic5[ADC_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_CUR)
 	[ADC_AMUX_THM2]			= ADC_CHAN_TEMP("amux_thm2", 1,
 					SCALE_HW_CALIB_PM5_SMB_TEMP)
+	[ADC_GPIO2_PU1]			= ADC_CHAN_VOLT("gpio12_v", 1,
+					SCALE_HW_CALIB_DEFAULT)
+	[ADC_AMUX_THM4_PU1]		= ADC_CHAN_VOLT("gpio1_v", 1,
+					SCALE_HW_CALIB_DEFAULT)
 	[ADC_AMUX_THM3]			= ADC_CHAN_TEMP("amux_thm3", 1,
 					SCALE_HW_CALIB_PM5_SMB_TEMP)
 	[ADC_GPIO1_PU2]	= ADC_CHAN_TEMP("gpio1_pu2", 1,

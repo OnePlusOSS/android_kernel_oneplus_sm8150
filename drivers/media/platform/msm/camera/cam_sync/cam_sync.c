@@ -29,6 +29,20 @@ struct sync_device *sync_dev;
  */
 static bool trigger_cb_without_switch;
 
+static void cam_sync_print_table(void)
+{
+	int i = 0;
+
+	CAM_INFO(CAM_SYNC, "start to print sync obj table");
+
+	for (i = 0; i < CAM_SYNC_MAX_OBJS; i++) {
+		if (sync_dev->sync_table[i].state == CAM_SYNC_STATE_ACTIVE) {
+			CAM_INFO(CAM_SYNC, "sync id: %d, name %s",
+				i, sync_dev->sync_table[i].name);
+		}
+	}
+}
+
 int cam_sync_create(int32_t *sync_obj, const char *name)
 {
 	int rc;
@@ -37,8 +51,10 @@ int cam_sync_create(int32_t *sync_obj, const char *name)
 
 	do {
 		idx = find_first_zero_bit(sync_dev->bitmap, CAM_SYNC_MAX_OBJS);
-		if (idx >= CAM_SYNC_MAX_OBJS)
+		if (idx >= CAM_SYNC_MAX_OBJS) {
+			cam_sync_print_table();
 			return -ENOMEM;
+		}
 		CAM_DBG(CAM_SYNC, "Index location available at idx: %ld", idx);
 		bit = test_and_set_bit(idx, sync_dev->bitmap);
 	} while (bit);

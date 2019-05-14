@@ -326,8 +326,8 @@ static int proc_register(struct proc_dir_entry * dir, struct proc_dir_entry * dp
 	write_lock(&proc_subdir_lock);
 	dp->parent = dir;
 	if (pde_subdir_insert(dir, dp) == false) {
-		WARN(1, "proc_dir_entry '%s/%s' already registered\n",
-		     dir->name, dp->name);
+//		WARN(1, "proc_dir_entry '%s/%s' already registered\n",
+//		     dir->name, dp->name);
 		write_unlock(&proc_subdir_lock);
 		proc_free_inum(dp->low_ino);
 		return -EEXIST;

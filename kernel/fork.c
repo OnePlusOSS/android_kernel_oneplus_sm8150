@@ -89,6 +89,9 @@
 #include <linux/sysctl.h>
 #include <linux/kcov.h>
 #include <linux/livepatch.h>
+#ifdef CONFIG_ADJ_CHAIN
+#include <linux/adj_chain.h>
+#endif
 #include <linux/thread_info.h>
 #include <linux/cpufreq_times.h>
 
@@ -578,6 +581,13 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	tsk->splice_pipe = NULL;
 	tsk->task_frag.page = NULL;
 	tsk->wake_q.next = NULL;
+#ifdef CONFIG_OPCHAIN
+	tsk->utask_tag = 0;
+	tsk->utask_tag_base = 0;
+	tsk->etask_claim = 0;
+	tsk->claim_cpu = -1;
+	tsk->utask_slave = 0;
+#endif
 
 	account_kernel_stack(tsk, 1);
 
@@ -828,6 +838,7 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	mm->pinned_vm = 0;
 	memset(&mm->rss_stat, 0, sizeof(mm->rss_stat));
 	spin_lock_init(&mm->page_table_lock);
+	spin_lock_init(&mm->arg_lock);
 	mm_init_cpumask(mm);
 	mm_init_aio(mm);
 	mm_init_owner(mm, p);
@@ -1445,6 +1456,11 @@ static int copy_signal(unsigned long clone_flags, struct task_struct *tsk)
 
 	sig->oom_score_adj = current->signal->oom_score_adj;
 	sig->oom_score_adj_min = current->signal->oom_score_adj_min;
+#ifdef CONFIG_MEMPLUS
+	sig->swapin_should_readahead_m = RECLAIM_STANDBY;
+	sig->reclaim_state_lock = __SPIN_LOCK_UNLOCKED(reclaim_state_lock);
+	sig->memplus_type = TYPE_NORMAL;
+#endif
 
 	mutex_init(&sig->cred_guard_mutex);
 
@@ -1896,6 +1912,9 @@ static __latent_entropy struct task_struct *copy_process(
 	if (likely(p->pid)) {
 		ptrace_init_task(p, (clone_flags & CLONE_PTRACE) || trace);
 
+#ifdef CONFIG_ADJ_CHAIN
+		adj_chain_init_list(p);
+#endif
 		init_task_pid(p, PIDTYPE_PID, pid);
 		if (thread_group_leader(p)) {
 			init_task_pid(p, PIDTYPE_PGID, task_pgrp(current));
@@ -1917,6 +1936,9 @@ static __latent_entropy struct task_struct *copy_process(
 							 p->real_parent->signal->is_child_subreaper;
 			list_add_tail(&p->sibling, &p->real_parent->children);
 			list_add_tail_rcu(&p->tasks, &init_task.tasks);
+#ifdef CONFIG_ADJ_CHAIN
+			adj_chain_attach(p);
+#endif
 			attach_pid(p, PIDTYPE_PGID);
 			attach_pid(p, PIDTYPE_SID);
 			__this_cpu_inc(process_counts);
@@ -2075,6 +2097,10 @@ long _do_fork(unsigned long clone_flags,
 
 		trace_sched_process_fork(current, p);
 
+#ifdef CONFIG_SMART_BOOST
+		if (!(clone_flags & CLONE_VM))
+			p->hot_count = 0;
+#endif
 		pid = get_task_pid(p, PIDTYPE_PID);
 		nr = pid_vnr(pid);
 

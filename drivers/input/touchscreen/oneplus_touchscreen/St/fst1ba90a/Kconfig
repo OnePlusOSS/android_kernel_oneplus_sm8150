@@ -1,0 +1,10 @@
+
+#Added by Zengpeng.Chen@Bsp.group.Tp for ST ic driver
+
+config TOUCHPANEL_ST_FST1BA90A
+#	default y
+	bool "TP ST_FST1BA90A IC enable or not for OPPO"
+	---help---
+	  say Y to enable driver for Touchpanel using ST FST1BA90A IC
+
+

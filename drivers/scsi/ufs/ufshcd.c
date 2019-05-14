@@ -3,7 +3,7 @@
  *
  * This code is based on drivers/scsi/ufs/ufshcd.c
  * Copyright (C) 2011-2013 Samsung India Software Operations
- * Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
  *
  * Authors:
  *	Santosh Yaraganavi <santosh.sy@samsung.com>
@@ -48,6 +48,7 @@
 #include "unipro.h"
 #include "ufs-debugfs.h"
 #include "ufs-qcom.h"
+#include <linux/project_info.h>
 
 #ifdef CONFIG_DEBUG_FS
 
@@ -418,6 +419,8 @@ static struct ufs_dev_fix ufs_fixups[] = {
 	UFS_FIX(UFS_VENDOR_SKHYNIX, UFS_ANY_MODEL, UFS_DEVICE_NO_VCCQ),
 	UFS_FIX(UFS_VENDOR_SKHYNIX, UFS_ANY_MODEL,
 		UFS_DEVICE_QUIRK_HOST_PA_SAVECONFIGTIME),
+	UFS_FIX(UFS_VENDOR_SKHYNIX, UFS_ANY_MODEL,
+		UFS_DEVICE_QUIRK_WAIT_AFTER_REF_CLK_UNGATE),
 	UFS_FIX(UFS_VENDOR_SKHYNIX, "hB8aL1",
 		UFS_DEVICE_QUIRK_HS_G1_TO_HS_G3_SWITCH),
 	UFS_FIX(UFS_VENDOR_SKHYNIX, "hC8aL1",
@@ -2181,7 +2184,8 @@ start:
 			spin_unlock_irqrestore(hba->host->host_lock, flags);
 			flush_work(&hba->clk_gating.ungate_work);
 			spin_lock_irqsave(hba->host->host_lock, flags);
-			goto start;
+			if (hba->ufshcd_state == UFSHCD_STATE_OPERATIONAL)
+				goto start;
 		}
 		break;
 	case REQ_CLKS_OFF:
@@ -4065,6 +4069,7 @@ static int ufshcd_exec_dev_cmd(struct ufs_hba *hba,
 	int tag;
 	struct completion wait;
 	unsigned long flags;
+	bool has_read_lock = false;
 
 	/*
 	 * May get invoked from shutdown and IOCTL contexts.
@@ -4072,8 +4077,10 @@ static int ufshcd_exec_dev_cmd(struct ufs_hba *hba,
 	 * In error recovery context, it may come with lock acquired.
 	 */
 
-	if (!ufshcd_is_shutdown_ongoing(hba) && !ufshcd_eh_in_progress(hba))
+	if (!ufshcd_is_shutdown_ongoing(hba) && !ufshcd_eh_in_progress(hba)) {
 		down_read(&hba->lock);
+		has_read_lock = true;
+	}
 
 	/*
 	 * Get free slot, sleep if slots are unavailable.
@@ -4107,7 +4114,7 @@ static int ufshcd_exec_dev_cmd(struct ufs_hba *hba,
 out_put_tag:
 	ufshcd_put_dev_cmd_tag(hba, tag);
 	wake_up(&hba->dev_cmd.tag_wq);
-	if (!ufshcd_is_shutdown_ongoing(hba) && !ufshcd_eh_in_progress(hba))
+	if (has_read_lock)
 		up_read(&hba->lock);
 	return err;
 }
@@ -4621,6 +4628,116 @@ static inline int ufshcd_read_power_desc(struct ufs_hba *hba,
 int ufshcd_read_device_desc(struct ufs_hba *hba, u8 *buf, u32 size)
 {
 	return ufshcd_read_desc(hba, QUERY_DESC_IDN_DEVICE, 0, buf, size);
+}
+
+int ufshcd_read_geometry_desc(struct ufs_hba *hba, u8 *buf, u32 size)
+{
+	return ufshcd_read_desc(hba, QUERY_DESC_IDN_GEOMETRY, 0, buf, size);
+}
+
+static int ufs_get_capacity_info(struct ufs_hba *hba,  u64 *pcapacity)
+{
+	int err;
+	u8 geometry_buf[QUERY_DESC_GEOMETRY_DEF_SIZE];
+
+	err = ufshcd_read_geometry_desc(hba, geometry_buf,
+		QUERY_DESC_GEOMETRY_DEF_SIZE);
+
+	if (err)
+		goto out;
+
+	*pcapacity = (u64)geometry_buf[0x04] << 56 |
+		(u64)geometry_buf[0x04 + 1] << 48 |
+		(u64)geometry_buf[0x04 + 2] << 40 |
+		(u64)geometry_buf[0x04 + 3] << 32 |
+		(u64)geometry_buf[0x04 + 4] << 24 |
+		(u64)geometry_buf[0x04 + 5] << 16 |
+		(u64)geometry_buf[0x04 + 6] << 8 |
+		(u64)geometry_buf[0x04 + 7];
+
+	printk("ufs_get_capacity_info size = 0x%llx", *pcapacity);
+
+out:
+	return err;
+}
+
+static char *ufs_get_capacity_size(u64 capacity)
+{
+	if (capacity == 0x1D62000) { //16G
+		return "16G";
+	} else if (capacity == 0x3B9E000) { //32G
+		return "32G";
+	} else if (capacity == 0x7734000) { //64G
+		return "64G";
+	} else if (capacity == 0xEE60000) { //128G
+		return "128G";
+	} else if (capacity == 0xEE64000) { //128G V4
+		return "128G";
+	} else if (capacity == 0x1DCBC000) {
+		return "256G";
+	} else {
+		return "0G";
+	}
+}
+
+char ufs_vendor_and_rev[32] = {'\0'};
+char ufs_product_id[32] = {'\0'};
+int ufs_fill_info(struct ufs_hba *hba)
+{
+	int err = 0;
+	u64 ufs_capacity = 0;
+	char ufs_vendor[9] = {'\0'};
+	char ufs_rev[6] = {'\0'};
+
+	/* Error Handle: Before filling ufs info, we must confirm sdev_ufs_device structure is not NULL*/
+	if (!hba->sdev_ufs_device) {
+		dev_err(hba->dev, "%s:hba->sdev_ufs_device is NULL!\n", __func__);
+		goto out;
+	}
+
+	/* Copy UFS info from host controller structure (ex:vendor name, firmware revision) */
+	if (!hba->sdev_ufs_device->vendor) {
+		dev_err(hba->dev, "%s: UFS vendor info is NULL\n", __func__);
+		strlcpy(ufs_vendor, "UNKNOWN", 7);
+	} else {
+		strlcpy(ufs_vendor, hba->sdev_ufs_device->vendor,
+			sizeof(ufs_vendor)-1);
+	}
+
+	if (!hba->sdev_ufs_device->rev) {
+		dev_err(hba->dev, "%s: UFS firmware info is NULL\n", __func__);
+		strlcpy(ufs_rev, "NONE", 4);
+	} else {
+		strlcpy(ufs_rev, hba->sdev_ufs_device->rev, sizeof(ufs_rev)-1);
+	}
+
+	if (!hba->sdev_ufs_device->model) {
+		dev_err(hba->dev, "%s: UFS product id info is NULL\n", __func__);
+		strlcpy(ufs_product_id, "UNKNOWN", 7);
+	} else {
+		strlcpy(ufs_product_id, hba->sdev_ufs_device->model, 16);
+	}
+
+	/* Get UFS storage size*/
+	err = ufs_get_capacity_info(hba, &ufs_capacity);
+	if (err) {
+		dev_err(hba->dev, "%s: Failed getting capacity info\n", __func__);
+		goto out;
+	}
+
+	/* Combine vendor name with firmware revision */
+	strcat(ufs_vendor_and_rev, ufs_vendor);
+	if (strncmp(ufs_vendor, "MICRON", 6) != 0) {
+		strcat(ufs_vendor_and_rev, " ");
+		strcat(ufs_vendor_and_rev, ufs_get_capacity_size(ufs_capacity));
+	}
+	strcat(ufs_vendor_and_rev, " ");
+	strcat(ufs_vendor_and_rev, ufs_rev);
+
+	push_component_info(UFS, ufs_product_id, ufs_vendor_and_rev);
+out:
+	return err;
+
 }
 
 /**
@@ -5443,6 +5560,7 @@ int ufshcd_change_power_mode(struct ufs_hba *hba,
 			     struct ufs_pa_layer_attr *pwr_mode)
 {
 	int ret = 0;
+	u32 peer_rx_hs_adapt_initial_cap;
 
 	/* if already configured to the requested pwr_mode */
 	if (!hba->restore_needed &&
@@ -5493,8 +5611,19 @@ int ufshcd_change_power_mode(struct ufs_hba *hba,
 						pwr_mode->hs_rate);
 
 	if (pwr_mode->gear_tx == UFS_HS_G4) {
+		ret = ufshcd_dme_peer_get(hba,
+				 UIC_ARG_MIB_SEL(RX_HS_ADAPT_INITIAL_CAPABILITY,
+					UIC_ARG_MPHY_RX_GEN_SEL_INDEX(0)),
+				    &peer_rx_hs_adapt_initial_cap);
+		if (ret) {
+			dev_err(hba->dev,
+				"%s: RX_HS_ADAPT_INITIAL_CAP get failed %d\n",
+				__func__, ret);
+			peer_rx_hs_adapt_initial_cap =
+						PA_PEERRXHSADAPTINITIAL_Default;
+		}
 		ret = ufshcd_dme_set(hba, UIC_ARG_MIB(PA_PEERRXHSADAPTINITIAL),
-				     PA_PEERRXHSADAPTINITIAL_Default);
+				     peer_rx_hs_adapt_initial_cap);
 		/* INITIAL ADAPT */
 		ufshcd_dme_set(hba, UIC_ARG_MIB(PA_TXHSADAPTTYPE),
 			       PA_INITIAL_ADAPT);
@@ -5582,9 +5711,11 @@ static int ufshcd_complete_dev_init(struct ufs_hba *hba)
 	}
 
 	/* poll for max. 1000 iterations for fDeviceInit flag to clear */
-	for (i = 0; i < 1000 && !err && flag_res; i++)
+	for (i = 0; i < 1000 && !err && flag_res; i++) {
 		err = ufshcd_query_flag_retry(hba, UPIU_QUERY_OPCODE_READ_FLAG,
 			QUERY_FLAG_IDN_FDEVICEINIT, &flag_res);
+		usleep_range(1000, 1000); // 1ms sleep
+	}
 
 	if (err)
 		dev_err(hba->dev,
@@ -7678,7 +7809,10 @@ static int ufshcd_abort(struct scsi_cmnd *cmd)
 	 * To avoid these unnecessary/illegal step we skip to the last error
 	 * handling stage: reset and restore.
 	 */
-	if (lrbp->lun == UFS_UPIU_UFS_DEVICE_WLUN)
+	if ((lrbp->lun == UFS_UPIU_UFS_DEVICE_WLUN) ||
+	    (lrbp->lun == UFS_UPIU_REPORT_LUNS_WLUN) ||
+	    (lrbp->lun == UFS_UPIU_BOOT_WLUN) ||
+	    (lrbp->lun == UFS_UPIU_RPMB_WLUN))
 		return ufshcd_eh_host_reset_handler(cmd);
 
 	ufshcd_hold_all(hba);
@@ -8852,6 +8986,7 @@ reinit:
 			hba->clk_scaling.is_allowed = true;
 		}
 
+
 		scsi_scan_host(hba->host);
 		pm_runtime_put_sync(hba->dev);
 	}
@@ -8887,6 +9022,11 @@ out:
 	trace_ufshcd_init(dev_name(hba->dev), ret,
 		ktime_to_us(ktime_sub(ktime_get(), start)),
 		hba->curr_dev_pwr_mode, hba->uic_link_state);
+
+	if (!ret) {
+		ufs_fill_info(hba);
+	}
+
 	return ret;
 }
 

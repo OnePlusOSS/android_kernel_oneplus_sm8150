@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -142,6 +142,7 @@ __rmnet_map_ingress_handler(struct sk_buff *skb,
 	u8 mux_id;
 
 	if (RMNET_MAP_GET_CD_BIT(skb)) {
+		qmi_rmnet_set_dl_msg_active(port);
 		if (port->data_format & RMNET_INGRESS_FORMAT_DL_MARKER) {
 			if (!rmnet_map_flow_command(skb, port, false))
 				return;
@@ -254,8 +255,8 @@ static int rmnet_map_egress_handler(struct sk_buff *skb,
 			return -ENOMEM;
 	}
 
-	if (port->data_format & RMNET_INGRESS_FORMAT_PS)
-		qmi_rmnet_work_maybe_restart(port);
+//	if (port->data_format & RMNET_INGRESS_FORMAT_PS)
+//		qmi_rmnet_work_maybe_restart(port);
 
 	if (port->data_format & RMNET_FLAGS_EGRESS_MAP_CKSUMV4)
 		rmnet_map_checksum_uplink_packet(skb, orig_dev);

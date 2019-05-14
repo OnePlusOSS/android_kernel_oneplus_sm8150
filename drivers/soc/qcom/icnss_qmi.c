@@ -355,7 +355,7 @@ int wlfw_cap_send_sync_msg(struct icnss_priv *priv)
 				    ret);
 		goto out;
 	} else if (resp->resp.result != QMI_RESULT_SUCCESS_V01) {
-		icnss_qmi_fatal_err("QMI Capability request rejected, result:%d error:%d\n",
+		icnss_pr_err("QMI Capability request rejected, result:%d error:%d\n",
 			resp->resp.result, resp->resp.error);
 		ret = -resp->resp.result;
 		if (resp->resp.error == QMI_ERR_PLAT_CCPM_CLK_INIT_FAILED)

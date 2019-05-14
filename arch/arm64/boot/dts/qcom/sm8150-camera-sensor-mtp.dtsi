@@ -109,6 +109,7 @@
 
 	actuator_triple_rear_aux2_regulator: gpio-regulator@6 {
 		compatible = "regulator-fixed";
+		status = "disable";
 		reg = <0x06 0x00>;
 		regulator-name = "actuator_triple_rear_aux2_regulator";
 		regulator-min-microvolt = <3300000>;

@@ -884,7 +884,12 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 		VM_BUG_ON_PAGE(PageCompound(page), page);
 
 		/* Successfully isolated */
+#ifdef CONFIG_SMART_BOOST
+		del_page_from_lru_list(page, lruvec, page_lru(page),
+					PageUIDLRU(page) ? true:false);
+#else
 		del_page_from_lru_list(page, lruvec, page_lru(page));
+#endif
 		inc_node_page_state(page,
 				NR_ISOLATED_ANON + page_is_file_cache(page));
 

@@ -1288,6 +1288,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 				/* Resume the port to U0 first */
 				xhci_set_link_state(xhci, port_array, wIndex,
 							XDEV_U0);
+				usb_phy_powerdown(hcd->usb3_phy);
 				spin_unlock_irqrestore(&xhci->lock, flags);
 				msleep(10);
 				spin_lock_irqsave(&xhci->lock, flags);

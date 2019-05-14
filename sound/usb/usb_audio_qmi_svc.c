@@ -1249,7 +1249,6 @@ static void uaudio_qmi_svc_disconnect_cb(struct qmi_handle *handle,
 {
 	struct uaudio_qmi_svc *svc = uaudio_svc;
 
-	uaudio_dbg("client node:%x port:%x\n", node, port);
 	if (svc->uaudio_svc_hdl != handle) {
 		uaudio_err("handle mismatch\n");
 		return;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -17,6 +17,7 @@
 #include <linux/rtmutex.h>
 #include <linux/clk.h>
 #include <linux/msm-bus.h>
+#include <dt-bindings/msm/msm-bus-ids.h>
 #include "msm_bus_core.h"
 #include "msm_bus_rpmh.h"
 
@@ -1302,7 +1303,7 @@ static uint32_t register_client_adhoc(struct msm_bus_scale_pdata *pdata)
 		}
 		client->src_devs[i] = dev;
 
-		MSM_BUS_ERR("%s:find path.src %d dest %d",
+		MSM_BUS_DBG("%s:find path.src %d dest %d",
 				__func__, src, dest);
 
 		lnode[i] = getpath(dev, dest, client->pdata->name);
@@ -1316,7 +1317,7 @@ static uint32_t register_client_adhoc(struct msm_bus_scale_pdata *pdata)
 	handle = gen_handle(client);
 	msm_bus_dbg_client_data(client->pdata, MSM_BUS_DBG_REGISTER,
 					handle);
-	MSM_BUS_ERR("%s:Client handle %d %s", __func__, handle,
+	MSM_BUS_DBG("%s:Client handle %d %s", __func__, handle,
 						client->pdata->name);
 	rt_mutex_unlock(&msm_bus_adhoc_lock);
 	return handle;
@@ -1391,6 +1392,15 @@ static int update_client_paths(struct msm_bus_client *client, bool log_trns,
 			MSM_BUS_ERR("%s: Update path failed! %d ctx %d\n",
 					__func__, ret, pdata->active_only);
 			goto exit_update_client_paths;
+		}
+
+		if (dest == MSM_BUS_SLAVE_IPA_CORE && cur_idx <= 0 && idx > 0) {
+			struct device *dev;
+
+			dev = bus_find_device(&msm_bus_type, NULL,
+				(void *) &dest, msm_bus_device_match_adhoc);
+			if (dev)
+				msm_bus_commit_single(dev);
 		}
 
 		if (log_trns)

@@ -22,3 +22,6 @@ obj-$(CONFIG_EXTCON_RT8973A)	+= extcon-rt8973a.o
 obj-$(CONFIG_EXTCON_SM5502)	+= extcon-sm5502.o
 obj-$(CONFIG_EXTCON_USB_GPIO)	+= extcon-usb-gpio.o
 obj-$(CONFIG_EXTCON_USBC_CROS_EC) += extcon-usbc-cros-ec.o
+obj-$(CONFIG_SENSOR_HALL_MXM1120)	+=hall_ic/
+obj-$(CONFIG_TRI_STATE_KEY)     += tri_state_key.o
+obj-$(CONFIG_HALL_TRI_STATE_KEY)		+= oneplus_tri_key.o

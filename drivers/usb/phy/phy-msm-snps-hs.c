@@ -86,6 +86,10 @@
 #define USB_HSPHY_1P8_VOL_MAX			1800000 /* uV */
 #define USB_HSPHY_1P8_HPM_LOAD			19000	/* uA */
 
+unsigned int USB2_phy_tune1;
+module_param(USB2_phy_tune1, uint, 0644);
+MODULE_PARM_DESC(USB2_phy_tune1, "QUSB PHY v2 TUNE1");
+
 #define USB_HSPHY_VDD_HPM_LOAD			30000	/* uA */
 
 struct msm_hsphy {
@@ -330,9 +334,9 @@ static void hsusb_phy_write_seq(void __iomem *base, u32 *seq, int cnt,
 {
 	int i;
 
-	pr_debug("Seq count:%d\n", cnt);
+	pr_info("%s:Seq count:%d\n", __func__, cnt);
 	for (i = 0; i < cnt; i = i+2) {
-		pr_debug("write 0x%02x to 0x%02x\n", seq[i], seq[i+1]);
+		pr_info("%s:write 0x%02x to 0x%02x\n", __func__,seq[i], seq[i+1]);
 		writel_relaxed(seq[i], base + seq[i+1]);
 		if (delay)
 			usleep_range(delay, (delay + 2000));
@@ -428,6 +432,16 @@ static int msm_hsphy_init(struct usb_phy *uphy)
 			USB2PHY_USB_PHY_PARAMETER_OVERRIDE_X1,
 			TXVREFTUNE0_MASK, val);
 	}
+
+	if (USB2_phy_tune1) {
+		pr_err("%s(): (modparam) USB2_phy_tune1 val:0x%02x\n",
+						__func__, USB2_phy_tune1);
+		writel_relaxed(USB2_phy_tune1,
+			phy->base + USB2PHY_USB_PHY_PARAMETER_OVERRIDE_X1);
+	}
+
+	pr_err("USB2_tune1_register_val:%x\n", readl_relaxed(phy->base +
+		USB2PHY_USB_PHY_PARAMETER_OVERRIDE_X1));
 
 	if (phy->param_ovrd0) {
 		msm_usb_write_readback(phy->base,

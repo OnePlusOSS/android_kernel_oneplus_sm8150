@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -82,6 +82,7 @@ enum dsi_op_mode {
  * @DSI_MODE_FLAG_DMS: Seamless transition is dynamic mode switch
  * @DSI_MODE_FLAG_VRR: Seamless transition is DynamicFPS.
  *                     New timing values are sent from DAL.
+ * @DSI_MODE_FLAG_DYN_CLK: Seamless transition is dynamic clock change
  */
 enum dsi_mode_flags {
 	DSI_MODE_FLAG_SEAMLESS			= BIT(0),
@@ -89,6 +90,7 @@ enum dsi_mode_flags {
 	DSI_MODE_FLAG_VBLANK_PRE_MODESET	= BIT(2),
 	DSI_MODE_FLAG_DMS			= BIT(3),
 	DSI_MODE_FLAG_VRR			= BIT(4),
+	DSI_MODE_FLAG_DYN_CLK			= BIT(5),
 };
 
 /**
@@ -273,7 +275,71 @@ enum dsi_cmd_set_type {
 	DSI_CMD_SET_POST_TIMING_SWITCH,
 	DSI_CMD_SET_QSYNC_ON,
 	DSI_CMD_SET_QSYNC_OFF,
+	DSI_CMD_SET_HBM_BRIGHTNESS_ON,
+	DSI_CMD_SET_HBM_BRIGHTNESS_OFF,
+	DSI_CMD_SET_HBM_ON_1,
+	DSI_CMD_SET_HBM_ON_2,
+	DSI_CMD_SET_HBM_ON_3,
+	DSI_CMD_SET_HBM_ON_4,
+	DSI_CMD_SET_HBM_ON_5,
+	DSI_CMD_SET_HBM_OFF,
+	DSI_CMD_SET_PANEL_SERIAL_NUMBER,
+	DSI_CMD_SET_AOD_ON_1,
+	DSI_CMD_SET_AOD_ON_2,
+	DSI_CMD_SET_AOD_OFF,
+	DSI_CMD_AOD_OFF_HBM_ON_SETTING,
+	DSI_CMD_SET_AOD_OFF_NEW,
+	DSI_CMD_HBM_OFF_AOD_ON_SETTING,
+	DSI_CMD_SET_AOD_OFF_SAMSUNG,
+//	DSI_CMD_SET_SRGB_ON,
+//	DSI_CMD_SET_SRGB_OFF,
+	DSI_CMD_SET_DCI_P3_ON,
+	DSI_CMD_SET_DCI_P3_OFF,
+	DSI_CMD_SET_NIGHT_ON,
+	DSI_CMD_SET_NIGHT_OFF,
+	DSI_CMD_SET_PANEL_ID,
+	DSI_CMD_READ_SAMSUNG_PANEL_REGISTER_ON,
+	DSI_CMD_SET_PANEL_ID1,
+	DSI_CMD_SET_PANEL_ID2,
+	DSI_CMD_SET_PANEL_ID3,
+	DSI_CMD_SET_PANEL_ID4,
+	DSI_CMD_SET_PANEL_ID5,
+	DSI_CMD_SET_PANEL_ID6,
+	DSI_CMD_SET_PANEL_ID7,
+	DSI_CMD_READ_SAMSUNG_PANEL_REGISTER_OFF,
+	DSI_CMD_SET_ACL_MODE,
+	DSI_CMD_SET_LCDINFO_PRE,
+	DSI_CMD_SET_LCDINFO_POST,
+	DSI_CMD_SET_STAGE_INFO,
+	DSI_CMD_SET_PRODUCTION_INFO,
+	DSI_CMD_SET_ESD_LOGREAD_PREREAD,
+	DSI_CMD_SET_GAMMA_FLASH_PRE_READ_1,
+	DSI_CMD_SET_GAMMA_FLASH_PRE_READ_2,
+	DSI_CMD_SET_GAMMA_FLASH_READ_FB,
+	DSI_CMD_SET_LEVEL2_KEY_ENABLE,
+	DSI_CMD_SET_GAMMA_OTP_READ_C8_SMRPS,
+	DSI_CMD_SET_GAMMA_OTP_READ_C8,
+	DSI_CMD_SET_GAMMA_OTP_READ_C9_SMRPS,
+	DSI_CMD_SET_GAMMA_OTP_READ_C9,
+	DSI_CMD_SET_GAMMA_OTP_READ_B3_SMRPS,
+	DSI_CMD_SET_GAMMA_OTP_READ_B3,
+	DSI_CMD_SET_LEVEL2_KEY_DISABLE,
+	DSI_CMD_SET_NATIVE_DISPLAY_P3_ON,
+	DSI_CMD_SET_NATIVE_DISPLAY_P3_OFF,
+	DSI_CMD_SET_NATIVE_DISPLAY_WIDE_COLOR_ON,
+	DSI_CMD_SET_NATIVE_DISPLAY_WIDE_COLOR_OFF,
+	DSI_CMD_SET_NATIVE_DISPLAY_SRGB_COLOR_ON,
+	DSI_CMD_SET_NATIVE_DISPLAY_SRGB_COLOR_OFF,
+	DSI_CMD_SET_113MHZ_OSC_ON,
+	DSI_CMD_POST_ON_BACKLIGHT,
+	DSI_CMD_LOADING_EFFECT_ON,
+	DSI_CMD_LOADING_EFFECT_OFF,
+	DSI_CMD_LOADING_CUSTOMER_RGB_ON,
+	DSI_CMD_LOADING_CUSTOMER_RGB_OFF,
+	DSI_CMD_LOADING_CUSTOMER_P3_ON,
+	DSI_CMD_LOADING_CUSTOMER_P3_OFF,
 	DSI_CMD_SET_MAX
+
 };
 
 /**
@@ -635,12 +701,50 @@ struct dsi_event_cb_info {
  * @DSI_FIFO_OVERFLOW:     DSI FIFO Overflow error
  * @DSI_FIFO_UNDERFLOW:    DSI FIFO Underflow error
  * @DSI_LP_Rx_TIMEOUT:     DSI LP/RX Timeout error
+ * @DSI_PLL_UNLOCK_ERR:	   DSI PLL unlock error
  */
 enum dsi_error_status {
 	DSI_FIFO_OVERFLOW = 1,
 	DSI_FIFO_UNDERFLOW,
 	DSI_LP_Rx_TIMEOUT,
+	DSI_PLL_UNLOCK_ERR,
 	DSI_ERR_INTR_ALL,
 };
 
+/* structure containing the delays required for dynamic clk */
+struct dsi_dyn_clk_delay {
+	u32 pipe_delay;
+	u32 pipe_delay2;
+	u32 pll_delay;
+};
+
+/* dynamic refresh control bits */
+enum dsi_dyn_clk_control_bits {
+	DYN_REFRESH_INTF_SEL = 1,
+	DYN_REFRESH_SYNC_MODE,
+	DYN_REFRESH_SW_TRIGGER,
+	DYN_REFRESH_SWI_CTRL,
+};
+
+/* convert dsi pixel format into bits per pixel */
+static inline int dsi_pixel_format_to_bpp(enum dsi_pixel_format fmt)
+{
+	switch (fmt) {
+	case DSI_PIXEL_FORMAT_RGB888:
+	case DSI_PIXEL_FORMAT_MAX:
+		return 24;
+	case DSI_PIXEL_FORMAT_RGB666:
+	case DSI_PIXEL_FORMAT_RGB666_LOOSE:
+		return 18;
+	case DSI_PIXEL_FORMAT_RGB565:
+		return 16;
+	case DSI_PIXEL_FORMAT_RGB111:
+		return 3;
+	case DSI_PIXEL_FORMAT_RGB332:
+		return 8;
+	case DSI_PIXEL_FORMAT_RGB444:
+		return 12;
+	}
+	return 24;
+}
 #endif /* _DSI_DEFS_H_ */

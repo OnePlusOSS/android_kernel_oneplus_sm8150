@@ -175,6 +175,10 @@ enum {
 					/* add others here before... */
 	SWP_SCANNING	= (1 << 12),	/* refcount in scan_swap_map */
 };
+#ifdef CONFIG_MEMPLUS
+#define SLOW_BDV 0
+#define FAST_BDV SWP_SYNCHRONOUS_IO
+#endif
 
 #define SWAP_CLUSTER_MAX 32UL
 #define COMPACT_CLUSTER_MAX SWAP_CLUSTER_MAX
@@ -314,6 +318,9 @@ extern unsigned long nr_free_pagecache_pages(void);
 
 
 /* linux/mm/swap.c */
+#ifdef CONFIG_MEMPLUS
+extern void lru_cache_add_active_anon(struct page *page);
+#endif
 extern void lru_cache_add(struct page *);
 extern void lru_cache_add_anon(struct page *page);
 extern void lru_cache_add_file(struct page *page);
@@ -362,6 +369,8 @@ extern int sysctl_swap_ratio_enable;
 extern int remove_mapping(struct address_space *mapping, struct page *page);
 extern unsigned long vm_total_pages;
 
+extern unsigned int vm_breath_period;
+extern int vm_breath_priority;
 #ifdef CONFIG_NUMA
 extern int node_reclaim_mode;
 extern int sysctl_min_unmapped_ratio;
@@ -409,7 +418,12 @@ extern struct address_space *swapper_spaces[];
 		>> SWAP_ADDRESS_SPACE_SHIFT])
 extern unsigned long total_swapcache_pages(void);
 extern void show_swap_cache_info(void);
+#ifdef CONFIG_MEMPLUS
+extern int add_to_swap(struct page *, unsigned long swap_bdv);
+extern bool is_fast_entry(swp_entry_t entry);
+#else
 extern int add_to_swap(struct page *page);
+#endif
 extern int add_to_swap_cache(struct page *, swp_entry_t, gfp_t);
 extern int __add_to_swap_cache(struct page *page, swp_entry_t entry);
 extern void __delete_from_swap_cache(struct page *);
@@ -439,19 +453,54 @@ extern bool has_usable_swap(void);
 /* Swap 50% full? Release swapcache more aggressively.. */
 static inline bool vm_swap_full(void)
 {
+#ifdef CONFIG_MEMPLUS
+	/* don't bother replace any swapcache only entries */
+	if (vm_memory_plus > 0)
+		return false;
+#endif
+
 	return atomic_long_read(&nr_swap_pages) * 2 < total_swap_pages;
 }
 
 static inline long get_nr_swap_pages(void)
 {
+#ifdef CONFIG_MEMPLUS
+	if (vm_memory_plus > 0)
+		return 0;
+#endif
 	return atomic_long_read(&nr_swap_pages);
 }
 
+#ifdef CONFIG_SMART_BOOST
+extern int sysctl_page_cache_reside_switch;
+extern int sysctl_page_cache_reside_max;
+extern unsigned long uid_lru_size(void);
+extern void uid_lru_cache_add(struct page *page);
+extern void _uid_lru_add_fn(struct page *page, struct lruvec *lruvec);
+extern struct uid_node *find_uid_node(uid_t uid, struct lruvec *lruvec);
+extern struct uid_node *insert_uid_node(struct uid_node **hash_table,
+							uid_t uid);
+extern struct uid_node **alloc_uid_hash_table(void);
+extern unsigned long killed_num;
+extern unsigned long inactive_nr;
+extern unsigned long active_nr;
+extern atomic_t vmpress[];
+extern unsigned long priority_nr[];
+extern unsigned long alloc_slow_nr;
+#endif
 extern void si_swapinfo(struct sysinfo *);
+#ifdef CONFIG_MEMPLUS
+extern swp_entry_t get_swap_page(struct page *page, unsigned long swap_bdv);
+#else
 extern swp_entry_t get_swap_page(struct page *page);
+#endif
 extern void put_swap_page(struct page *page, swp_entry_t entry);
 extern swp_entry_t get_swap_page_of_type(int);
+#ifdef CONFIG_MEMPLUS
+extern int get_swap_pages(int n, bool cluster, swp_entry_t swp_entries[], unsigned long swap_bdv);
+#else
 extern int get_swap_pages(int n, bool cluster, swp_entry_t swp_entries[]);
+#endif
 extern int add_swap_count_continuation(swp_entry_t, gfp_t);
 extern void swap_shmem_alloc(swp_entry_t);
 extern int swap_duplicate(swp_entry_t);
@@ -554,8 +603,11 @@ static inline struct page *lookup_swap_cache(swp_entry_t swp,
 {
 	return NULL;
 }
-
+#ifdef CONFIG_MEMPLUS
+static inline int add_to_swap(struct page *page, unsigned long swap_bdv)
+#else
 static inline int add_to_swap(struct page *page)
+#endif
 {
 	return 0;
 }

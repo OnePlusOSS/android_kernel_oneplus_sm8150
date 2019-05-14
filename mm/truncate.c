@@ -560,6 +560,80 @@ unsigned long invalidate_mapping_pages(struct address_space *mapping,
 }
 EXPORT_SYMBOL(invalidate_mapping_pages);
 
+#ifdef CONFIG_SMART_BOOST
+unsigned long invalidate_mapping_pages_without_uidlru(
+		struct address_space *mapping,
+		pgoff_t start, pgoff_t end)
+{
+	pgoff_t indices[PAGEVEC_SIZE];
+	struct pagevec pvec;
+	pgoff_t index = start;
+	unsigned long ret;
+	unsigned long count = 0;
+	int i;
+
+	pagevec_init(&pvec, 0);
+	while (index <= end && pagevec_lookup_entries(&pvec, mapping, index,
+			min(end - index, (pgoff_t)PAGEVEC_SIZE - 1) + 1,
+			indices)) {
+		for (i = 0; i < pagevec_count(&pvec); i++) {
+			struct page *page = pvec.pages[i];
+
+			/* We rely upon deletion not changing page->index */
+			index = indices[i];
+			if (index > end)
+				break;
+
+			if (radix_tree_exceptional_entry(page)) {
+				invalidate_exceptional_entry(mapping, index,
+							     page);
+				continue;
+			}
+
+			if (PageUIDLRU(page))
+				continue;
+			if (!trylock_page(page))
+				continue;
+
+			WARN_ON(page_to_index(page) != index);
+
+			/* Middle of THP: skip */
+			if (PageTransTail(page)) {
+				unlock_page(page);
+				continue;
+			} else if (PageTransHuge(page)) {
+				index += HPAGE_PMD_NR - 1;
+				i += HPAGE_PMD_NR - 1;
+				/*
+				 * 'end' is in the middle of THP. Don't
+				 * invalidate the page as the part outside of
+				 * 'end' could be still useful.
+				 */
+				if (index > end) {
+					unlock_page(page);
+					continue;
+				}
+			}
+
+			ret = invalidate_inode_page(page);
+			unlock_page(page);
+			/*
+			 * Invalidation is a hint that the page is no longer
+			 * of interest and try to speed up its reclaim.
+			 */
+			if (!ret)
+				deactivate_file_page(page);
+			count += ret;
+		}
+		pagevec_remove_exceptionals(&pvec);
+		pagevec_release(&pvec);
+		cond_resched();
+		index++;
+	}
+	return count;
+}
+EXPORT_SYMBOL(invalidate_mapping_pages_without_uidlru);
+#endif
 /*
  * This is like invalidate_complete_page(), except it ignores the page's
  * refcount.  We do this because invalidate_inode_pages2() needs stronger

@@ -40,7 +40,6 @@
 #define TRILED_SUBTYPE_LED1H2L12	0x04
 
 #define TRILED_NUM_MAX			3
-
 #define PWM_PERIOD_DEFAULT_NS		1000000
 
 struct pwm_setting {
@@ -246,7 +245,9 @@ static int qpnp_tri_led_set(struct qpnp_led_dev *led)
 	}
 	dev_dbg(led->chip->dev, "PWM settings for %s led: period = %lluns, duty = %lluns\n",
 				led->cdev.name, period_ns, duty_ns);
-
+	/*temporary solution to reduce brightness*/
+	if (duty_ns > 18000)
+		duty_ns = 18000;
 	led->pwm_setting.duty_ns = duty_ns;
 	led->pwm_setting.period_ns = period_ns;
 

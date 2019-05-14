@@ -40,6 +40,11 @@
 #include "tune.h"
 #include "walt.h"
 
+#ifdef CONFIG_OPCHAIN
+#include <../drivers/oneplus/coretech/opchain/opchain_helper.h>
+
+#define opc_claim_bit_test(claim, cpu) (claim & ((1 << cpu) | (1 << (cpu + num_present_cpus()))))
+#endif
 #ifdef CONFIG_SMP
 static inline bool task_fits_max(struct task_struct *p, int cpu);
 #endif /* CONFIG_SMP */
@@ -5255,6 +5260,9 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct sched_entity *se = &p->se;
 	int task_new = !(flags & ENQUEUE_WAKEUP);
 
+#ifdef CONFIG_OPCHAIN
+	opc_task_switch(true, cpu_of(rq), p, 0);
+#endif
 #ifdef CONFIG_SCHED_WALT
 	p->misfit = !task_fits_max(p, rq->cpu);
 #endif
@@ -5347,6 +5355,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct sched_entity *se = &p->se;
 	int task_sleep = flags & DEQUEUE_SLEEP;
 
+#ifdef CONFIG_OPCHAIN
+	opc_task_switch(false, cpu_of(rq), p, rq->clock);
+#endif
 	/*
 	 * The code below (indirectly) updates schedutil which looks at
 	 * the cfs_rq utilization to select a frequency.
@@ -7286,6 +7297,9 @@ struct find_best_target_env {
 	int placement_boost;
 	bool need_idle;
 	int fastpath;
+#ifdef CONFIG_OPCHAIN
+	int op_path;
+#endif
 };
 
 static bool is_packing_eligible(struct task_struct *p, int target_cpu,
@@ -7325,7 +7339,16 @@ static int start_cpu(struct task_struct *p, bool boosted,
 {
 	struct root_domain *rd = cpu_rq(smp_processor_id())->rd;
 	int start_cpu = -1;
+#ifdef CONFIG_OPCHAIN
+	bool is_uxtop = is_opc_task(p, UT_FORE);
+	if (is_uxtop && task_sched_boost(p)) {
+		if (rd->mid_cap_orig_cpu != -1
+				&& task_fits_max(p, rd->mid_cap_orig_cpu))
+			return rd->mid_cap_orig_cpu;
 
+		return rd->max_cap_orig_cpu;
+	}
+#endif
 	if (boosted)
 		return rd->max_cap_orig_cpu;
 
@@ -7460,7 +7483,12 @@ static inline int find_best_target(struct task_struct *p, int *backup_cpu,
 			 * so prev_cpu will receive a negative bias due to the double
 			 * accounting. However, the blocked utilization may be zero.
 			 */
+#ifdef CONFIG_OPCHAIN
+			wake_util = opc_cpu_util(cpu_util_wake(i, p),
+									i, p, fbt_env->op_path);
+#else
 			wake_util = cpu_util_wake(i, p);
+#endif
 			new_util = wake_util + task_util_est(p);
 			spare_wake_cap = capacity_orig_of(i) - wake_util;
 
@@ -8037,7 +8065,9 @@ static int find_energy_efficient_cpu(struct sched_domain *sd,
 	int placement_boost = task_boost_policy(p);
 	u64 start_t = 0;
 	int next_cpu = -1, backup_cpu = -1;
-
+#ifdef CONFIG_OPCHAIN
+	bool is_uxtop = is_opc_task(p, UT_FORE);
+#endif
 	fbt_env.fastpath = 0;
 
 	if (trace_sched_task_util_enabled())
@@ -8045,14 +8075,22 @@ static int find_energy_efficient_cpu(struct sched_domain *sd,
 
 	if (need_idle)
 		sync = 0;
-
+#ifdef CONFIG_OPCHAIN
+	if (sysctl_sched_sync_hint_enable && sync &&
+				bias_to_waker_cpu(p, cpu, rtg_target) &&
+				(!is_uxtop || cpu >= FIRST_BIG_CORE)) {
+		target_cpu = cpu;
+		fbt_env.fastpath = SYNC_WAKEUP;
+		goto out;
+	}
+#else
 	if (sysctl_sched_sync_hint_enable && sync &&
 				bias_to_waker_cpu(p, cpu, rtg_target)) {
 		target_cpu = cpu;
 		fbt_env.fastpath = SYNC_WAKEUP;
 		goto out;
 	}
-
+#endif
 	/* prepopulate energy diff environment */
 	eenv = get_eenv(p, prev_cpu);
 	if (eenv->max_cpu_count < 2)
@@ -8157,10 +8195,15 @@ static int find_energy_efficient_cpu(struct sched_domain *sd,
 out:
 	if (target_cpu < 0)
 		target_cpu = prev_cpu;
-
+#ifdef CONFIG_OPCHAIN
+	trace_sched_task_util(p, next_cpu, backup_cpu, target_cpu, sync,
+			need_idle, fbt_env.fastpath, placement_boost,
+			rtg_target ? cpumask_first(rtg_target) : -1, is_uxtop, start_t);
+#else
 	trace_sched_task_util(p, next_cpu, backup_cpu, target_cpu, sync,
 			need_idle, fbt_env.fastpath, placement_boost,
 			rtg_target ? cpumask_first(rtg_target) : -1, start_t);
+#endif
 	return target_cpu;
 }
 
@@ -8893,6 +8936,10 @@ enum group_type {
 #define LBF_SOME_PINNED	0x08
 #define LBF_IGNORE_BIG_TASKS 0x100
 #define LBF_IGNORE_PREFERRED_CLUSTER_TASKS 0x200
+#ifdef CONFIG_OPCHAIN
+#define LBF_IGNORE_UX_TOP 0x800
+#define LBF_IGNORE_SLAVE 0xC00
+#endif
 
 struct lb_env {
 	struct sched_domain	*sd;
@@ -9090,7 +9137,13 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 		!task_fits_max(p, env->dst_cpu))
 		return 0;
 #endif
+#ifdef CONFIG_OPCHAIN
+	if (env->flags & LBF_IGNORE_UX_TOP && is_opc_task(p, UT_FORE))
+		return 0;
 
+	if (env->flags & LBF_IGNORE_SLAVE && p->utask_slave)
+		return 0;
+#endif
 	if (task_running(env->src_rq, p)) {
 		schedstat_inc(p->se.statistics.nr_failed_migrations_running);
 		return 0;
@@ -9185,7 +9238,9 @@ static int detach_tasks(struct lb_env *env)
 	unsigned long load = 0;
 	int detached = 0;
 	int orig_loop = env->loop;
-
+#ifdef CONFIG_OPCHAIN
+	int src_claim = opc_get_claim_on_cpu(env->src_cpu);
+#endif
 	lockdep_assert_held(&env->src_rq->lock);
 
 	if (env->imbalance <= 0)
@@ -9193,9 +9248,18 @@ static int detach_tasks(struct lb_env *env)
 
 	if (!same_cluster(env->dst_cpu, env->src_cpu))
 		env->flags |= LBF_IGNORE_PREFERRED_CLUSTER_TASKS;
-
+#ifdef CONFIG_OPCHAIN
+	if (cpu_capacity(env->dst_cpu) < cpu_capacity(env->src_cpu)) {
+		env->flags |= LBF_IGNORE_BIG_TASKS;
+		if (src_claim == 1)
+			env->flags |= LBF_IGNORE_UX_TOP | LBF_IGNORE_SLAVE;
+		else if (src_claim == -1)
+			env->flags |= LBF_IGNORE_SLAVE;
+	}
+#else
 	if (cpu_capacity(env->dst_cpu) < cpu_capacity(env->src_cpu))
 		env->flags |= LBF_IGNORE_BIG_TASKS;
+#endif
 
 redo:
 	while (!list_empty(tasks)) {
@@ -9267,6 +9331,10 @@ next:
 		tasks = &env->src_rq->cfs_tasks;
 		env->flags &= ~(LBF_IGNORE_BIG_TASKS |
 				LBF_IGNORE_PREFERRED_CLUSTER_TASKS);
+#ifdef CONFIG_OPCHAIN
+		if (env->flags & LBF_IGNORE_SLAVE)
+			env->flags &= ~LBF_IGNORE_SLAVE;
+#endif
 		env->loop = orig_loop;
 		goto redo;
 	}
@@ -9615,8 +9683,8 @@ static void update_cpu_capacity(struct sched_domain *sd, int cpu)
 		mcc->cpu = cpu;
 #ifdef CONFIG_SCHED_DEBUG
 		raw_spin_unlock_irqrestore(&mcc->lock, flags);
-		printk_deferred("CPU%d: update max cpu_capacity %lu\n",
-							cpu, capacity);
+		/*printk_deferred("CPU%d: update max cpu_capacity %lu\n",
+							cpu, capacity);*/
 		goto skip_unlock;
 #endif
 	}

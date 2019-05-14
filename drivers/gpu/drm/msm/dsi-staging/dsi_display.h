@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, The Linux Foundation.All rights reserved.
+ * Copyright (c) 2015-2019, The Linux Foundation.All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,6 +22,7 @@
 #include <linux/firmware.h>
 #include <drm/drmP.h>
 #include <drm/drm_crtc.h>
+#include <linux/oneplus/boot_mode.h>
 
 #include "msm_drv.h"
 #include "dsi_defs.h"
@@ -409,16 +410,18 @@ int dsi_display_validate_mode(struct dsi_display *display,
 			      u32 flags);
 
 /**
- * dsi_display_validate_mode_vrr() - validates mode if variable refresh case
+ * dsi_display_validate_mode_change() - validates mode if variable refresh case
+ *				or dynamic clk change case
  * @display:             Handle to display.
  * @mode:                Mode to be validated..
  *
  * Return: 0 if  error code.
  */
-int dsi_display_validate_mode_vrr(struct dsi_display *display,
+int dsi_display_validate_mode_change(struct dsi_display *display,
 			struct dsi_display_mode *cur_dsi_mode,
 			struct dsi_display_mode *mode);
 
+extern int msm_drm_notifier_call_chain(unsigned long val, void *v);
 /**
  * dsi_display_set_mode() - Set mode on the display.
  * @display:           Handle to display.
@@ -582,6 +585,9 @@ int dsi_display_set_tpg_state(struct dsi_display *display, bool enable);
 
 int dsi_display_clock_gate(struct dsi_display *display, bool enable);
 int dsi_dispaly_static_frame(struct dsi_display *display, bool enable);
+uint64_t dsi_display_get_serial_number_id(uint64_t serial_number);
+
+int dsi_display_get_serial_number_AT(struct drm_connector *connector);
 
 /**
  * dsi_display_enable_event() - enable interrupt based connector event
@@ -695,5 +701,12 @@ int dsi_display_cont_splash_config(void *display);
  */
 int dsi_display_get_panel_vfp(void *display,
 	int h_active, int v_active);
+
+extern int connector_state_crtc_index;
+extern int msm_drm_notifier_call_chain(unsigned long val, void *v);
+
+struct dsi_display *get_main_display(void);
+extern char gamma_para[2][413];
+int dsi_display_gamma_read(struct dsi_display *dsi_display);
 
 #endif /* _DSI_DISPLAY_H_ */

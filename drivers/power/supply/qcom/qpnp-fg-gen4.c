@@ -22,6 +22,7 @@
 #include "fg-core.h"
 #include "fg-reg.h"
 #include "fg-alg.h"
+#include <linux/power/oem_external_fg.h>
 
 #define FG_GEN4_DEV_NAME	"qcom,fg-gen4"
 #define TTF_AWAKE_VOTER		"fg_ttf_awake"
@@ -154,6 +155,14 @@
 #define MONOTONIC_SOC_WORD		463
 #define MONOTONIC_SOC_OFFSET		0
 
+static void oem_update_cc_cv_setpoint(struct fg_dev *chip,
+	int cv_float_point);
+static void oneplus_set_allow_read_iic(struct fg_dev *chip,
+	bool status);
+static void oneplus_set_lcd_off_status(struct fg_dev *chip,
+	bool status);
+static struct external_battery_gauge *external_fg;
+
 /* v2 SRAM address and offset in ascending order */
 #define RSLOW_SCALE_FN_DISCHG_V2_WORD	281
 #define RSLOW_SCALE_FN_DISCHG_V2_OFFSET	0
@@ -279,6 +288,25 @@ static int fg_sram_dump_period_ms = 20000;
 module_param_named(
 	sram_dump_period_ms, fg_sram_dump_period_ms, int, 0600
 );
+
+void external_battery_gauge_register(
+				struct external_battery_gauge *batt_gauge)
+{
+	if (external_fg) {
+		external_fg = batt_gauge;
+		pr_err("multiple battery gauge called\n");
+	} else
+		external_fg = batt_gauge;
+}
+EXPORT_SYMBOL(external_battery_gauge_register);
+
+void external_battery_gauge_unregister(
+				struct external_battery_gauge *batt_gauge)
+{
+	external_fg = NULL;
+}
+EXPORT_SYMBOL(external_battery_gauge_unregister);
+
 
 static int fg_restart_mp;
 static bool fg_sram_dump;
@@ -477,6 +505,8 @@ struct bias_config id_table[3] = {
 };
 
 #define MAX_BIAS_CODE	0x70E4
+
+#define OP_SW_DEFAULT_ID 200000
 static int fg_gen4_get_batt_id(struct fg_gen4_chip *chip)
 {
 	struct fg_dev *fg = &chip->fg;
@@ -523,7 +553,7 @@ static int fg_gen4_get_batt_id(struct fg_gen4_chip *chip)
 	 */
 	batt_id_kohms = (id_table[bias_id].bias_kohms * bias_code) * 10 /
 			(MAX_BIAS_CODE - bias_code);
-	fg->batt_id_ohms = (batt_id_kohms * 1000) / 10;
+	fg->batt_id_ohms = OP_SW_DEFAULT_ID;
 	return 0;
 }
 
@@ -2036,6 +2066,8 @@ out:
 	return rc;
 }
 
+#define DEFALUT_BATT_TEMP	250
+
 static int fg_gen4_configure_full_soc(struct fg_dev *fg, int bsoc)
 {
 	int rc;
@@ -2845,12 +2877,10 @@ static struct fg_irq_info fg_irqs[FG_GEN4_IRQ_MAX] = {
 	[MSOC_DELTA_IRQ] = {
 		.name		= "msoc-delta",
 		.handler	= fg_delta_msoc_irq_handler,
-		.wakeable	= true,
 	},
 	[BSOC_DELTA_IRQ] = {
 		.name		= "bsoc-delta",
 		.handler	= fg_delta_bsoc_irq_handler,
-		.wakeable	= true,
 	},
 	[SOC_READY_IRQ] = {
 		.name		= "soc-ready",
@@ -2865,7 +2895,7 @@ static struct fg_irq_info fg_irqs[FG_GEN4_IRQ_MAX] = {
 	[ESR_DELTA_IRQ] = {
 		.name		= "esr-delta",
 		.handler	= fg_delta_esr_irq_handler,
-		.wakeable	= true,
+		/*.wakeable	= true,*//*op disable ers calibration*/
 	},
 	[VBATT_LOW_IRQ] = {
 		.name		= "vbatt-low",
@@ -2905,7 +2935,6 @@ static struct fg_irq_info fg_irqs[FG_GEN4_IRQ_MAX] = {
 	[BATT_TEMP_COLD_IRQ] = {
 		.name		= "batt-temp-cold",
 		.handler	= fg_batt_temp_irq_handler,
-		.wakeable	= true,
 	},
 	[BATT_TEMP_HOT_IRQ] = {
 		.name		= "batt-temp-hot",
@@ -3080,6 +3109,7 @@ static void pl_current_en_work(struct work_struct *work)
 		return;
 
 	vote(chip->parallel_current_en_votable, FG_PARALLEL_EN_VOTER, en, 0);
+	vote(chip->mem_attn_irq_en_votable, MEM_ATTN_IRQ_VOTER, false, 0);
 }
 
 static void pl_enable_work(struct work_struct *work)
@@ -3173,6 +3203,8 @@ static void status_change_work(struct work_struct *work)
 	if (rc < 0)
 		pr_err("Error in adjusting FCC for ESR, rc=%d\n", rc);
 
+	if (is_parallel_charger_available(fg) &&
+		!delayed_work_pending(&chip->pl_current_en_work))
 	schedule_delayed_work(&chip->pl_current_en_work, 0);
 
 	ttf_update(chip->ttf, input_present);
@@ -3350,7 +3382,6 @@ static struct kernel_param_ops fg_esr_cal_ops = {
 module_param_cb(esr_fast_cal_en, &fg_esr_cal_ops, &fg_esr_fast_cal_en, 0644);
 
 /* All power supply functions here */
-
 static int fg_psy_get_property(struct power_supply *psy,
 				       enum power_supply_property psp,
 				       union power_supply_propval *pval)
@@ -3362,22 +3393,41 @@ static int fg_psy_get_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_CAPACITY:
-		rc = fg_gen4_get_prop_capacity(fg, &pval->intval);
+		if (!get_extern_fg_regist_done())
+				pval->intval = get_prop_pre_shutdown_soc();
+		else if (fg->use_external_fg && external_fg
+					&& external_fg->get_battery_soc)
+			pval->intval = external_fg->get_battery_soc();
+		else
+			pval->intval = 50;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY_RAW:
 		rc = fg_get_msoc_raw(fg, &pval->intval);
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
-		if (fg->battery_missing)
-			pval->intval = 3700000;
+		if (fg->use_external_fg && external_fg
+				&& external_fg->get_battery_mvolts)
+			pval->intval = external_fg->get_battery_mvolts();
 		else
-			rc = fg_get_battery_voltage(fg, &pval->intval);
+			pval->intval = 4000000;
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
-		rc = fg_get_battery_current(fg, &pval->intval);
+		if (fg->use_external_fg && external_fg
+				&& external_fg->get_average_current)
+			pval->intval = external_fg->get_average_current();
+		else
+			pval->intval = 0;
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
-		rc = fg_gen4_get_battery_temp(fg, &pval->intval);
+		if (!get_extern_fg_regist_done()
+				&& get_extern_bq_present())
+			pval->intval = DEFALUT_BATT_TEMP;
+		else if (fg->use_external_fg && external_fg
+					&& external_fg->get_average_current) {
+				pval->intval =
+					external_fg->get_battery_temperature();
+		} else
+				pval->intval = -400;
 		break;
 	case POWER_SUPPLY_PROP_RESISTANCE:
 		rc = fg_get_battery_resistance(fg, &pval->intval);
@@ -3439,6 +3489,25 @@ static int fg_psy_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_DEBUG_BATTERY:
 		pval->intval = is_debug_batt_id(fg);
 		break;
+	case POWER_SUPPLY_PROP_FG_CAPACITY:
+		rc = fg_gen4_get_prop_capacity(fg, &pval->intval);
+		break;
+	case POWER_SUPPLY_PROP_FG_VOLTAGE_NOW:
+		if (fg->battery_missing)
+			pval->intval = 3700000;
+		else
+			rc = fg_get_battery_voltage(fg, &pval->intval);
+		break;
+	case POWER_SUPPLY_PROP_FG_CURRENT_NOW:
+			rc = fg_get_battery_current(fg, &pval->intval);
+		break;
+	case POWER_SUPPLY_PROP_BQ_SOC:
+		if (fg->use_external_fg && external_fg
+				&& external_fg->get_batt_bq_soc)
+			pval->intval = external_fg->get_batt_bq_soc();
+		else
+			pval->intval = 50;
+		break;
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE:
 		rc = fg_get_sram_prop(fg, FG_SRAM_VBATT_FULL, &pval->intval);
 		break;
@@ -3484,6 +3553,16 @@ static int fg_psy_set_property(struct power_supply *psy,
 	u8 val, mask;
 
 	switch (psp) {
+	case POWER_SUPPLY_PROP_CC_TO_CV_POINT:
+		oem_update_cc_cv_setpoint(&chip->fg, pval->intval);
+		break;
+	case POWER_SUPPLY_PROP_SET_ALLOW_READ_EXTERN_FG_IIC:
+		oneplus_set_allow_read_iic(&chip->fg, pval->intval);
+		break;
+	case POWER_SUPPLY_PROP_UPDATE_LCD_IS_OFF:
+		oneplus_set_lcd_off_status(&chip->fg, pval->intval);
+		break;
+
 	case POWER_SUPPLY_PROP_CHARGE_FULL:
 		if (chip->cl->active) {
 			pr_warn("Capacity learning active!\n");
@@ -3560,6 +3639,7 @@ static int fg_property_is_writeable(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_ESR_ACTUAL:
 	case POWER_SUPPLY_PROP_ESR_NOMINAL:
 	case POWER_SUPPLY_PROP_SOH:
+	case POWER_SUPPLY_PROP_SET_ALLOW_READ_EXTERN_FG_IIC:
 	case POWER_SUPPLY_PROP_CLEAR_SOH:
 		return 1;
 	default:
@@ -3597,6 +3677,9 @@ static enum power_supply_property fg_psy_props[] = {
 	POWER_SUPPLY_PROP_TIME_TO_EMPTY_AVG,
 	POWER_SUPPLY_PROP_CC_STEP,
 	POWER_SUPPLY_PROP_CC_STEP_SEL,
+	POWER_SUPPLY_PROP_SET_ALLOW_READ_EXTERN_FG_IIC,
+	POWER_SUPPLY_PROP_BQ_SOC,
+
 };
 
 static const struct power_supply_desc fg_psy_desc = {
@@ -3719,7 +3802,6 @@ static int fg_parallel_current_en_cb(struct votable *votable, void *data,
 
 	fg_dbg(fg, FG_STATUS, "Parallel current summing: %d\n", enable);
 
-	vote(chip->mem_attn_irq_en_votable, MEM_ATTN_IRQ_VOTER, false, 0);
 	return rc;
 }
 
@@ -3728,12 +3810,11 @@ static int fg_delta_bsoc_irq_en_cb(struct votable *votable, void *data,
 {
 	struct fg_dev *fg = data;
 
-	if (!fg->irqs[BSOC_DELTA_IRQ].irq)
+	if (!fg->irqs[BSOC_DELTA_IRQ].irq  || fg->delta_bsoc_irq_en == enable)
 		return 0;
-
+	fg->delta_bsoc_irq_en = enable;
 	if (enable) {
 		enable_irq(fg->irqs[BSOC_DELTA_IRQ].irq);
-		enable_irq_wake(fg->irqs[BSOC_DELTA_IRQ].irq);
 	} else {
 		disable_irq_wake(fg->irqs[BSOC_DELTA_IRQ].irq);
 		disable_irq_nosync(fg->irqs[BSOC_DELTA_IRQ].irq);
@@ -4012,6 +4093,13 @@ static int fg_gen4_hw_init(struct fg_gen4_chip *chip)
 			ESR_PULL_DOWN_IVAL_MASK, val);
 	if (rc < 0) {
 		pr_err("Error in writing esr_meas_curr_ma, rc=%d\n", rc);
+		return rc;
+	}
+
+	rc = fg_masked_write(fg,
+			BATT_INFO_ESR_PULL_DN_CFG(fg), 0xFF, 0);
+	if (rc < 0) {
+		pr_err("Error in writing ESR PULL DN, rc=%d\n", rc);
 		return rc;
 	}
 
@@ -4524,6 +4612,10 @@ static int fg_gen4_parse_dt(struct fg_gen4_chip *chip)
 	chip->dt.force_load_profile = of_property_read_bool(node,
 					"qcom,fg-force-load-profile");
 
+	fg->use_external_fg =
+	of_property_read_bool(node, "oem,use_external_fg");
+	pr_info("use_external_fg=%d\n", fg->use_external_fg);
+
 	rc = of_property_read_u32(node, "qcom,cl-start-capacity", &temp);
 	if (rc < 0)
 		chip->cl->dt.max_start_soc = DEFAULT_CL_START_SOC;
@@ -4647,6 +4739,9 @@ static void fg_gen4_cleanup(struct fg_gen4_chip *chip)
 {
 	struct fg_dev *fg = &chip->fg;
 
+	if (fg->fg_psy)
+		power_supply_unregister(fg->fg_psy);
+
 	fg_unregister_interrupts(fg, chip, FG_GEN4_IRQ_MAX);
 
 	cancel_work(&fg->status_change_work);
@@ -4673,6 +4768,32 @@ static void fg_gen4_cleanup(struct fg_gen4_chip *chip)
 		destroy_votable(chip->mem_attn_irq_en_votable);
 
 	dev_set_drvdata(fg->dev, NULL);
+}
+
+static void oem_update_cc_cv_setpoint(
+				struct fg_dev *chip, int cv_float_point)
+{
+	/* TODO: write CC_CV_SETPOINT_REG */
+}
+
+static void oneplus_set_allow_read_iic(struct fg_dev *chip,
+				bool status)
+{
+	if (chip->use_external_fg && external_fg
+			&& external_fg->set_allow_reading)
+		external_fg->set_allow_reading(status);
+	else
+		pr_info("set allow read extern fg iic fail\n");
+}
+
+static void oneplus_set_lcd_off_status(struct fg_dev *chip,
+				bool status)
+{
+	if (chip->use_external_fg && external_fg
+			&& external_fg->set_lcd_off_status)
+		external_fg->set_lcd_off_status(status);
+	else
+		pr_info("set lcd off status fail\n");
 }
 
 static int fg_gen4_probe(struct platform_device *pdev)

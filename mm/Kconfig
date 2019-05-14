@@ -820,7 +820,7 @@ config HAVE_LOW_MEMORY_KILLER
 config PROCESS_RECLAIM
 	bool "Enable process reclaim"
 	depends on PROC_FS
-	default y
+	default n
 	help
 	 It allows to reclaim pages of the process by /proc/pid/reclaim.
 
@@ -832,3 +832,9 @@ config PROCESS_RECLAIM
 	 (addr, addr + size-bytes) of the process.
 
 	 Any other value is ignored.
+
+config SMART_BOOST
+	bool "support smart boost feature"
+	default n
+	help
+	 this feature allow memory used by recent-app stay in kernel.

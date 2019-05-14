@@ -16,6 +16,7 @@
 
 #include <linux/mm.h>
 #include <linux/sched/mm.h>
+#include <linux/sched/debug.h>
 #include <linux/module.h>
 #include <linux/gfp.h>
 #include <linux/kernel_stat.h>
@@ -61,6 +62,12 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/vmscan.h>
 
+#ifdef CONFIG_SMART_BOOST
+int sysctl_page_cache_reside_switch;
+int sysctl_page_cache_reside_max = 153600; //600M
+unsigned long inactive_nr, active_nr;
+unsigned long priority_nr[3];
+#endif
 struct scan_control {
 	/* How many pages shrink_list() should reclaim */
 	unsigned long nr_to_reclaim;
@@ -111,6 +118,11 @@ struct scan_control {
 	/* One of the zones is ready for compaction */
 	unsigned int compaction_ready:1;
 
+#ifdef CONFIG_MEMPLUS
+	/* 1: swap to zram, 0: swap to file */
+	unsigned int swp_bdv_type:1;
+#endif
+
 	/* Incremented by the number of inactive pages that were scanned */
 	unsigned long nr_scanned;
 
@@ -158,6 +170,14 @@ struct scan_control {
  */
 int vm_swappiness = 60;
 /*
+ * time for kswapd to breath between each scanning loop
+ */
+unsigned int vm_breath_period __read_mostly = 4000;
+/*
+ * default adj for kswapd to perform lazy-reclaim
+ */
+int vm_breath_priority __read_mostly = 500;
+/*
  * The total number of pages which are beyond the high watermark within all
  * zones.
  */
@@ -166,6 +186,205 @@ unsigned long vm_total_pages;
 static LIST_HEAD(shrinker_list);
 static DECLARE_RWSEM(shrinker_rwsem);
 
+#ifdef CONFIG_SMART_BOOST
+static LIST_HEAD(hotcount_prio_list);
+static DEFINE_RWLOCK(prio_list_lock);
+
+struct hotcount_prio_node {
+	unsigned int hotcount;
+	uid_t uid;
+	struct list_head list;
+};
+
+static unsigned int find_node_uid_prio(struct hotcount_prio_node **node,
+		struct list_head **prio_pos,
+		uid_t uid,
+		unsigned int hotcount)
+{
+	struct hotcount_prio_node *pos;
+	unsigned int ret_hotcount = 0;
+
+	read_lock(&prio_list_lock);
+	list_for_each_entry(pos, &hotcount_prio_list, list) {
+
+		if (*node && *prio_pos)
+			break;
+
+		if (pos->uid == uid) {
+			*node = pos;
+			ret_hotcount = pos->hotcount;
+		}
+		if ((!(*prio_pos)) &&
+			(pos->hotcount > hotcount))
+			*prio_pos = &pos->list;
+	}
+
+	if (!(*prio_pos))
+		*prio_pos = &hotcount_prio_list;
+
+	read_unlock(&prio_list_lock);
+
+	return ret_hotcount;
+}
+
+void insert_prio_node(unsigned int new_hotcount, uid_t uid)
+{
+	struct hotcount_prio_node *node = NULL;
+	struct list_head *prio_pos = NULL;
+	unsigned int old_hotcount;
+
+	old_hotcount = find_node_uid_prio(&node, &prio_pos, uid, new_hotcount);
+
+	if (node) {
+		if (old_hotcount == new_hotcount)
+			return;
+
+		write_lock(&prio_list_lock);
+
+		if (&node->list == prio_pos) {
+			node->hotcount = new_hotcount;
+			goto unlock;
+		}
+		list_del(&node->list);
+	} else {
+		node = (struct hotcount_prio_node *)
+			kmalloc(sizeof(struct hotcount_prio_node), GFP_KERNEL);
+		if (!node) {
+			pr_err("no memory to insert prio_node!\n");
+			return;
+		}
+		node->uid = uid;
+		write_lock(&prio_list_lock);
+	}
+
+	node->hotcount = new_hotcount;
+	list_add_tail(&node->list, prio_pos);
+unlock:
+	write_unlock(&prio_list_lock);
+}
+EXPORT_SYMBOL(insert_prio_node);
+
+void delete_prio_node(uid_t uid)
+{
+	struct hotcount_prio_node *pos;
+	int found = 0;
+
+	read_lock(&prio_list_lock);
+	list_for_each_entry(pos, &hotcount_prio_list, list)
+		if (pos->uid == uid) {
+			found = 1;
+			break;
+		}
+	read_unlock(&prio_list_lock);
+
+	if (found) {
+		write_lock(&prio_list_lock);
+		list_del(&pos->list);
+		write_unlock(&prio_list_lock);
+		kfree(pos);
+	}
+}
+EXPORT_SYMBOL(delete_prio_node);
+
+void print_prio_chain(struct seq_file *m)
+{
+	struct hotcount_prio_node *pos;
+
+	read_lock(&prio_list_lock);
+	list_for_each_entry(pos, &hotcount_prio_list, list)
+		seq_printf(m, "%d(%d)\t", pos->uid, pos->hotcount);
+	read_unlock(&prio_list_lock);
+
+	seq_putc(m, '\n');
+}
+EXPORT_SYMBOL(print_prio_chain);
+
+#define UID_HASH_ORDER 5
+#define uid_hashfn(nr)	hash_long((unsigned long)nr, UID_HASH_ORDER)
+
+struct uid_node **alloc_uid_hash_table(void)
+{
+	struct uid_node **hash_table;
+	int size = (1 << UID_HASH_ORDER) * sizeof(struct uid_node *);
+
+	if (size <= PAGE_SIZE)
+		hash_table = kzalloc(size, GFP_ATOMIC);
+	else
+		hash_table = (struct uid_node **)__get_free_pages(
+				GFP_ATOMIC | __GFP_ZERO, get_order(size));
+	if (!hash_table)
+		return NULL;
+	return hash_table;
+}
+
+struct uid_node *alloc_uid_node(uid_t uid)
+{
+	struct uid_node *uid_nd;
+
+	uid_nd = kzalloc(sizeof(struct uid_node), GFP_ATOMIC);
+	if (!uid_nd)
+		return NULL;
+	uid_nd->uid = uid;
+	uid_nd->hot_count = 0; /* initialize a new UID's count */
+	uid_nd->next = NULL;
+	INIT_LIST_HEAD(&uid_nd->page_cache_list);
+	return uid_nd;
+}
+
+struct uid_node *insert_uid_node(struct uid_node **hash_table, uid_t uid)
+{
+	struct uid_node *puid;
+	unsigned int index, sise = 1 << UID_HASH_ORDER;
+
+	index = uid_hashfn((unsigned long)uid);
+	if (index >= sise)
+		return NULL;
+	puid = alloc_uid_node(uid);
+
+	if (!puid)
+		return NULL;
+
+	rcu_assign_pointer(puid->next, hash_table[index]);
+	rcu_assign_pointer(hash_table[index], puid);
+	return puid;
+}
+
+struct uid_node *find_uid_node(uid_t uid, struct lruvec *lruvec)
+{
+	struct uid_node *uid_nd, *ret = NULL;
+	unsigned int index;
+
+	index = uid_hashfn((unsigned int)uid);
+
+	if (lruvec->uid_hash == NULL)
+		return NULL;
+	if (index >= (1 << UID_HASH_ORDER))
+		return NULL;
+	for (uid_nd = rcu_dereference(lruvec->uid_hash[index]);
+		uid_nd != NULL; uid_nd = rcu_dereference(uid_nd->next)) {
+		if (uid_nd->uid == uid) {
+			ret = uid_nd;
+			break;
+		}
+	}
+	return ret;
+}
+
+void free_hash_table(struct lruvec *lruvec)
+{
+	int i, table_num;
+	struct uid_node *puid, **np;
+
+	table_num = 1 << UID_HASH_ORDER;
+	for (i = 0; i < table_num; i++) {
+		np = &lruvec->uid_hash[i];
+		while ((puid = rcu_dereference(*np)) != NULL) {
+			rcu_assign_pointer(*np, rcu_dereference(puid->next));
+			kfree_rcu(puid, rcu);
+		}
+	}
+}
+#endif
 #ifdef CONFIG_MEMCG
 static bool global_reclaim(struct scan_control *sc)
 {
@@ -664,6 +883,10 @@ static pageout_t pageout(struct page *page, struct address_space *mapping,
 			/* synchronous write or broken a_ops? */
 			ClearPageReclaim(page);
 		}
+#ifdef CONFIG_MEMPLUS
+		if (PageSwapCache(page))
+			count_vm_event(PGSWAPWRITE);
+#endif
 		trace_mm_vmscan_writepage(page);
 		inc_node_page_state(page, NR_VMSCAN_WRITE);
 		return PAGE_SUCCESS;
@@ -983,6 +1206,10 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 	unsigned nr_immediate = 0;
 	unsigned nr_ref_keep = 0;
 	unsigned nr_unmap_fail = 0;
+#ifdef CONFIG_MEMPLUS
+	bool memplus_en = memplus_enabled();
+	bool added_to_swap = false;
+#endif
 
 	cond_resched();
 
@@ -1162,7 +1389,12 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 								    page_list))
 						goto activate_locked;
 				}
-				if (!add_to_swap(page)) {
+#ifdef CONFIG_MEMPLUS
+				if (!add_to_swap(page, sc->swp_bdv_type?FAST_BDV:SLOW_BDV))
+#else
+				if (!add_to_swap(page))
+#endif
+				{
 					if (!PageTransHuge(page))
 						goto activate_locked;
 					/* Fallback to swap normal pages */
@@ -1172,11 +1404,18 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 					count_vm_event(THP_SWPOUT_FALLBACK);
 #endif
+#ifdef CONFIG_MEMPLUS
+					if (!add_to_swap(page, sc->swp_bdv_type?FAST_BDV:SLOW_BDV))
+#else
 					if (!add_to_swap(page))
+#endif
 						goto activate_locked;
 				}
 
 				may_enter_fs = 1;
+#ifdef CONFIG_MEMPLUS
+				added_to_swap = true;
+#endif
 
 				/* Adding to swap updated mapping */
 				mapping = page_mapping(page);
@@ -1235,6 +1474,10 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 				goto keep_locked;
 			if (!sc->may_writepage)
 				goto keep_locked;
+#ifdef CONFIG_MEMPLUS
+			if (memplus_en && !added_to_swap && current_is_reclaimd() && !sc->swp_bdv_type)
+				goto keep_locked;
+#endif
 
 			/*
 			 * Page is dirty. Flush the TLB if a writable entry
@@ -1308,6 +1551,10 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 				}
 			}
 		}
+#ifdef CONFIG_MEMPLUS
+		if (!vm_memory_plus_test_worstcase && memplus_en && current_is_reclaimd() && !sc->swp_bdv_type)
+			goto keep_locked;
+#endif
 
 		if (PageAnon(page) && !PageSwapBacked(page)) {
 			/* follow __remove_mapping for reference */
@@ -1389,6 +1636,110 @@ keep:
 	return nr_reclaimed;
 }
 
+#ifdef CONFIG_SMART_BOOST
+static unsigned long isolate_uid_lru_pages(struct page *page)
+{
+	int ret = -EBUSY;
+
+	//VM_BUG_ON_PAGE(!page_count(page), page);
+	WARN_RATELIMIT(PageTail(page), "trying to isolate tail page");
+
+	if (PageLRU(page)) {
+		struct zone *zone = page_zone(page);
+		struct lruvec *lruvec;
+		int lru = page_lru(page);
+
+		if (unlikely(!get_page_unless_zero(page)))
+			return ret;
+
+		if (PageUnevictable(page))
+			return ret;
+
+		lruvec = mem_cgroup_page_lruvec(page, zone->zone_pgdat);
+		ClearPageLRU(page);
+		del_page_from_lru_list(page, lruvec, lru,
+			PageUIDLRU(page) ? true:false);
+		ret = 0;
+	}
+
+	return ret;
+}
+
+unsigned long reclaim_pages_from_uid_list(uid_t uid)
+{
+	LIST_HEAD(page_list);
+	LIST_HEAD(putback_page_list);
+	struct pglist_data *pgdat;
+	struct uid_node *node;
+	struct lruvec *lruvec;
+	unsigned long node_size = 0;
+	struct mem_cgroup *memcg;
+	struct scan_control sc = {
+		.gfp_mask = GFP_KERNEL,
+		.priority = DEF_PRIORITY,
+		.may_writepage = 1,
+		.may_unmap = 1,
+		.may_swap = 1,
+	};
+
+	unsigned long nr_reclaimed = 0, nr_isolate = 0, nr_isolate_failed = 0;
+	struct page *page;
+
+	for_each_online_pgdat(pgdat) {
+		memcg = mem_cgroup_iter(NULL, NULL, NULL);
+		do {
+			lruvec = mem_cgroup_lruvec(pgdat, memcg);
+			if (!lruvec)
+				goto next;
+			spin_lock_irq(&pgdat->lru_lock);
+			node = find_uid_node(uid, lruvec);
+			if (!node) {
+				spin_unlock_irq(&pgdat->lru_lock);
+				goto next;
+			}
+
+			while (!list_empty(&node->page_cache_list)) {
+				page = lru_to_page(&node->page_cache_list);
+				VM_BUG_ON_PAGE(!PageUIDLRU(page), page);
+
+				if (isolate_uid_lru_pages(page)) {
+					list_move(&page->lru,
+						&putback_page_list);
+					nr_isolate_failed++;
+					continue;
+				}
+
+				ClearPageActive(page);
+				list_add(&page->lru, &page_list);
+				nr_isolate++;
+			}
+
+			list_splice_init(&putback_page_list,
+					&node->page_cache_list);
+			spin_unlock_irq(&pgdat->lru_lock);
+
+			nr_reclaimed = shrink_page_list(&page_list, NULL, &sc,
+					TTU_IGNORE_ACCESS, NULL, true);
+
+			pr_err("%s: reclaimed:%lu isolate:%lu isolate_failed:%lu ",
+				__func__, nr_reclaimed,
+				nr_isolate, nr_isolate_failed);
+
+			node_size = 0;
+			while (!list_empty(&page_list)) {
+				page = lru_to_page(&page_list);
+				list_del(&page->lru);
+				node_size++;
+				putback_lru_page(page);
+			}
+next:
+			memcg = mem_cgroup_iter(NULL, memcg, NULL);
+			pr_err("putback:%lu\n", node_size);
+		} while (memcg);
+	}
+	return nr_reclaimed;
+}
+#endif
 unsigned long reclaim_clean_pages_from_list(struct zone *zone,
 					    struct list_head *page_list)
 {
@@ -1417,6 +1768,98 @@ unsigned long reclaim_clean_pages_from_list(struct zone *zone,
 	mod_node_page_state(zone->zone_pgdat, NR_ISOLATED_FILE, -ret);
 	return ret;
 }
+#ifdef CONFIG_MEMPLUS
+unsigned long memplus_reclaim_page_list(struct list_head *page_list,
+					struct scan_control *sc)
+{
+	unsigned long nr_reclaimed;
+	struct page *page;
+
+	list_for_each_entry(page, page_list, lru) {
+		ClearPageActive(page);
+		ClearPageWillneed(page);
+	}
+
+	nr_reclaimed = shrink_page_list(page_list, NULL, sc,
+			TTU_IGNORE_ACCESS, NULL, true);
+
+	while (!list_empty(page_list)) {
+		page = lru_to_page(page_list);
+		list_del(&page->lru);
+		dec_node_page_state(page, NR_ISOLATED_ANON +
+				page_is_file_cache(page));
+		putback_lru_page(page);
+	}
+
+	return nr_reclaimed;
+}
+
+unsigned long swapout_to_zram(struct list_head *page_list,
+					struct vm_area_struct *vma)
+{
+	struct scan_control sc = {
+		.gfp_mask = GFP_KERNEL,
+		.priority = DEF_PRIORITY,
+		.may_writepage = 1,
+		.may_unmap = 1,
+		.may_swap = 1,
+		.target_vma = vma,
+		.swp_bdv_type = 1,
+	};
+
+	return memplus_reclaim_page_list(page_list, &sc);
+}
+
+unsigned long swapout_to_disk(struct list_head *page_list,
+					struct vm_area_struct *vma)
+{
+	struct scan_control sc = {
+		.gfp_mask = GFP_KERNEL,
+		.priority = DEF_PRIORITY,
+		.may_writepage = 1,
+		.may_unmap = 1,
+		.may_swap = 1,
+		.target_vma = vma,
+		.swp_bdv_type = 0,
+	};
+
+	return memplus_reclaim_page_list(page_list, &sc);
+}
+
+unsigned long memplus_reclaim_pages(struct list_head *page_list,
+					struct vm_area_struct *vma)
+{
+	struct scan_control sc = {
+		.gfp_mask = GFP_KERNEL,
+		.priority = DEF_PRIORITY,
+		.may_writepage = 1,
+		.may_unmap = 1,
+		.may_swap = 1,
+		.target_vma = vma,
+	};
+
+	unsigned long nr_reclaimed;
+	struct page *page;
+
+	list_for_each_entry(page, page_list, lru) {
+		ClearPageWillneed(page);
+		ClearPageActive(page);
+	}
+
+	nr_reclaimed = shrink_page_list(page_list, NULL, &sc,
+			TTU_IGNORE_ACCESS, NULL, true);
+
+	while (!list_empty(page_list)) {
+		page = lru_to_page(page_list);
+		list_del(&page->lru);
+		dec_node_page_state(page, NR_ISOLATED_ANON +
+				page_is_file_cache(page));
+		putback_lru_page(page);
+	}
+
+	return nr_reclaimed;
+}
+#endif
 
 #ifdef CONFIG_PROCESS_RECLAIM
 unsigned long reclaim_pages_from_list(struct list_head *page_list,
@@ -1542,8 +1985,11 @@ static __always_inline void update_lru_sizes(struct lruvec *lruvec,
 	for (zid = 0; zid < MAX_NR_ZONES; zid++) {
 		if (!nr_zone_taken[zid])
 			continue;
-
+#ifdef CONFIG_SMART_BOOST
+		__update_lru_size(lruvec, lru, zid, -nr_zone_taken[zid], false);
+#else
 		__update_lru_size(lruvec, lru, zid, -nr_zone_taken[zid]);
+#endif
 #ifdef CONFIG_MEMCG
 		mem_cgroup_update_lru_size(lruvec, lru, zid, -nr_zone_taken[zid]);
 #endif
@@ -1583,6 +2029,9 @@ static unsigned long isolate_lru_pages(unsigned long nr_to_scan,
 	unsigned long skipped = 0;
 	unsigned long scan, total_scan, nr_pages;
 	LIST_HEAD(pages_skipped);
+#ifdef CONFIG_MEMPLUS
+	bool sc_only = memplus_enabled() && (BIT(lru) & LRU_ALL_ANON);
+#endif
 
 	scan = 0;
 	for (total_scan = 0;
@@ -1608,6 +2057,13 @@ static unsigned long isolate_lru_pages(unsigned long nr_to_scan,
 		 * pages, triggering a premature OOM.
 		 */
 		scan++;
+
+#ifdef CONFIG_MEMPLUS
+		if (sc_only && (!PageSwapCache(page) || PageWillneed(page))) {
+			list_move(&page->lru, src);
+			continue;
+		}
+#endif
 		switch (__isolate_lru_page(page, mode)) {
 		case 0:
 			nr_pages = hpage_nr_pages(page);
@@ -1694,7 +2150,12 @@ int isolate_lru_page(struct page *page)
 			int lru = page_lru(page);
 			get_page(page);
 			ClearPageLRU(page);
+#ifdef CONFIG_SMART_BOOST
+			del_page_from_lru_list(page, lruvec, lru,
+					PageUIDLRU(page) ? true:false);
+#else
 			del_page_from_lru_list(page, lruvec, lru);
+#endif
 			ret = 0;
 		}
 		spin_unlock_irq(zone_lru_lock(zone));
@@ -1803,7 +2264,12 @@ putback_inactive_pages(struct lruvec *lruvec, struct list_head *page_list)
 		if (put_page_testzero(page)) {
 			__ClearPageLRU(page);
 			__ClearPageActive(page);
+#ifdef CONFIG_SMART_BOOST
+			del_page_from_lru_list(page, lruvec, lru,
+					PageUIDLRU(page) ? true:false);
+#else
 			del_page_from_lru_list(page, lruvec, lru);
+#endif
 
 			if (unlikely(PageCompound(page))) {
 				spin_unlock_irq(&pgdat->lru_lock);
@@ -1853,6 +2319,9 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	struct zone_reclaim_stat *reclaim_stat = &lruvec->reclaim_stat;
 	bool stalled = false;
 
+#ifdef CONFIG_SMART_BOOST
+	inactive_nr++;
+#endif
 	while (unlikely(too_many_isolated(pgdat, file, sc, stalled))) {
 		if (stalled)
 			return 0;
@@ -2035,14 +2504,23 @@ static unsigned move_active_pages_to_lru(struct lruvec *lruvec,
 		SetPageLRU(page);
 
 		nr_pages = hpage_nr_pages(page);
+#ifdef CONFIG_SMART_BOOST
+		update_lru_size(lruvec, lru, page_zonenum(page), nr_pages,
+						PageUIDLRU(page) ? true:false);
+#else
 		update_lru_size(lruvec, lru, page_zonenum(page), nr_pages);
+#endif
 		list_move(&page->lru, &lruvec->lists[lru]);
 
 		if (put_page_testzero(page)) {
 			__ClearPageLRU(page);
 			__ClearPageActive(page);
+#ifdef CONFIG_SMART_BOOST
+			del_page_from_lru_list(page, lruvec, lru,
+					PageUIDLRU(page) ? true:false);
+#else
 			del_page_from_lru_list(page, lruvec, lru);
-
+#endif
 			if (unlikely(PageCompound(page))) {
 				spin_unlock_irq(&pgdat->lru_lock);
 				mem_cgroup_uncharge(page);
@@ -2064,6 +2542,93 @@ static unsigned move_active_pages_to_lru(struct lruvec *lruvec,
 	return nr_moved;
 }
 
+#ifdef CONFIG_SMART_BOOST
+#define SMART_BOOST_PUTBACK_LRU 2
+extern unsigned long get_max_minfree(void);
+unsigned long uid_lru_size()
+{
+	return global_zone_page_state(NR_ZONE_UID_LRU);
+}
+
+static int active_list_is_low(struct lruvec *lruvec)
+{
+	unsigned long active = global_zone_page_state(NR_ZONE_ACTIVE_FILE);
+	unsigned long inactive = global_zone_page_state(NR_ZONE_INACTIVE_FILE);
+	unsigned long total_uid_lru_nr = uid_lru_size();
+	if ((active + inactive) > get_max_minfree())
+		return ((active + inactive) << 1) < (total_uid_lru_nr >> 2);
+	else	
+		return SMART_BOOST_PUTBACK_LRU;
+}
+
+static void shrink_uid_lru_list(struct lruvec *lruvec,
+				struct pglist_data *pgdat,
+				struct scan_control *sc)
+{
+	LIST_HEAD(putback_list);
+	LIST_HEAD(frees_list);
+	unsigned long nr_reclaimed = 0, nr_isolate_failed = 0;
+	unsigned long uid_size = uid_lru_size();
+	long nr_to_shrink = uid_size >> sc->priority;
+	int putback_lru = active_list_is_low(lruvec);
+	struct hotcount_prio_node *pos;
+	struct page *page;
+
+	if (uid_size <= 0)
+		return;
+
+	if (SMART_BOOST_PUTBACK_LRU == putback_lru)
+		nr_to_shrink = uid_size;
+
+	read_lock(&prio_list_lock);
+	spin_lock_irq(&pgdat->lru_lock);
+	list_for_each_entry(pos, &hotcount_prio_list, list) {
+		struct uid_node *tmp_uid_list = find_uid_node(pos->uid, lruvec);
+
+		if (!nr_to_shrink)
+			break;
+
+		if (tmp_uid_list == NULL)
+			continue;
+
+		while (!list_empty(&tmp_uid_list->page_cache_list)) {
+			page = lru_to_page(&tmp_uid_list->page_cache_list);
+			VM_BUG_ON_PAGE(!PageUIDLRU(page), page);
+
+			if (isolate_uid_lru_pages(page)) {
+				list_move(&page->lru, &putback_list);
+				nr_isolate_failed++;
+				continue;
+			}
+
+			ClearPageActive(page);
+			list_add(&page->lru, &frees_list);
+			nr_to_shrink--;
+			if (!nr_to_shrink)
+				break;
+		}
+
+		list_splice_init(&putback_list, &tmp_uid_list->page_cache_list);
+	}
+	spin_unlock_irq(&pgdat->lru_lock);
+	read_unlock(&prio_list_lock);
+
+	if (putback_lru != SMART_BOOST_PUTBACK_LRU)
+		nr_reclaimed = shrink_page_list(&frees_list, pgdat, sc,
+				TTU_IGNORE_ACCESS, NULL, true);
+
+	while (!list_empty(&frees_list)) {
+		page = lru_to_page(&frees_list);
+		list_del(&page->lru);
+		putback_lru_page(page);
+	}
+
+	sc->nr_reclaimed += nr_reclaimed;
+	/*pr_err("%s: reclaimed:%lu isolate:%lu isolate_failed:%lu ",
+			__func__, nr_reclaimed,
+			sc->nr_to_reclaim << 1, nr_isolate_failed);*/
+}
+#endif
 static void shrink_active_list(unsigned long nr_to_scan,
 			       struct lruvec *lruvec,
 			       struct scan_control *sc,
@@ -2082,7 +2647,9 @@ static void shrink_active_list(unsigned long nr_to_scan,
 	isolate_mode_t isolate_mode = 0;
 	int file = is_file_lru(lru);
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
-
+#ifdef CONFIG_SMART_BOOST
+	active_nr++;
+#endif
 	lru_add_drain();
 
 	if (!sc->may_unmap)
@@ -2162,6 +2729,12 @@ static void shrink_active_list(unsigned long nr_to_scan,
 	free_hot_cold_page_list(&l_hold, true);
 	trace_mm_vmscan_lru_shrink_active(pgdat->node_id, nr_taken, nr_activate,
 			nr_deactivate, nr_rotated, sc->priority, file);
+#ifdef CONFIG_SMART_BOOST
+	if (sysctl_page_cache_reside_switch &&
+		((active_list_is_low(lruvec)) ||
+		(!current_is_kswapd() && sc->priority <= 11 && (sc->nr_reclaimed < sc->nr_to_reclaim))))
+		shrink_uid_lru_list(lruvec, pgdat, sc);
+#endif
 }
 
 /*
@@ -2210,7 +2783,12 @@ static bool inactive_list_is_low(struct lruvec *lruvec, bool file,
 	 */
 	if (!file && !total_swap_pages)
 		return false;
-
+#ifdef CONFIG_MEMPLUS
+	if (!file) {
+		inactive_lru = LRU_INACTIVE_ANON_SWPCACHE;
+		active_lru = LRU_ACTIVE_ANON_SWPCACHE;
+	}
+#endif
 	inactive = lruvec_lru_size(lruvec, inactive_lru, sc->reclaim_idx);
 	active = lruvec_lru_size(lruvec, active_lru, sc->reclaim_idx);
 
@@ -2287,6 +2865,16 @@ static void get_scan_count(struct lruvec *lruvec, struct mem_cgroup *memcg,
 	unsigned long anon, file;
 	unsigned long ap, fp;
 	enum lru_list lru;
+
+#ifdef CONFIG_MEMPLUS
+	if (memplus_enabled()) {
+		if(vm_memory_plus_test_worstcase)
+			scan_balance = SCAN_ANON;
+		else
+			scan_balance = SCAN_EQUAL;
+		goto out;
+	}
+#endif
 
 	/* If we have no swap space, do not bother scanning anon pages. */
 	if (!sc->may_swap || mem_cgroup_get_nr_swap_pages(memcg) <= 0) {
@@ -2444,6 +3032,12 @@ out:
 
 		switch (scan_balance) {
 		case SCAN_EQUAL:
+#ifdef CONFIG_MEMPLUS
+			if (lru == LRU_INACTIVE_ANON || lru == LRU_ACTIVE_ANON) {
+				size = 0;
+				scan = 0;
+			}
+#endif
 			/* Scan lists relative to size */
 			break;
 		case SCAN_FRACT:
@@ -2508,8 +3102,14 @@ static void shrink_node_memcg(struct pglist_data *pgdat, struct mem_cgroup *memc
 			 sc->priority == DEF_PRIORITY);
 
 	blk_start_plug(&plug);
+#ifndef CONFIG_MEMPLUS
 	while (nr[LRU_INACTIVE_ANON] || nr[LRU_ACTIVE_FILE] ||
-					nr[LRU_INACTIVE_FILE]) {
+					nr[LRU_INACTIVE_FILE]) 
+#else
+	while (nr[LRU_INACTIVE_ANON] || nr[LRU_ACTIVE_FILE] ||
+				nr[LRU_INACTIVE_FILE] || nr[LRU_INACTIVE_ANON_SWPCACHE])
+#endif
+	{
 		unsigned long nr_anon, nr_file, percentage;
 		unsigned long nr_scanned;
 
@@ -2536,7 +3136,12 @@ static void shrink_node_memcg(struct pglist_data *pgdat, struct mem_cgroup *memc
 		 * proportional to the original scan target.
 		 */
 		nr_file = nr[LRU_INACTIVE_FILE] + nr[LRU_ACTIVE_FILE];
+#ifdef CONIG_MEMPLUS
+		nr_anon = nr[LRU_INACTIVE_ANON_SWPCACHE] + nr[LRU_ACTIVE_ANON_SWPCACHE];
+#else
 		nr_anon = nr[LRU_INACTIVE_ANON] + nr[LRU_ACTIVE_ANON];
+#endif
+
 
 		/*
 		 * It's just vindictive to attack the larger once the smaller
@@ -2548,9 +3153,15 @@ static void shrink_node_memcg(struct pglist_data *pgdat, struct mem_cgroup *memc
 			break;
 
 		if (nr_file > nr_anon) {
+#ifdef CONIG_MEMPLUS
+			unsigned long scan_target = targets[LRU_INACTIVE_ANON_SWPCACHE] +
+						targets[LRU_ACTIVE_ANON_SWPCACHE] + 1;
+			lru = LRU_INACTIVE_ANON_SWPCACHE;
+#else
 			unsigned long scan_target = targets[LRU_INACTIVE_ANON] +
 						targets[LRU_ACTIVE_ANON] + 1;
 			lru = LRU_BASE;
+#endif
 			percentage = nr_anon * 100 / scan_target;
 		} else {
 			unsigned long scan_target = targets[LRU_INACTIVE_FILE] +
@@ -2567,7 +3178,11 @@ static void shrink_node_memcg(struct pglist_data *pgdat, struct mem_cgroup *memc
 		 * Recalculate the other LRU scan count based on its original
 		 * scan target and the percentage scanning already complete
 		 */
+#ifdef CONIG_MEMPLUS
+		lru = (lru == LRU_FILE) ? LRU_INACTIVE_ANON_SWPCACHE : LRU_FILE;
+#else
 		lru = (lru == LRU_FILE) ? LRU_BASE : LRU_FILE;
+#endif
 		nr_scanned = targets[lru] - nr[lru];
 		nr[lru] = targets[lru] * (100 - percentage) / 100;
 		nr[lru] -= min(nr[lru], nr_scanned);
@@ -2587,8 +3202,11 @@ static void shrink_node_memcg(struct pglist_data *pgdat, struct mem_cgroup *memc
 	 * rebalance the anon lru active/inactive ratio.
 	 */
 	if (inactive_list_is_low(lruvec, false, memcg, sc, true))
-		shrink_active_list(SWAP_CLUSTER_MAX, lruvec,
-				   sc, LRU_ACTIVE_ANON);
+#ifdef CONFIG_MEMPLUS
+		shrink_active_list(SWAP_CLUSTER_MAX, lruvec, sc, LRU_ACTIVE_ANON_SWPCACHE);
+#else
+		shrink_active_list(SWAP_CLUSTER_MAX, lruvec, sc, LRU_ACTIVE_ANON);
+#endif
 }
 
 /* Use reclaim/compaction for costly allocs or under memory pressure */
@@ -2720,7 +3338,6 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 			vmpressure(sc->gfp_mask, memcg, false,
 				   sc->nr_scanned - scanned,
 				   sc->nr_reclaimed - reclaimed);
-
 			/*
 			 * Direct reclaim and kswapd have to scan all memory
 			 * cgroups to fulfill the overall scan target for the
@@ -2980,7 +3597,18 @@ retry:
 	}
 
 	delayacct_freepages_end();
-
+#ifdef CONFIG_SMART_BOOST
+	if (global_reclaim(sc)) {
+		if (sc->priority <= 12 && sc->priority > 10)
+			__count_zid_vm_events(ALLOCSTALL_PRI1, sc->reclaim_idx, 1);
+		else if (sc->priority <= 10 && sc->priority > 5)
+			__count_zid_vm_events(ALLOCSTALL_PRI2, sc->reclaim_idx, 1);
+		else if (sc->priority <= 5 && sc->priority > 1)
+			__count_zid_vm_events(ALLOCSTALL_PRI3, sc->reclaim_idx, 1);
+		else
+			__count_zid_vm_events(ALLOCSTALL_PRI4, sc->reclaim_idx, 1);
+	}
+#endif
 	if (sc->nr_reclaimed)
 		return sc->nr_reclaimed;
 
@@ -3265,8 +3893,11 @@ static void age_active_anon(struct pglist_data *pgdat,
 		struct lruvec *lruvec = mem_cgroup_lruvec(pgdat, memcg);
 
 		if (inactive_list_is_low(lruvec, false, memcg, sc, true))
-			shrink_active_list(SWAP_CLUSTER_MAX, lruvec,
-					   sc, LRU_ACTIVE_ANON);
+#ifdef CONFIG_MEMPLUS
+			shrink_active_list(SWAP_CLUSTER_MAX, lruvec, sc, LRU_ACTIVE_ANON_SWPCACHE);
+#else
+			shrink_active_list(SWAP_CLUSTER_MAX, lruvec, sc, LRU_ACTIVE_ANON);
+#endif
 
 		memcg = mem_cgroup_iter(NULL, memcg, NULL);
 	} while (memcg);
@@ -3391,6 +4022,17 @@ static bool kswapd_shrink_node(pg_data_t *pgdat,
 	return sc->nr_scanned >= sc->nr_to_reclaim;
 }
 
+void __sched usleep_range_interruptible(unsigned long min, unsigned long max)
+{
+	ktime_t kmin;
+	u64 delta;
+
+	__set_current_state(TASK_INTERRUPTIBLE);
+
+	kmin = ktime_set(0, min * NSEC_PER_USEC);
+	delta = (u64)(max - min) * NSEC_PER_USEC;
+	schedule_hrtimeout_range(&kmin, delta, HRTIMER_MODE_REL);
+}
 /*
  * For kswapd, balance_pgdat() will reclaim pages across a node from zones
  * that are eligible for use by the caller until at least one zone is
@@ -3452,6 +4094,11 @@ static int balance_pgdat(pg_data_t *pgdat, int order, int classzone_idx)
 		 * sc.reclaim_idx is not used as buffer_heads_over_limit may
 		 * have adjusted it.
 		 */
+#ifdef CONFIG_MEMPLUS
+		if (vm_memory_plus_test_worstcase) {
+			/* don't exam balance state */
+		} else
+#endif
 		if (pgdat_balanced(pgdat, sc.order, classzone_idx))
 			goto out;
 
@@ -3467,6 +4114,10 @@ static int balance_pgdat(pg_data_t *pgdat, int order, int classzone_idx)
 		 * If we're getting trouble reclaiming, start doing writepage
 		 * even in laptop mode.
 		 */
+#ifdef CONFIG_MEMPLUS
+		if (vm_memory_plus_test_worstcase)
+			sc.may_writepage = 1;
+#endif
 		if (sc.priority < DEF_PRIORITY - 2)
 			sc.may_writepage = 1;
 
@@ -3503,14 +4154,30 @@ static int balance_pgdat(pg_data_t *pgdat, int order, int classzone_idx)
 		 * progress in reclaiming pages
 		 */
 		nr_reclaimed = sc.nr_reclaimed - nr_reclaimed;
-		if (raise_priority || !nr_reclaimed)
+		if (raise_priority || !nr_reclaimed) {
 			sc.priority--;
+
+			if (vm_breath_period && nr_reclaimed &&
+						!atomic_read(&alloc_ongoing)) {
+				sc.priority++;
+				usleep_range_interruptible(vm_breath_period,
+							vm_breath_period << 1);
+			}
+		}
 	} while (sc.priority >= 1);
 
 	if (!sc.nr_reclaimed)
 		pgdat->kswapd_failures++;
 
 out:
+#ifdef CONFIG_SMART_BOOST
+	if (sc.priority < 5)
+		priority_nr[0]++;
+	else if (sc.priority > 5 && sc.priority < 10)
+		priority_nr[1]++;
+	else
+		priority_nr[2]++;
+#endif
 	snapshot_refaults(NULL, pgdat);
 	/*
 	 * Return the order kswapd stopped reclaiming at as
@@ -3670,6 +4337,11 @@ static int kswapd(void *p)
 		classzone_idx = kswapd_classzone_idx(pgdat, classzone_idx);
 
 kswapd_try_sleep:
+#ifdef CONFIG_MEMPLUS
+		if(vm_memory_plus_test_worstcase) {
+			/* don't sleep */
+		} else
+#endif
 		kswapd_try_to_sleep(pgdat, alloc_order, reclaim_order,
 					classzone_idx);
 
@@ -3975,6 +4647,12 @@ static int __node_reclaim(struct pglist_data *pgdat, gfp_t gfp_mask, unsigned in
 		do {
 			shrink_node(pgdat, &sc);
 		} while (sc.nr_reclaimed < nr_pages && --sc.priority >= 0);
+#ifdef CONFIG_SMART_BOOST
+		if (sc.priority >= 0 && sc.priority <= 2)
+			__count_zid_vm_events(ALLOCSTALL_PRI2, sc->reclaim_idx, 1);
+		else
+			__count_zid_vm_events(ALLOCSTALL_PRI1, sc->reclaim_idx, 1);
+#endif
 	}
 
 	p->reclaim_state = NULL;
@@ -4092,7 +4770,12 @@ void check_move_unevictable_pages(struct page **pages, int nr_pages)
 
 			VM_BUG_ON_PAGE(PageActive(page), page);
 			ClearPageUnevictable(page);
+#ifdef CONFIG_SMART_BOOST
+			del_page_from_lru_list(page, lruvec, LRU_UNEVICTABLE,
+						PageUIDLRU(page) ? true:false);
+#else
 			del_page_from_lru_list(page, lruvec, LRU_UNEVICTABLE);
+#endif
 			add_page_to_lru_list(page, lruvec, lru);
 			pgrescued++;
 		}

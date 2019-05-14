@@ -29,6 +29,10 @@
 #include <linux/dmaengine.h>
 #include <linux/msm_gpi.h>
 
+#include <linux/gpio.h>
+#define AP_BAT_SCL 89
+#define AP_BAT_SDA 88
+
 #define SE_I2C_TX_TRANS_LEN		(0x26C)
 #define SE_I2C_RX_TRANS_LEN		(0x270)
 #define SE_I2C_SCL_COUNTERS		(0x278)
@@ -121,6 +125,7 @@ struct geni_i2c_dev {
 	struct msm_gpi_dma_async_tx_cb_param tx_cb;
 	struct msm_gpi_dma_async_tx_cb_param rx_cb;
 	enum i2c_se_mode se_mode;
+	int reset_support;
 };
 
 struct geni_i2c_err_log {
@@ -753,6 +758,26 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 		}
 		ret = gi2c->err;
 		if (gi2c->err) {
+			if ((gi2c->err == -ETIMEDOUT || gi2c->err == -EBUSY)
+				&& gi2c->reset_support) {
+				pinctrl_select_state(gi2c->i2c_rsc.geni_pinctrl,
+						gi2c->i2c_rsc.geni_gpio_reset);
+				gpio_direction_output(AP_BAT_SDA, 0);
+				gpio_direction_output(AP_BAT_SCL, 0);
+				msleep(3000);
+				dev_err(gi2c->dev, "b clk:%d,data:%d\n",
+				gpio_get_value(AP_BAT_SCL),
+				gpio_get_value(AP_BAT_SDA));
+				gpio_direction_output(AP_BAT_SDA, 1);
+				gpio_direction_output(AP_BAT_SCL, 1);
+				dev_err(gi2c->dev, "c clk:%d,data:%d\n",
+				gpio_get_value(AP_BAT_SCL),
+			    gpio_get_value(AP_BAT_SDA));
+				gpio_direction_input(AP_BAT_SDA);
+				gpio_direction_input(AP_BAT_SCL);
+				pinctrl_select_state(gi2c->i2c_rsc.geni_pinctrl,
+				gi2c->i2c_rsc.geni_gpio_active);
+			}
 			dev_err(gi2c->dev, "i2c error :%d\n", gi2c->err);
 			break;
 		}
@@ -867,6 +892,27 @@ static int geni_i2c_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "No sleep config specified\n");
 		ret = PTR_ERR(gi2c->i2c_rsc.geni_gpio_sleep);
 		return ret;
+	}
+	gi2c->i2c_rsc.geni_gpio_reset =
+		pinctrl_lookup_state(gi2c->i2c_rsc.geni_pinctrl,
+							PINCTRL_RESET);
+	if (IS_ERR_OR_NULL(gi2c->i2c_rsc.geni_gpio_reset)) {
+		dev_err(&pdev->dev, "No reset config specified\n");
+		ret = PTR_ERR(gi2c->i2c_rsc.geni_gpio_reset);
+	} else {
+		if (gpio_is_valid(AP_BAT_SCL)
+			&& gpio_is_valid(AP_BAT_SDA)) {
+			ret = gpio_request(AP_BAT_SCL, "bat_scl");
+			if (ret)
+				pr_err("gpio_request failed for %d ret=%d\n",
+				AP_BAT_SCL, ret);
+			ret = gpio_request(AP_BAT_SDA, "bat_sda");
+			if (ret)
+				pr_err("gpio_request failed for %d ret=%d\n",
+				AP_BAT_SDA, ret);
+		}
+		gi2c->reset_support = true;
+		dev_err(&pdev->dev, "reset config specified\n");
 	}
 
 	if (of_property_read_u32(pdev->dev.of_node, "qcom,clk-freq-out",

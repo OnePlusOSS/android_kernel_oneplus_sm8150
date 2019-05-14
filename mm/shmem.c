@@ -1317,8 +1317,11 @@ static int shmem_writepage(struct page *page, struct writeback_control *wbc)
 		flush_dcache_page(page);
 		SetPageUptodate(page);
 	}
-
+#ifdef CONFIG_MEMPLUS
+	swap = get_swap_page(page, FAST_BDV);
+#else
 	swap = get_swap_page(page);
+#endif
 	if (!swap.val)
 		goto redirty;
 

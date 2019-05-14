@@ -36,7 +36,9 @@
 #include <linux/poll.h>
 #include <uapi/linux/qbt1000.h>
 #include <soc/qcom/scm.h>
-#include "../../misc/qseecom_kernel.h"
+#include "../../../misc/qseecom_kernel.h"
+#include "../fingerprint_detect/fingerprint_detect.h"
+
 
 #define QBT1000_DEV "qbt1000"
 #define QBT1000_IN_DEV_NAME "qbt1000_key_input"
@@ -45,6 +47,7 @@
 #define FW_MAX_IPC_MSG_DATA_SIZE 0x500
 #define SEND_TZ_CMD_RETRY_CNT 10
 #define SEND_TZ_CMD_DELAY 50
+#define MAX_TOUCHES 10
 
 /*
  * shared buffer size - init with max value,
@@ -52,6 +55,9 @@
  */
 static uint32_t g_app_buf_size = SZ_256K;
 static char const *const FP_APP_NAME = "fingerpr";
+//static bool is_probed = false;
+static struct qbt1000_drvdata *ts_cb_drvdata = NULL;
+static signed qbt1000_int2 = 0;
 
 enum fp_app_cmd {
 	FP_APP_CMD_RX_IPC = 132,
@@ -82,7 +88,6 @@ struct finger_detect_gpio {
 	unsigned int key_code;
 	int power_key_enabled;
 	int last_gpio_state;
-	int event_reported;
 };
 
 struct fw_event_desc {
@@ -92,6 +97,17 @@ struct fw_event_desc {
 struct fw_ipc_info {
 	int gpio;
 	int irq;
+};
+
+struct qbt1000_touch_status {
+	int x;
+	int y;
+};
+
+struct qbt1000_mt_status {
+	bool is_registered;
+	int slot;
+	struct qbt1000_touch_status touches[MAX_TOUCHES];
 };
 
 struct qbt1000_drvdata {
@@ -106,7 +122,7 @@ struct qbt1000_drvdata {
 	unsigned int	frequency;
 	atomic_t	available;
 	struct mutex	mutex;
-	struct mutex	fw_events_mutex;
+	spinlock_t	fw_events_lock;
 	struct input_dev	*in_dev;
 	struct fw_ipc_info	fw_ipc;
 	struct finger_detect_gpio	fd_gpio;
@@ -117,12 +133,14 @@ struct qbt1000_drvdata {
 	enum fd_indication_mode fd_ind_mode;
 	bool ipc_is_stale;
 	bool gestures_enabled;
+	struct qbt1000_sensor_pos sensor_pos;
+	struct qbt1000_mt_status mt;
 };
 
 /*
  * struct fw_ipc_cmd -
  *      used to store IPC commands to/from firmware
- * @status - indicates whether sending/getting the IPC message was successful
+ * @status - indicates if sending/getting the IPC message was successful
  * @msg_type - the type of IPC message
  * @msg_len - the length of the message data
  * @resp_needed - whether a response is needed for this message
@@ -157,6 +175,31 @@ struct ipc_msg_type_to_fw_event g_msg_to_event[] = {
 		{IPC_MSG_ID_FINGER_ON_SENSOR, FW_EVENT_FINGER_DOWN},
 		{IPC_MSG_ID_FINGER_OFF_SENSOR, FW_EVENT_FINGER_UP},
 };
+
+static void gpio_report_event(struct qbt1000_drvdata *drvdata, int state);
+
+int qbt1000_int2_callback(int event)
+{
+	//if (!is_probed)
+	//	return -1;
+	if (ts_cb_drvdata == NULL) {
+		pr_err("ts_cb_drvata is NULL");
+		return -1;
+	}
+
+	pr_info("%s: event %d", __func__, event);
+
+	if (event == 1) {
+		//gpio_set_value(qbt1000_int2, 1);
+		gpio_report_event(ts_cb_drvdata,1);
+	} else if (event == 0) {
+		//gpio_set_value(qbt1000_int2, 0);
+		gpio_report_event(ts_cb_drvdata,0);
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(qbt1000_int2_callback);
 
 /**
  * get_cmd_rsp_buffers() - Function sets cmd & rsp buffer pointers and
@@ -264,6 +307,225 @@ static int send_tz_cmd(struct qbt1000_drvdata *drvdata,
 end:
 	return rc;
 }
+
+static void purge_finger_events(struct qbt1000_drvdata *drvdata)
+{
+	int i, fifo_len;
+	struct fw_event_desc fw_event;
+
+	fifo_len = kfifo_len(&drvdata->fw_events);
+
+	for (i = 0; i < fifo_len; i++) {
+		if (!kfifo_get(&drvdata->fw_events, &fw_event))
+			pr_err("fw events fifo: could not remove oldest item\n");
+		else if (fw_event.ev != FW_EVENT_FINGER_DOWN
+					&& fw_event.ev != FW_EVENT_FINGER_UP)
+			kfifo_put(&drvdata->fw_events, fw_event);
+	}
+}
+
+static void gpio_report_event(struct qbt1000_drvdata *drvdata, int state)
+{
+	struct fw_event_desc fw_event;
+
+	pr_debug("gpio %d: last state %d, new state %d\n",
+			drvdata->fd_gpio.gpio,
+			drvdata->fd_gpio.last_gpio_state,
+			state);
+
+	//if (state == drvdata->fd_gpio.last_gpio_state)
+	//	return;
+
+	drvdata->fd_gpio.last_gpio_state = state;
+
+	if (drvdata->fd_ind_mode == FD_IND_MODE_GESTURES) {
+		pr_debug("tap detected\n");
+		/*
+		 * If a gesture IPC was sent but not yet decrypted and
+		 * dealt with mark it as stale and don't report it
+		 */
+		drvdata->ipc_is_stale = true;
+		input_event(drvdata->in_dev,
+				EV_KEY, KEY_FP_GESTURE_TAP, 1);
+		input_sync(drvdata->in_dev);
+		input_event(drvdata->in_dev,
+				EV_KEY, KEY_FP_GESTURE_TAP, 0);
+		input_sync(drvdata->in_dev);
+	} else if (drvdata->fd_ind_mode == FD_IND_MODE_BIOMETRIC) {
+		if (state && drvdata->fd_gpio.power_key_enabled) {
+			input_event(drvdata->in_dev, EV_KEY, KEY_POWER, 1);
+			input_sync(drvdata->in_dev);
+			input_event(drvdata->in_dev, EV_KEY, KEY_POWER, 0);
+			input_sync(drvdata->in_dev);
+		} else if (!drvdata->gestures_enabled) {
+			input_event(drvdata->in_dev, EV_KEY,
+				drvdata->fd_gpio.key_code, !!state);
+			input_sync(drvdata->in_dev);
+		}
+		fw_event.ev = state ? FW_EVENT_FINGER_DOWN : FW_EVENT_FINGER_UP;
+
+		spin_lock(&drvdata->fw_events_lock);
+		if (kfifo_is_full(&drvdata->fw_events)) {
+			struct fw_event_desc dummy_fw_event;
+
+			pr_warn("fw events fifo: full, dropping oldest item\n");
+			if (!kfifo_get(&drvdata->fw_events, &dummy_fw_event))
+				pr_err("fw events fifo: could not remove oldest item\n");
+		}
+
+		purge_finger_events(drvdata);
+
+		if (!kfifo_put(&drvdata->fw_events, fw_event))
+			pr_err("fw events fifo: error adding item\n");
+		spin_unlock(&drvdata->fw_events_lock);
+
+		wake_up_interruptible(&drvdata->read_wait_queue);
+	} else {
+		pr_err("invalid mode %d\n", drvdata->fd_ind_mode);
+	}
+}
+
+/* Clear touch status */
+static void qbt1000_touch_clear_mt_status(struct qbt1000_mt_status *m)
+{
+	int i;
+
+	m->slot = 0;
+	for (i = 0; i < MAX_TOUCHES; i++) {
+		m->touches[i].x = -1;
+		m->touches[i].y = -1;
+	}
+}
+
+static bool qbt1000_touch_get_state(struct qbt1000_drvdata *drvdata)
+{
+	int i, state = 0;
+	struct qbt1000_mt_status *m = &drvdata->mt;
+
+	if (unlikely(!drvdata->sensor_pos.enable))
+		goto end;
+
+	for (i = 0; i < MAX_TOUCHES; i++) {
+		if (m->touches[i].x >= drvdata->sensor_pos.left   &&
+		    m->touches[i].x <= drvdata->sensor_pos.right  &&
+		    m->touches[i].y >= drvdata->sensor_pos.top    &&
+		    m->touches[i].y <= drvdata->sensor_pos.bottom)
+			state = 1;
+
+		if (m->touches[i].x >= 0 || m->touches[i].y >= 0)
+			pr_debug("slot: %d, x: %d, y: %d, state: %d",
+					i,
+					m->touches[i].x,
+					m->touches[i].y,
+					state);
+	}
+
+end:
+	return state;
+}
+
+static void qbt1000_touch_event(struct input_handle *handle,
+	unsigned int type, unsigned int code, int value)
+{
+	struct qbt1000_drvdata *drvdata = handle->handler->private;
+	struct qbt1000_mt_status *m = &drvdata->mt;
+	struct qbt1000_touch_status *t = &m->touches[m->slot];
+
+	if (likely(!drvdata->sensor_pos.enable ||
+	    (type != EV_SYN && type != EV_ABS)))
+		goto end;
+
+	switch (code) {
+	case ABS_MT_SLOT:
+		m->slot = value;
+		break;
+	case ABS_MT_TRACKING_ID:
+		if (value < 0) {
+			t->x = -1;
+			t->y = -1;
+		}
+		break;
+	case ABS_MT_POSITION_X:
+		t->x = value;
+		break;
+	case ABS_MT_POSITION_Y:
+		t->y = value;
+		break;
+	case SYN_REPORT:
+		gpio_report_event(drvdata,
+			qbt1000_touch_get_state(drvdata));
+		break;
+	default:
+		break;
+	}
+
+end:
+	return;
+}
+
+static int qbt1000_touch_connect(struct input_handler *handler,
+	struct input_dev *dev, const struct input_device_id *id)
+{
+	struct input_handle *handle;
+	int error;
+
+	handle = kzalloc(sizeof(struct input_handle), GFP_KERNEL);
+	if (!handle)
+		return -ENOMEM;
+
+	handle->dev = dev;
+	handle->handler = handler;
+	handle->name = "qbt1000_touch";
+
+	error = input_register_handle(handle);
+	if (error)
+		goto err_free_handle;
+
+	error = input_open_device(handle);
+	if (error)
+		goto err_unregister_handle;
+
+	pr_info("Connected device: %s (%s at %s)\n",
+	       dev_name(&dev->dev),
+	       dev->name ?: "unknown",
+	       dev->phys ?: "unknown");
+
+	return 0;
+
+ err_unregister_handle:
+	input_unregister_handle(handle);
+ err_free_handle:
+	kfree(handle);
+	return error;
+}
+
+static void qbt1000_touch_disconnect(struct input_handle *handle)
+{
+	pr_info("Disconnected device: %s\n",
+		dev_name(&handle->dev->dev));
+
+	input_close_device(handle);
+	input_unregister_handle(handle);
+	kfree(handle);
+}
+
+static const struct input_device_id qbt1000_touch_ids[] = {
+	{
+		.flags = INPUT_DEVICE_ID_MATCH_EVBIT,
+		.evbit = {BIT_MASK(EV_ABS)},
+	},
+	{},
+};
+
+MODULE_DEVICE_TABLE(input, qbt1000_touch_ids);
+
+static struct input_handler qbt1000_touch_handler = {
+	.event =        qbt1000_touch_event,
+	.connect =	qbt1000_touch_connect,
+	.disconnect =	qbt1000_touch_disconnect,
+	.name =		"qbt1000_touch",
+	.id_table =	qbt1000_touch_ids,
+};
 
 /**
  * qbt1000_open() - Function called when user space opens device.
@@ -589,6 +851,54 @@ static long qbt1000_ioctl(
 		}
 		break;
 	}
+	case QBT1000_SET_SENSOR_POSITION:
+	{
+		struct qbt1000_sensor_pos sensor_pos;
+
+		if (copy_from_user(&sensor_pos, priv_arg,
+					sizeof(sensor_pos)) != 0) {
+			rc = -EFAULT;
+			pr_err("failed copy from user space %d\n", rc);
+			goto end;
+		}
+
+		if (sensor_pos.enable && !drvdata->sensor_pos.enable) {
+			pr_debug("enable: %d, top: %d, bottom: %d, left %d, right: %d)",
+					sensor_pos.enable,
+					sensor_pos.top,
+					sensor_pos.bottom,
+					sensor_pos.left,
+					sensor_pos.right);
+
+			if (!drvdata->mt.is_registered) {
+				qbt1000_touch_handler.private = drvdata;
+				rc = input_register_handler(
+						&qbt1000_touch_handler);
+				drvdata->mt.is_registered = true;
+			}
+			qbt1000_touch_clear_mt_status(&drvdata->mt);
+			drvdata->fd_gpio.last_gpio_state = 0;
+			drvdata->sensor_pos.top = sensor_pos.top;
+			drvdata->sensor_pos.bottom = sensor_pos.bottom;
+			drvdata->sensor_pos.left = sensor_pos.left;
+			drvdata->sensor_pos.right = sensor_pos.right;
+			drvdata->sensor_pos.enable = sensor_pos.enable;
+		} else if (!sensor_pos.enable && drvdata->sensor_pos.enable) {
+			pr_debug("disable: %d, top: %d, bottom: %d, left %d, right: %d)",
+					sensor_pos.enable,
+					sensor_pos.top,
+					sensor_pos.bottom,
+					sensor_pos.left,
+					sensor_pos.right);
+
+			drvdata->sensor_pos.enable = sensor_pos.enable;
+			drvdata->sensor_pos.top = 0;
+			drvdata->sensor_pos.bottom = 0;
+			drvdata->sensor_pos.left = 0;
+			drvdata->sensor_pos.right = 0;
+		}
+		break;
+	}
 	default:
 		pr_err("invalid cmd %d\n", cmd);
 		rc = -ENOIOCTLCMD;
@@ -603,10 +913,11 @@ end:
 static int get_events_fifo_len_locked(struct qbt1000_drvdata *drvdata)
 {
 	int len;
+	unsigned long flags;
 
-	mutex_lock(&drvdata->fw_events_mutex);
+	spin_lock_irqsave(&drvdata->fw_events_lock, flags);
 	len = kfifo_len(&drvdata->fw_events);
-	mutex_unlock(&drvdata->fw_events_mutex);
+	spin_unlock_irqrestore(&drvdata->fw_events_lock, flags);
 
 	return len;
 }
@@ -616,14 +927,14 @@ static ssize_t qbt1000_read(struct file *filp, char __user *ubuf,
 {
 	struct fw_event_desc fw_event;
 	struct qbt1000_drvdata *drvdata = filp->private_data;
+	unsigned long flags;
 
 	if (cnt < sizeof(fw_event.ev))
 		return -EINVAL;
 
-	mutex_lock(&drvdata->fw_events_mutex);
-
+	spin_lock_irqsave(&drvdata->fw_events_lock, flags);
 	while (kfifo_len(&drvdata->fw_events) == 0) {
-		mutex_unlock(&drvdata->fw_events_mutex);
+		spin_unlock_irqrestore(&drvdata->fw_events_lock, flags);
 
 		if (filp->f_flags & O_NONBLOCK)
 			return -EAGAIN;
@@ -634,17 +945,17 @@ static ssize_t qbt1000_read(struct file *filp, char __user *ubuf,
 			  (get_events_fifo_len_locked(drvdata) > 0)))
 			return -ERESTARTSYS;
 
-		mutex_lock(&drvdata->fw_events_mutex);
+		spin_lock_irqsave(&drvdata->fw_events_lock, flags);
 	}
 
 	if (!kfifo_get(&drvdata->fw_events, &fw_event)) {
-		pr_debug("fw_events fifo: unexpectedly empty\n");
+		spin_unlock_irqrestore(&drvdata->fw_events_lock, flags);
 
-		mutex_unlock(&drvdata->fw_events_mutex);
+		pr_debug("fw_events fifo: unexpectedly empty\n");
 		return -EINVAL;
 	}
 
-	mutex_unlock(&drvdata->fw_events_mutex);
+	spin_unlock_irqrestore(&drvdata->fw_events_lock, flags);
 
 	pr_debug("fw_event: %d\n", (int)fw_event.ev);
 	return copy_to_user(ubuf, &fw_event.ev, sizeof(fw_event.ev));
@@ -808,83 +1119,6 @@ end:
 	return rc;
 }
 
-static void purge_finger_events(struct qbt1000_drvdata *drvdata)
-{
-	int i, fifo_len;
-	struct fw_event_desc fw_event;
-
-	fifo_len = kfifo_len(&drvdata->fw_events);
-
-	for (i = 0; i < fifo_len; i++) {
-		if (!kfifo_get(&drvdata->fw_events, &fw_event))
-			pr_err("fw events fifo: could not remove oldest item\n");
-		else if (fw_event.ev != FW_EVENT_FINGER_DOWN
-					&& fw_event.ev != FW_EVENT_FINGER_UP)
-			kfifo_put(&drvdata->fw_events, fw_event);
-	}
-}
-
-static void gpio_report_event(struct qbt1000_drvdata *drvdata, int state)
-{
-	struct fw_event_desc fw_event;
-
-	if (drvdata->fd_gpio.event_reported
-		  && state == drvdata->fd_gpio.last_gpio_state)
-		return;
-
-	pr_debug("gpio %d: report state %d\n", drvdata->fd_gpio.gpio, state);
-
-	drvdata->fd_gpio.event_reported = 1;
-	drvdata->fd_gpio.last_gpio_state = state;
-
-	if (drvdata->fd_ind_mode == FD_IND_MODE_GESTURES) {
-		pr_debug("tap detected\n");
-		/*
-		 * If a gesture IPC was sent but not yet decrypted and
-		 * dealt with mark it as stale and don't report it
-		 */
-		drvdata->ipc_is_stale = true;
-		input_event(drvdata->in_dev,
-				EV_KEY, KEY_FP_GESTURE_TAP, 1);
-		input_sync(drvdata->in_dev);
-		input_event(drvdata->in_dev,
-				EV_KEY, KEY_FP_GESTURE_TAP, 0);
-		input_sync(drvdata->in_dev);
-	} else if (drvdata->fd_ind_mode == FD_IND_MODE_BIOMETRIC) {
-		if (state && drvdata->fd_gpio.power_key_enabled) {
-			input_event(drvdata->in_dev, EV_KEY, KEY_POWER, 1);
-			input_sync(drvdata->in_dev);
-			input_event(drvdata->in_dev, EV_KEY, KEY_POWER, 0);
-			input_sync(drvdata->in_dev);
-		} else if (!drvdata->gestures_enabled) {
-			input_event(drvdata->in_dev, EV_KEY,
-				drvdata->fd_gpio.key_code, !!state);
-			input_sync(drvdata->in_dev);
-		}
-		fw_event.ev = state ? FW_EVENT_FINGER_DOWN : FW_EVENT_FINGER_UP;
-
-		mutex_lock(&drvdata->fw_events_mutex);
-
-		if (kfifo_is_full(&drvdata->fw_events)) {
-			struct fw_event_desc dummy_fw_event;
-
-			pr_warn("fw events fifo: full, dropping oldest item\n");
-			if (!kfifo_get(&drvdata->fw_events, &dummy_fw_event))
-				pr_err("fw events fifo: could not remove oldest item\n");
-		}
-
-		purge_finger_events(drvdata);
-
-		if (!kfifo_put(&drvdata->fw_events, fw_event))
-			pr_err("fw events fifo: error adding item\n");
-
-		mutex_unlock(&drvdata->fw_events_mutex);
-		wake_up_interruptible(&drvdata->read_wait_queue);
-	} else {
-		pr_err("invalid mode %d\n", drvdata->fd_ind_mode);
-	}
-}
-
 static void qbt1000_gpio_report_event(struct qbt1000_drvdata *drvdata)
 {
 	int state;
@@ -893,6 +1127,7 @@ static void qbt1000_gpio_report_event(struct qbt1000_drvdata *drvdata)
 		^ drvdata->fd_gpio.active_low;
 	gpio_report_event(drvdata, state);
 }
+
 static void qbt1000_gpio_work_func(struct work_struct *work)
 {
 	struct qbt1000_drvdata *drvdata =
@@ -937,6 +1172,7 @@ static irqreturn_t qbt1000_ipc_irq_handler(int irq, void *dev_id)
 	struct qbt1000_drvdata *drvdata = (struct qbt1000_drvdata *)dev_id;
 	int rc = 0;
 	uint32_t retry_count = SEND_TZ_CMD_RETRY_CNT;
+	unsigned long flags;
 
 	pm_stay_awake(drvdata->dev);
 
@@ -1045,20 +1281,25 @@ static irqreturn_t qbt1000_ipc_irq_handler(int irq, void *dev_id)
 						g_msg_to_event[i].fw_event;
 					struct fw_event_desc fw_ev_desc;
 
-					mutex_lock(&drvdata->fw_events_mutex);
 					pr_debug("fw events: add %d\n",
 						(int) ev);
 					fw_ev_desc.ev = ev;
 
+					spin_lock_irqsave(
+						&drvdata->fw_events_lock,
+						flags);
 					purge_finger_events(drvdata);
 
 					if (!kfifo_put(&drvdata->fw_events,
-							fw_ev_desc))
+							fw_ev_desc)) {
 						pr_err("fw events: fifo full");
-						pr_err(", drop event %d\n",
-							(int) ev);
+						pr_err("drop event %d\n",
+							(int)ev);
+					}
 
-					mutex_unlock(&drvdata->fw_events_mutex);
+					spin_unlock_irqrestore(
+						&drvdata->fw_events_lock,
+						flags);
 					break;
 				}
 			}
@@ -1205,10 +1446,21 @@ static int qbt1000_read_device_tree(struct platform_device *pdev,
 	drvdata->fd_gpio.gpio = gpio;
 	drvdata->fd_gpio.active_low = flags & OF_GPIO_ACTIVE_LOW;
 
+	/*****************************************************/
+	// read QFP_Int2 gpio
+	qbt1000_int2 = of_get_named_gpio(pdev->dev.of_node,
+			"qfp-int2", 0);
+	if (qbt1000_int2 < 0) {
+		rc = qbt1000_int2;
+		pr_err("qfp-int2 gpio not found, error=%d\n", rc);
+		goto end;
+	}
+	pr_debug("get qfp-int2 success\n");
+
 end:
 	return rc;
 }
-
+bool finger_type = false;
 /**
  * qbt1000_probe() - Function loads hardware config from device tree
  * @pdev:	ptr to platform device object
@@ -1220,7 +1472,11 @@ static int qbt1000_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct qbt1000_drvdata *drvdata;
 	int rc = 0;
+	const char *desc = "qbt1000_int2";
 
+	pr_info("%s:fp version %x\n", __func__, fp_version);
+	if ((fp_version != 0x06))
+		return -ENODEV;
 	pr_debug("%s begin\n", __func__);
 	drvdata = devm_kzalloc(dev, sizeof(*drvdata), GFP_KERNEL);
 	if (!drvdata)
@@ -1233,10 +1489,15 @@ static int qbt1000_probe(struct platform_device *pdev)
 	if (rc < 0)
 		goto end;
 
+	rc = devm_gpio_request_one(&pdev->dev, qbt1000_int2,
+		GPIOF_OUT_INIT_LOW, desc);
+	if (rc < 0)
+		goto end;
+
 	atomic_set(&drvdata->available, 1);
 
 	mutex_init(&drvdata->mutex);
-	mutex_init(&drvdata->fw_events_mutex);
+	spin_lock_init(&drvdata->fw_events_lock);
 
 	rc = qbt1000_dev_register(drvdata);
 	if (rc < 0)
@@ -1261,9 +1522,9 @@ static int qbt1000_probe(struct platform_device *pdev)
 	if (rc < 0)
 		goto end;
 
-	drvdata->fd_ind_mode = FD_IND_MODE_BIOMETRIC;
-	drvdata->ipc_is_stale = false;
-	drvdata->gestures_enabled = false;
+    finger_type = true;
+	//is_probed = true;
+	ts_cb_drvdata = drvdata;
 
 end:
 	pr_debug("%s : %d\n", __func__, rc);
@@ -1274,10 +1535,12 @@ static int qbt1000_remove(struct platform_device *pdev)
 {
 	struct qbt1000_drvdata *drvdata = platform_get_drvdata(pdev);
 
+	if (drvdata->mt.is_registered)
+		input_unregister_handler(&qbt1000_touch_handler);
+
 	input_unregister_device(drvdata->in_dev);
 
 	mutex_destroy(&drvdata->mutex);
-	mutex_destroy(&drvdata->fw_events_mutex);
 
 	device_destroy(drvdata->qbt1000_class, drvdata->qbt1000_cdev.dev);
 	class_destroy(drvdata->qbt1000_class);
@@ -1286,10 +1549,13 @@ static int qbt1000_remove(struct platform_device *pdev)
 
 	device_init_wakeup(&pdev->dev, 0);
 
+	ts_cb_drvdata = NULL;
+
 	return 0;
 }
 
-static int qbt1000_suspend(struct platform_device *pdev, pm_message_t state)
+static int qbt1000_suspend(struct platform_device *pdev,
+	pm_message_t state)
 {
 	int rc = 0;
 	struct qbt1000_drvdata *drvdata = platform_get_drvdata(pdev);

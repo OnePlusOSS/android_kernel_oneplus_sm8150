@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -41,13 +41,13 @@
 	extcon_usb1: extcon_usb1 {
 		compatible = "linux,extcon-usb-gpio";
 		vbus-gpio = <&pm8150_gpios 10 GPIO_ACTIVE_HIGH>;
-		id-gpio = <&tlmm 101 GPIO_ACTIVE_HIGH>;
+		/*id-gpio = <&tlmm 101 GPIO_ACTIVE_HIGH>; GPIO 101 for fingerprint VDD enable*/
 		vbus-out-gpio = <&pm8150_gpios 9 GPIO_ACTIVE_HIGH>;
 
-		pinctrl-names = "default";
+		/*pinctrl-names = "default";
 		pinctrl-0 = <&usb2_vbus_det_default
 			     &usb2_id_det_default
-			     &usb2_vbus_boost_default>;
+			     &usb2_vbus_boost_default>; GPIO 101 for fingerprint VDD enable*/
 	};
 };
 
@@ -290,6 +290,7 @@
 	compatible = "qcom,ufs-phy-qmp-v4";
 
 	vdda-phy-supply = <&pm8150_l5>;
+	vdda-phy-always-on;
 	vdda-pll-supply = <&pm8150l_l3>;
 	vdda-phy-max-microamp = <90200>;
 	vdda-pll-max-microamp = <19000>;

@@ -641,7 +641,7 @@
 
 		qcom,max-pclk-frequency-khz = <675000>;
 
-		qcom,mst-enable;
+		//qcom,mst-enable;
 		qcom,dsc-feature-enable;
 		qcom,fec-feature-enable;
 		qcom,max-dp-dsc-blks = <2>;

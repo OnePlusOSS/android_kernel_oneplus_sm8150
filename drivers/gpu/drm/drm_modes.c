@@ -730,8 +730,8 @@ void drm_mode_set_name(struct drm_display_mode *mode)
 {
 	bool interlaced = !!(mode->flags & DRM_MODE_FLAG_INTERLACE);
 
-	snprintf(mode->name, DRM_DISPLAY_MODE_LEN, "%dx%d%s",
-		 mode->hdisplay, mode->vdisplay,
+	snprintf(mode->name, DRM_DISPLAY_MODE_LEN, "%dx%d-%d%s",
+		 mode->hdisplay, mode->vdisplay,mode->vrefresh,
 		 interlaced ? "i" : "");
 }
 EXPORT_SYMBOL(drm_mode_set_name);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2018 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -33,6 +33,10 @@
  *  CHGR Peripheral Registers  *
  ********************************/
 #define BATTERY_CHARGER_STATUS_1_REG		(CHGR_BASE + 0x06)
+#define BVR_INITIAL_RAMP_BIT		BIT(7)
+#define ZERO_CHARGE_CURRENT_BIT		BIT(6)
+#define STEP_CHARGING_STATUS_SHIFT	3
+#define STEP_CHARGING_STATUS_MASK	GENMASK(5, 3)
 #define BATTERY_CHARGER_STATUS_MASK		GENMASK(2, 0)
 enum {
 	INHIBIT_CHARGE = 0,
@@ -290,6 +294,19 @@ enum {
 #define SUSPEND_ON_COLLAPSE_USBIN_BIT		BIT(7)
 #define USBIN_AICL_PERIODIC_RERUN_EN_BIT	BIT(4)
 #define USBIN_AICL_ADC_EN_BIT			BIT(3)
+#define SUSPEND_ON_COLLAPSE_USBIN_BIT		BIT(7)
+#define USBIN_AICL_HDC_EN_BIT			BIT(6)
+#define USBIN_AICL_START_AT_MAX_BIT		BIT(5)
+#define USBIN_AICL_EN_BIT			BIT(2)
+#define USBIN_HV_COLLAPSE_RESPONSE_BIT		BIT(1)
+#define USBIN_LV_COLLAPSE_RESPONSE_BIT		BIT(0)
+
+#define USBIN_5V_AICL_THRESHOLD_CFG_REG		(USBIN_BASE + 0x81)
+#define USBIN_5V_AICL_THRESHOLD_CFG_MASK	GENMASK(2, 0)
+
+#define USBIN_CONT_AICL_THRESHOLD_CFG_REG	(USBIN_BASE + 0x84)
+#define USBIN_CONT_AICL_THRESHOLD_CFG_MASK	GENMASK(5, 0)
+
 #define USBIN_AICL_EN_BIT			BIT(2)
 
 #define USB_ENG_SSUPPLY_USB2_REG		(USBIN_BASE + 0xC0)
@@ -312,7 +329,8 @@ enum {
  *  TYPEC Peripheral Registers  *
  ********************************/
 #define TYPE_C_SNK_STATUS_REG			(TYPEC_BASE + 0x06)
-#define DETECTED_SRC_TYPE_MASK			GENMASK(3, 0)
+#define DETECTED_SRC_TYPE_MASK			GENMASK(6, 0)
+#define SNK_RP_RP_BIT				BIT(6)
 #define SNK_RP_STD_BIT				BIT(3)
 #define SNK_RP_1P5_BIT				BIT(2)
 #define SNK_RP_3P0_BIT				BIT(1)
@@ -329,6 +347,8 @@ enum {
 
 #define TYPE_C_STATE_MACHINE_STATUS_REG		(TYPEC_BASE + 0x09)
 #define TYPEC_ATTACH_DETACH_STATE_BIT		BIT(5)
+
+#define DEBUG_ACCESS_SNK_CFG_REG                (TYPEC_BASE + 0x4A)
 
 #define TYPE_C_MISC_STATUS_REG			(TYPEC_BASE + 0x0B)
 #define TYPEC_WATER_DETECTION_STATUS_BIT	BIT(7)
@@ -354,7 +374,7 @@ enum {
 #define TYPEC_TRY_MODE_MASK			GENMASK(4, 3)
 #define EN_TRY_SNK_BIT				BIT(4)
 #define EN_TRY_SRC_BIT				BIT(3)
-#define TYPEC_POWER_ROLE_CMD_MASK		GENMASK(2, 0)
+#define TYPEC_POWER_ROLE_CMD_MASK		GENMASK(4, 0)
 #define EN_SRC_ONLY_BIT				BIT(2)
 #define EN_SNK_ONLY_BIT				BIT(1)
 #define TYPEC_DISABLE_CMD_BIT			BIT(0)
@@ -378,6 +398,7 @@ enum {
 
 #define TYPE_C_EXIT_STATE_CFG_REG		(TYPEC_BASE + 0x50)
 #define BYPASS_VSAFE0V_DURING_ROLE_SWAP_BIT	BIT(3)
+#define SEL_SRC_UPPER_REF_BIT			BIT(2)
 #define EXIT_SNK_BASED_ON_CC_BIT		BIT(0)
 
 #define TYPE_C_CURRSRC_CFG_REG			(TYPEC_BASE + 0x52)

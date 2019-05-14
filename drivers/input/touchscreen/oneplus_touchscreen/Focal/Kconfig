@@ -1,0 +1,3 @@
+
+source "drivers/input/touchscreen/oneplus_touchscreen/Focal/FT8006/Kconfig"
+

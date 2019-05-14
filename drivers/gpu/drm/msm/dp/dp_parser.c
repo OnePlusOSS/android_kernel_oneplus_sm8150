@@ -711,7 +711,7 @@ static int dp_parser_mst(struct dp_parser *parser)
 			"qcom,mst-enable");
 	parser->has_mst_sideband = parser->has_mst;
 
-	pr_debug("mst parsing successful. mst:%d\n", parser->has_mst);
+	pr_err("mst parsing successful. mst:%d\n", parser->has_mst);
 
 	return 0;
 }

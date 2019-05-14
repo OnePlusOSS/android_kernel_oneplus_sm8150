@@ -1,0 +1,10 @@
+
+#Added by MingQiang.Guo@Bsp.group.Tp for himax hx833112B ic driver
+
+config TOUCHPANEL_HIMAX_HX83112B
+#	default y
+	bool "TP himax hx83112b IC enable or not for OPPO"
+	---help---
+	say Y to enable driver for Touchpanel useing himax hx83112b
+
+

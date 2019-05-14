@@ -69,14 +69,14 @@
 
 		storage_cd: storage_cd {
 			mux {
-				pins = "gpio96";
-				function = "gpio";
+				/*pins = "gpio96";
+				function = "gpio";*/
 			};
 
 			config {
-				pins = "gpio96";
-				bias-pull-up;           /* pull up */
-				drive-strength = <2>;   /* 2 MA */
+				/*pins = "gpio96";*/
+				/*bias-pull-up;*/           /* pull up */
+				/*drive-strength = <2>;*/   /* 2 MA */
 			};
 		};
 
@@ -448,14 +448,14 @@
 
 		wil6210_refclk3_en_pin: wil6210_refclk3_en_pin {
 			mux {
-				pins = "gpio87";
-				function = "gpio";
+				/*pins = "gpio87";
+				function = "gpio";*/
 			};
 
 			config {
-				pins = "gpio87";
-				bias-pull-down;		/* PULL DOWN */
-				drive-strength = <2>;	/* 2 MA */
+				/*pins = "gpio87";*/
+				/*bias-pull-down;*/		/* PULL DOWN */
+				/*drive-strength = <2>;*/	/* 2 MA */
 			};
 		};
 
@@ -983,6 +983,18 @@
 					pins = "gpio88", "gpio89";
 					drive-strength = <2>;
 					bias-pull-up;
+				};
+			};
+			qupv3_se8_i2c_reset: qupv3_se8_i2c_reset {
+				mux {
+					pins = "gpio88", "gpio89";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio88", "gpio89";
+					drive-strength = <2>;
+					bias-pull-down;
 				};
 			};
 		};
@@ -1624,7 +1636,8 @@
 				config {
 					pins = "gpio55", "gpio56";
 					drive-strength = <2>;
-					bias-pull-up;
+					bias-disable;
+					input-enable;
 				};
 			};
 		};
@@ -4211,14 +4224,14 @@
 			};
 		};
 
-		usb2_id_det_default: usb2_id_det_default {
+		/*usb2_id_det_default: usb2_id_det_default {
 			config {
 				pins = "gpio101";
 				function = "gpio";
 				input-enable;
 				bias-pull-up;
 			};
-		};
+		 };GPIO 101 for fingerprint VDD enable */
 
 		emac {
 			emac_mdc: emac_mdc {

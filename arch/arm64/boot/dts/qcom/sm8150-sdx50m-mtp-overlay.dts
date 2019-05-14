@@ -24,8 +24,15 @@
 #include "sm8150-sdx50m.dtsi"
 #include "sm8150-mtp-audio-overlay.dtsi"
 
+#include "sm8150-oem.dtsi"
+#include "sm8150-oem-camera-v2.dtsi"
+#include "guacamole.dtsi"
+#include "guacamole_t0.dtsi"
+
+
 / {
-	model = "SDX50M MTP";
+	model = "SDX50M MTP ref";
 	compatible = "qcom,sm8150-mtp", "qcom,sm8150", "qcom,mtp";
 	qcom,board-id = <0x01010008 0x1>;
+
 };

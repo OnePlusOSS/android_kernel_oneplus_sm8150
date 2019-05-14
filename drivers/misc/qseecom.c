@@ -334,11 +334,13 @@ struct qseecom_client_handle {
 	char app_name[MAX_APP_NAME_SIZE];
 	u32  app_arch;
 	struct qseecom_sec_buf_fd_info sec_buf_fd[MAX_ION_FD];
+	bool from_smcinvoke;
 };
 
 struct qseecom_listener_handle {
 	u32               id;
 	bool              unregister_pending;
+	bool              release_called;
 };
 
 static struct qseecom_control qseecom;
@@ -1473,6 +1475,9 @@ static void __qseecom_processing_pending_lsnr_unregister(void)
 		if (entry && entry->data) {
 			pr_debug("process pending unregister %d\n",
 					entry->data->listener.id);
+			/* don't process if qseecom_release is not called*/
+			if (!entry->data->listener.release_called)
+				break;
 			ptr_svc = __qseecom_find_svc(
 						entry->data->listener.id);
 			if (ptr_svc) {
@@ -2037,6 +2042,7 @@ static int __qseecom_process_reentrancy_blocked_on_listener(
 	sigset_t old_sigset;
 	unsigned long flags;
 	bool found_app = false;
+	struct qseecom_registered_app_list dummy_app_entry = { {NULL} };
 
 	if (!resp || !data) {
 		pr_err("invalid resp or data pointer\n");
@@ -2046,24 +2052,31 @@ static int __qseecom_process_reentrancy_blocked_on_listener(
 
 	/* find app_id & img_name from list */
 	if (!ptr_app) {
-		spin_lock_irqsave(&qseecom.registered_app_list_lock, flags);
-		list_for_each_entry(ptr_app, &qseecom.registered_app_list_head,
-							list) {
-			if ((ptr_app->app_id == data->client.app_id) &&
-				(!strcmp(ptr_app->app_name,
+		if (data->client.from_smcinvoke) {
+			pr_debug("This request is from smcinvoke\n");
+			ptr_app = &dummy_app_entry;
+			ptr_app->app_id = data->client.app_id;
+		} else {
+			spin_lock_irqsave(&qseecom.registered_app_list_lock,
+						flags);
+			list_for_each_entry(ptr_app,
+				&qseecom.registered_app_list_head, list) {
+				if ((ptr_app->app_id == data->client.app_id) &&
+					(!strcmp(ptr_app->app_name,
 						data->client.app_name))) {
-				found_app = true;
-				break;
+					found_app = true;
+					break;
+				}
 			}
-		}
-		spin_unlock_irqrestore(&qseecom.registered_app_list_lock,
-					flags);
-		if (!found_app) {
-			pr_err("app_id %d (%s) is not found\n",
-				data->client.app_id,
-				(char *)data->client.app_name);
-			ret = -ENOENT;
-			goto exit;
+			spin_unlock_irqrestore(
+				&qseecom.registered_app_list_lock, flags);
+			if (!found_app) {
+				pr_err("app_id %d (%s) is not found\n",
+					data->client.app_id,
+					(char *)data->client.app_name);
+				ret = -ENOENT;
+				goto exit;
+			}
 		}
 	}
 
@@ -2330,8 +2343,10 @@ err_resp:
 				ret = -EINVAL;
 				goto exit;
 			}
+			mutex_unlock(&listener_access_lock);
 			ret = __qseecom_process_reentrancy_blocked_on_listener(
 					resp, NULL, data);
+			mutex_lock(&listener_access_lock);
 			if (ret) {
 				pr_err("failed to process App(%d) %s blocked on listener %d\n",
 					data->client.app_id,
@@ -4923,6 +4938,7 @@ int qseecom_process_listener_from_smcinvoke(struct scm_desc *desc)
 	resp.data = desc->ret[2];	/*listener_id*/
 
 	dummy_private_data.client.app_id = desc->ret[1];
+	dummy_private_data.client.from_smcinvoke = true;
 	dummy_app_entry.app_id = desc->ret[1];
 
 	mutex_lock(&app_access_lock);
@@ -7872,6 +7888,7 @@ static int qseecom_release(struct inode *inode, struct file *file)
 			free_private_data = false;
 			mutex_lock(&listener_access_lock);
 			ret = qseecom_unregister_listener(data);
+			data->listener.release_called = true;
 			mutex_unlock(&listener_access_lock);
 			break;
 		case QSEECOM_CLIENT_APP:

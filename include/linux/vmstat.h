@@ -7,7 +7,9 @@
 #include <linux/mmzone.h>
 #include <linux/vm_event_item.h>
 #include <linux/atomic.h>
-
+#ifdef CONFIG_SMART_BOOST
+#include <linux/hotcount.h>
+#endif
 extern int sysctl_stat_interval;
 
 #ifdef CONFIG_VM_EVENT_COUNTERS
@@ -378,6 +380,10 @@ static inline void __mod_zone_freepage_state(struct zone *zone, int nr_pages,
 	__mod_zone_page_state(zone, NR_FREE_PAGES, nr_pages);
 	if (is_migrate_cma(migratetype))
 		__mod_zone_page_state(zone, NR_FREE_CMA_PAGES, nr_pages);
+#ifdef CONFIG_DEFRAG_HELPER
+	if (is_migrate_defrag(migratetype))
+		__mod_zone_page_state(zone, NR_FREE_DEFRAG_POOL, nr_pages);
+#endif
 }
 
 extern const char * const vmstat_text[];

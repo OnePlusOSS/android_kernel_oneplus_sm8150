@@ -576,25 +576,25 @@
 			compatible = "android,firmware";
 			vbmeta {
 				compatible = "android,vbmeta";
-				parts = "vbmeta,boot,system,vendor,dtbo,vm-linux";
+				parts = "vbmeta,boot,system,vendor,dtbo";
 			};
 			fstab {
 				compatible = "android,fstab";
 				vendor {
 					compatible = "android,vendor";
-					dev = "/dev/block/platform/soc/8804000.sdhci/by-name/vendor";
+					dev = "/dev/block/platform/soc/1d84000.sdhci/by-name/vendor";
 					type = "ext4";
 					mnt_flags = "ro,barrier=1,discard";
 					fsmgr_flags = "wait,slotselect,avb";
 					status = "ok";
 				};
-				vm-linux {
-					compatible = "android,vm-linux";
-					dev = "/dev/block/platform/soc/8804000.sdhci/by-name/vm-linux";
-					type = "emmc";
+				odm {
+					compatible = "android,odm";
+					dev = "/dev/block/platform/soc/1d84000.ufshc/by-name/odm";
+					type = "ext4";
 					mnt_flags = "ro";
 					fsmgr_flags = "wait,slotselect";
-					status = "";
+					status = "ok";
 				};
 			};
 		};
@@ -2990,7 +2990,7 @@
 
 	qcom_seecom: qseecom@87900000 {
 		compatible = "qcom,qseecom";
-		reg = <0x87900000 0x2200000>;
+		reg = <0x87900000 0x3E00000>; /* enlarge TA memory size from 34M to 62M on 2018/11/22 */
 		reg-names = "secapp-region";
 		memory-region = <&qseecom_mem>;
 		qcom,hlos-num-ce-hw-instances = <1>;
@@ -3007,7 +3007,7 @@
 
 	qcom_smcinvoke: smcinvoke@87900000 {
 		compatible = "qcom,smcinvoke";
-		reg = <0x87900000 0x2200000>;
+		reg = <0x87900000 0x3E00000>; /* enlarge TA memory size from 34M to 62M on 2018/11/22 */
 		reg-names = "secapp-region";
 	};
 

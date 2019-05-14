@@ -71,6 +71,9 @@
 #include "internal.h"
 
 #include <trace/events/sched.h>
+#ifdef CONFIG_ADJ_CHAIN
+#include <linux/adj_chain.h>
+#endif
 
 int suid_dumpable = 0;
 
@@ -1147,6 +1150,12 @@ static int de_thread(struct task_struct *tsk)
 		list_replace_rcu(&leader->tasks, &tsk->tasks);
 		list_replace_init(&leader->sibling, &tsk->sibling);
 
+#ifdef CONFIG_ADJ_CHAIN
+		tsk->adj_chain_status |= 1 << AC_PROM_LEADER;
+		adj_chain_detach(tsk);
+		adj_chain_attach(tsk);
+		tsk->adj_chain_status &= ~(1 << AC_PROM_LEADER);
+#endif
 		tsk->group_leader = tsk;
 		leader->group_leader = tsk;
 

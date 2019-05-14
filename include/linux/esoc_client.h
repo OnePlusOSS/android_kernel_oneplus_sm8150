@@ -16,6 +16,8 @@
 #include <linux/esoc_ctrl.h>
 #include <linux/notifier.h>
 
+extern int oem_get_download_mode(void);
+
 struct esoc_client_hook {
 	char *name;
 	void *priv;

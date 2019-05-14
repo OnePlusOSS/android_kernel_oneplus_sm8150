@@ -1,0 +1,7 @@
+
+config TOUCHPANEL_GOODIX_GT5688
+#	default y
+	bool "TP TOUCHPANEL_GOODIX_GT5688 IC enable or not"
+	---help---
+	say Y to enable driver for Touchpanel useing TOUCHPANEL_GOODIX_GT5688
+	

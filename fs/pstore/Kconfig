@@ -71,6 +71,14 @@ config PSTORE_FTRACE
 
 	  If unsure, say N.
 
+config PSTORE_DEVICE_INFO
+	bool "Log user space messages"
+	depends on PSTORE
+	help
+	  add device_info.txt for ramdump.
+
+	  If unsure, say N.
+
 config PSTORE_RAM
 	tristate "Log panic/oops to a RAM buffer"
 	depends on PSTORE

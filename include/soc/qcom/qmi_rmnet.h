@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,6 +28,9 @@ struct qmi_rmnet_ps_ind {
 void qmi_rmnet_qmi_exit(void *qmi_pt, void *port);
 void qmi_rmnet_change_link(struct net_device *dev, void *port, void *tcm_pt);
 void qmi_rmnet_enable_all_flows(struct net_device *dev);
+
+bool qmi_rmnet_all_flows_enabled(struct net_device *dev);
+
 #else
 static inline void qmi_rmnet_qmi_exit(void *qmi_pt, void *port)
 {
@@ -42,6 +45,14 @@ static inline void
 qmi_rmnet_enable_all_flows(struct net_device *dev)
 {
 }
+
+static inline bool
+qmi_rmnet_all_flows_enabled(struct net_device *dev)
+{
+	return true;
+}
+
+
 #endif
 
 #ifdef CONFIG_QCOM_QMI_DFC
@@ -79,7 +90,9 @@ int qmi_rmnet_set_powersave_mode(void *port, uint8_t enable);
 void qmi_rmnet_work_init(void *port);
 void qmi_rmnet_work_exit(void *port);
 void qmi_rmnet_work_maybe_restart(void *port);
-void qmi_rmnet_work_restart(void *port);
+//void qmi_rmnet_work_restart(void *port);
+
+void qmi_rmnet_set_dl_msg_active(void *port);
 
 int qmi_rmnet_ps_ind_register(void *port,
 			      struct qmi_rmnet_ps_ind *ps_ind);
@@ -96,10 +109,11 @@ static inline int qmi_rmnet_set_powersave_mode(void *port, uint8_t enable)
 static inline void qmi_rmnet_work_init(void *port)
 {
 }
-static inline void qmi_rmnet_work_restart(void *port)
-{
 
-}
+//static inline void qmi_rmnet_work_restart(void *port)
+//{
+//
+//}
 static inline void qmi_rmnet_work_exit(void *port)
 {
 }
@@ -107,6 +121,9 @@ static inline void qmi_rmnet_work_exit(void *port)
 static inline void qmi_rmnet_work_maybe_restart(void *port)
 {
 
+}
+static inline void qmi_rmnet_set_dl_msg_active(void *port)
+{
 }
 
 static inline int qmi_rmnet_ps_ind_register(struct rmnet_port *port,

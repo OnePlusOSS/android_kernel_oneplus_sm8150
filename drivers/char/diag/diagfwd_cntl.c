@@ -64,6 +64,10 @@ void diag_cntl_channel_close(struct diagfwd_info *p_info)
 	if (peripheral >= NUM_PERIPHERALS)
 		return;
 
+	pr_debug("diag: ETS: %s: peripheral=%d (+)\n",
+			__func__, peripheral);
+
+
 	driver->feature[peripheral].sent_feature_mask = 0;
 	driver->feature[peripheral].rcvd_feature_mask = 0;
 	reg_dirty[peripheral] = 1;
@@ -75,6 +79,10 @@ void diag_cntl_channel_close(struct diagfwd_info *p_info)
 	driver->stm_state_requested[peripheral] = DISABLE_STM;
 	reg_dirty[peripheral] = 0;
 	diag_notify_md_client(peripheral, DIAG_STATUS_CLOSED);
+
+	pr_debug("diag: ETS: %s: peripheral=%d (-)\n",
+			__func__, peripheral);
+
 }
 
 static void diag_stm_update_work_fn(struct work_struct *work)
@@ -1136,8 +1144,13 @@ void diag_real_time_work_fn(struct work_struct *work)
 		if (peripheral == APPS_DATA)
 			continue;
 
-		if (peripheral > NUM_PERIPHERALS)
+		if (peripheral > NUM_PERIPHERALS) {
 			peripheral = diag_search_peripheral_by_pd(i);
+			if (peripheral > NUM_PERIPHERALS) {
+				pr_warn("invalid peripheral for pd %d\n", i);
+				continue;
+			}
+		}
 
 		if (!driver->feature[peripheral].peripheral_buffering)
 			continue;

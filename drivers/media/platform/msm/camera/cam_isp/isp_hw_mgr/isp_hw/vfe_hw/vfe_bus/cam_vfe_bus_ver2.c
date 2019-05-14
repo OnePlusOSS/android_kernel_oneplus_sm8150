@@ -950,6 +950,11 @@ static int cam_vfe_bus_acquire_wm(
 			rsrc_data->stride = rsrc_data->width;
 			break;
 		case CAM_FORMAT_PLAIN16_10:
+			rsrc_data->stride = ((rsrc_data->width +15)/16)*16*2;
+			rsrc_data->width = rsrc_data->width*2;
+			rsrc_data->en_cfg = 0x1;
+			rsrc_data->pack_fmt = 0x10;
+			break;
 		case CAM_FORMAT_PLAIN16_12:
 		case CAM_FORMAT_PLAIN16_14:
 		case CAM_FORMAT_PLAIN16_16:

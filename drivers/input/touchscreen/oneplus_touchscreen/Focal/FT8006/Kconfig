@@ -1,0 +1,10 @@
+
+#Added by Cong.Dai@Bsp.group.Tp for focal ft8006 ic driver
+
+config TOUCHPANEL_FOCAL_FT8006
+#	default y
+	bool "TP focal_ft8006 IC enable or not for OPPO"
+	---help---
+	say Y to enable driver for Touchpanel useing focal ft8006
+
+

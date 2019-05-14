@@ -25,6 +25,7 @@
 #include <linux/of.h>
 #include <linux/dma-buf.h>
 #include <linux/ion_kernel.h>
+#include <linux/proc_fs.h>
 
 #include <soc/qcom/scm.h>
 #include <soc/qcom/qseecomi.h>
@@ -904,6 +905,96 @@ err:
 	return;
 }
 
+//add tz and qsee log to logkit
+static ssize_t proc_qsee_log_func(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
+{
+	int len = 0;
+	memcpy_fromio((void *)tzdbg.diag_buf, tzdbg.virt_iobase,
+						debug_rw_buf_size);
+	memcpy_fromio((void *)tzdbg.hyp_diag_buf, tzdbg.hyp_virt_iobase,
+					tzdbg.hyp_debug_rw_buf_size);
+	len = _disp_qsee_log_stats(count);
+	*ppos = 0;
+
+	if (len > count)
+		len = count;
+
+	return simple_read_from_buffer(user_buf, len, ppos, tzdbg.stat[6].data, len);
+}
+
+
+static const struct file_operations proc_qsee_log_fops = {
+	.read =  proc_qsee_log_func,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+};
+
+static ssize_t proc_tz_log_func(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
+{
+	int len = 0;
+	memcpy_fromio((void *)tzdbg.diag_buf, tzdbg.virt_iobase,
+						debug_rw_buf_size);
+	memcpy_fromio((void *)tzdbg.hyp_diag_buf, tzdbg.hyp_virt_iobase,
+					tzdbg.hyp_debug_rw_buf_size);
+
+    if (TZBSP_DIAG_MAJOR_VERSION_LEGACY <
+			(tzdbg.diag_buf->version >> 16)) {
+		len = _disp_tz_log_stats(count);
+		*ppos = 0;
+	} else {
+		len = _disp_tz_log_stats_legacy();
+	}
+
+	if (len > count)
+		len = count;
+
+	return simple_read_from_buffer(user_buf, len, ppos, tzdbg.stat[5].data, len);
+}
+
+static const struct file_operations proc_tz_log_fops = {
+	.read =  proc_tz_log_func,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+};
+
+static int tzprocfs_init(struct platform_device *pdev)
+{
+
+    int rc = 0;
+	struct proc_dir_entry *prEntry_tmp  = NULL;
+	struct proc_dir_entry *prEntry_dir  = NULL;
+
+	prEntry_dir = proc_mkdir("tzdbg", NULL);
+
+	if (prEntry_dir == NULL) {
+		dev_err(&pdev->dev, "tzdbg procfs_create_dir failed\n");
+		return -ENOMEM;
+	}
+
+	prEntry_tmp = proc_create("qsee_log", 0666, prEntry_dir, &proc_qsee_log_fops);
+
+	if (prEntry_tmp  == NULL) {
+		dev_err(&pdev->dev, "TZ procfs_create_file qsee_log failed\n");
+		rc = -ENOMEM;
+		goto err;
+	}
+
+	prEntry_tmp = proc_create("tz_log", 0666, prEntry_dir, &proc_tz_log_fops);
+
+	if (prEntry_tmp  == NULL) {
+		dev_err(&pdev->dev, "TZ procfs_create_file tz_log failed\n");
+		rc = -ENOMEM;
+		goto err;
+	}
+
+	return 0;
+err:
+	proc_remove(prEntry_dir);
+
+	return rc;
+}
+
+
 static int  tzdbgfs_init(struct platform_device *pdev)
 {
 	int rc = 0;
@@ -1098,6 +1189,11 @@ static int tz_log_probe(struct platform_device *pdev)
 
 	if (tzdbgfs_init(pdev))
 		goto err;
+
+	//add tz and qsee log to logkit
+	if (tzprocfs_init(pdev))
+		goto err;
+
 
 	tzdbg_register_qsee_log_buf(pdev);
 

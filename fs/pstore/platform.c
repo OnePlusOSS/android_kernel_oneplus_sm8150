@@ -624,6 +624,45 @@ static void pstore_console_write(struct console *con, const char *s, unsigned c)
 	}
 }
 
+static void  pstore_console_init(void )
+{
+    size_t oldsize;
+    size_t size =0;
+    unsigned long flags;
+    struct ramoops_context *cxt = psinfo->data;
+    struct pstore_record record;
+
+    if (psinfo == NULL)
+        return;
+
+    size = cxt->console_size;
+
+	pstore_record_init(&record, psinfo);
+	record.type = PSTORE_TYPE_CONSOLE;
+    record.buf = psinfo->buf;
+    record.size = size;
+
+    oldsize = psinfo->bufsize;
+
+
+    if (size > psinfo->bufsize)
+        size = psinfo->bufsize;
+
+    if (oops_in_progress) {
+        if (!spin_trylock_irqsave(&psinfo->buf_lock, flags))
+            return;
+    } else {
+        spin_lock_irqsave(&psinfo->buf_lock, flags);
+    }
+    memset(record.buf, ' ', size);
+    
+
+    psinfo->write(&record);
+    spin_unlock_irqrestore(&psinfo->buf_lock, flags);
+
+    psinfo->bufsize = oldsize ;
+}
+
 static struct console pstore_console = {
 	.name	= "pstore",
 	.write	= pstore_console_write,
@@ -633,6 +672,7 @@ static struct console pstore_console = {
 
 static void pstore_register_console(void)
 {
+    pstore_console_init();
 	register_console(&pstore_console);
 }
 

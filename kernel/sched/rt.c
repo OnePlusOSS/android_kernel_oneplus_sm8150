@@ -12,6 +12,9 @@
 #include "tune.h"
 
 #include "walt.h"
+#ifdef CONFIG_OPCHAIN
+#include <../drivers/oneplus/coretech/opchain/opchain_helper.h>
+#endif
 
 int sched_rr_timeslice = RR_TIMESLICE;
 int sysctl_sched_rr_timeslice = (MSEC_PER_SEC / HZ) * RR_TIMESLICE;
@@ -1762,6 +1765,9 @@ static int rt_energy_aware_wake_cpu(struct task_struct *task)
 	bool boost_on_big = sched_boost() == FULL_THROTTLE_BOOST ?
 				  (sched_boost_policy() == SCHED_BOOST_ON_BIG) :
 				  false;
+#ifdef CONFIG_OPCHAIN
+	bool best_cpu_is_claimed = false;
+#endif
 
 	rcu_read_lock();
 
@@ -1798,7 +1804,16 @@ retry:
 
 			if (__cpu_overutilized(cpu, tutil))
 				continue;
-
+#ifdef CONFIG_OPCHAIN
+			if (best_cpu_is_claimed) {
+				best_cpu_idle_idx = cpu_idle_idx;
+				best_cpu_util_cum = util_cum;
+				best_cpu_util = util;
+				best_cpu = cpu;
+				best_cpu_is_claimed = false;
+				continue;
+			}
+#endif
 			/* Find the least loaded CPU */
 			if (util > best_cpu_util)
 				continue;
@@ -1829,7 +1844,14 @@ retry:
 						best_cpu_util_cum < util_cum)
 					continue;
 			}
-
+#ifdef CONFIG_OPCHAIN
+			if (opc_get_claim_on_cpu(cpu)) {
+				if (best_cpu != -1)
+					continue;
+				else
+					best_cpu_is_claimed = true;
+			}
+#endif
 			best_cpu_idle_idx = cpu_idle_idx;
 			best_cpu_util_cum = util_cum;
 			best_cpu_util = util;

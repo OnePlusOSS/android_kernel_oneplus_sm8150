@@ -314,6 +314,8 @@ struct cam_req_mgr_connected_device {
  *                         is assigned as master
  * @initial_skip         : Flag to determine if slave has started streaming in
  *                         master-slave sync
+ * @initial_sync_req     : The initial req which is required to sync
+							with the other link
  *
  */
 struct cam_req_mgr_core_link {
@@ -339,6 +341,7 @@ struct cam_req_mgr_core_link {
 	atomic_t                             is_used;
 	bool                                 is_master;
 	bool                                 initial_skip;
+	int64_t                              initial_sync_req;
 };
 
 /**

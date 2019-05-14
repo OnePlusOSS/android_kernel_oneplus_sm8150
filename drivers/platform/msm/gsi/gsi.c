@@ -25,7 +25,7 @@
 #define GSI_CMD_TIMEOUT (5*HZ)
 #define GSI_START_CMD_TIMEOUT_MS 1000
 #define GSI_CMD_POLL_CNT 5
-#define GSI_STOP_CMD_TIMEOUT_MS 200
+#define GSI_STOP_CMD_TIMEOUT_MS 500
 #define GSI_MAX_CH_LOW_WEIGHT 15
 
 #define GSI_STOP_CMD_POLL_CNT 4
@@ -2797,6 +2797,8 @@ int gsi_stop_channel(unsigned long chan_hdl)
 
 free_lock:
 	mutex_unlock(&gsi_ctx->mlock);
+	if (res == -GSI_STATUS_TIMED_OUT)
+		BUG();
 	return res;
 }
 EXPORT_SYMBOL(gsi_stop_channel);

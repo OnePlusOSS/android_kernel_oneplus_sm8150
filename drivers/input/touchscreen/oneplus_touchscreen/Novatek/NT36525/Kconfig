@@ -1,0 +1,10 @@
+
+#Added by Cong.Dai@Bsp.group.Tp for nova nt36525 ic driver
+
+config TOUCHPANEL_NOVA_NT36525
+#	default y
+	bool "TP nova nt36525 IC enable or not for OPPO"
+	---help---
+	say Y to enable driver for Touchpanel useing nova nt36525
+
+

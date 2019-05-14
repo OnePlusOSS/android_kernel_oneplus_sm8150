@@ -993,6 +993,18 @@ static inline void userns_fixup_signal_uid(struct siginfo *info, struct task_str
 }
 #endif
 
+static int print_key_process_murder __read_mostly = 1;
+static bool is_zygote_process(struct task_struct *t)
+{
+       const struct cred *tcred = __task_cred(t);
+
+       if(!strcmp(t->comm, "main") && (tcred->uid.val == 0) && (t->parent != 0 && !strcmp(t->parent->comm,"init")))
+               return true;
+       else
+               return false;
+       return false;
+}
+
 static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 			int group, int from_ancestor_ns)
 {
@@ -1004,6 +1016,20 @@ static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 	assert_spin_locked(&t->sighand->siglock);
 
 	result = TRACE_SIGNAL_IGNORED;
+
+	if(print_key_process_murder) {
+		if(!strcmp(t->comm, "system_server") ||
+			is_zygote_process(t) ||
+			!strcmp(t->comm, "surfaceflinger") ||
+			!strcmp(t->comm, "servicemanager") ||
+			(!strcmp(t->comm, "netd") && sig == 9))
+		{
+			struct task_struct *tg = current->group_leader;
+			printk("process %d:%s, %d:%s send sig:%d to process %d:%s\n",
+				tg->pid, tg->comm, current->pid, current->comm, sig, t->pid, t->comm);
+		}
+	}
+
 	if (!prepare_signal(sig, t,
 			from_ancestor_ns || (info == SEND_SIG_PRIV) || (info == SEND_SIG_FORCED)))
 		goto ret;
@@ -1159,6 +1185,19 @@ int do_send_sig_info(int sig, struct siginfo *info, struct task_struct *p,
 {
 	unsigned long flags;
 	int ret = -ESRCH;
+
+	if(sig == SIGKILL) {
+		if(p && p->flags & PF_FROZEN) {
+		struct task_struct *child = p;
+		rcu_read_lock();
+		do {
+			child = next_thread(child);
+			child->kill_flag = 1;
+			__thaw_task(child);
+		} while(child !=p);
+		rcu_read_unlock();
+		}
+	}
 
 	if (lock_task_sighand(p, &flags)) {
 		ret = send_signal(sig, info, p, group);
@@ -2972,12 +3011,19 @@ COMPAT_SYSCALL_DEFINE4(rt_sigtimedwait, compat_sigset_t __user *, uthese,
 SYSCALL_DEFINE2(kill, pid_t, pid, int, sig)
 {
 	struct siginfo info;
+	struct task_struct *p;
 
 	info.si_signo = sig;
 	info.si_errno = 0;
 	info.si_code = SI_USER;
 	info.si_pid = task_tgid_vnr(current);
 	info.si_uid = from_kuid_munged(current_user_ns(), current_uid());
+
+	if (sig == SIGQUIT || sig == SIGSEGV ||  sig == SIGABRT) {
+                p = pid_task(find_vpid(pid), PIDTYPE_PID);
+                if (p)
+                        unfreezer_fork(p);
+        }
 
 	return kill_something_info(sig, &info, pid);
 }

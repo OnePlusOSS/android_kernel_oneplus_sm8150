@@ -514,7 +514,7 @@ static void periph_interrupt(struct spmi_pmic_arb *pmic_arb, u16 apid)
 		id = ffs(status) - 1;
 		status &= ~BIT(id);
 		irq = irq_find_mapping(pmic_arb->domain,
-					spec_to_hwirq(sid, per, id, apid));
+					(unsigned int)spec_to_hwirq(sid, per, id, apid));
 		if (irq == 0) {
 			cleanup_irq(pmic_arb, apid, id);
 			continue;

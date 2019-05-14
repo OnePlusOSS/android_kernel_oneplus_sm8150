@@ -897,7 +897,7 @@ asmlinkage int __exception do_debug_exception(unsigned long addr,
 	if (!inf->fn(addr, esr, regs)) {
 		rv = 1;
 	} else {
-		pr_alert("Unhandled debug exception: %s (0x%08x) at 0x%016lx\n",
+		pr_info_ratelimited("Unhandled debug exception: %s (0x%08x) at 0x%016lx\n",
 			 inf->name, esr, addr);
 
 		info.si_signo = inf->sig;

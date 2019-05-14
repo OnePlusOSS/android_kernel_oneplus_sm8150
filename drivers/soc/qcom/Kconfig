@@ -721,15 +721,6 @@ config MSM_NOPM
 	  This enables bare minimum support of power management at platform level.
 	  i.e WFI
 
-config MSM_QBT1000
-	bool "QBT1000 Ultrasonic Fingerprint Sensor"
-	help
-	  This driver provides services for configuring the fingerprint
-	  sensor hardware and for communicating with the trusted app which
-	  uses it. It enables clocks and provides commands for loading
-	  trusted apps, unloading them and marshalling buffers to the
-	  trusted fingerprint app.
-
 config APSS_CORE_EA
 	depends on CPU_FREQ && PM_OPP
 	bool "Qualcomm Technology Inc specific power aware driver"
@@ -826,6 +817,20 @@ config QCOM_CDSP_RM
 	  improving CDSP performance. Using this driver, CDSP can set appropriate
 	  CPU L3 clock for improving IO-Coherent throughput and opt for QoS mode
 	  to improve RPC latency.
+
+config PROJECT_INFO
+	bool "detect project info"
+	default n
+        help
+           detect projcet info  If unsure, say n.
+
+config RF_CABLE_DETECT
+	bool "detect RF cable connection"
+	help
+	  detect RF cable connection for different RF configuration
+	  To compile this driver as a module, choose M here: the module
+	  will be called RF cable.
+	  If unsure, say N.
 
 config QCOM_CX_IPEAK
 	bool "Common driver to handle Cx iPeak limitation"
