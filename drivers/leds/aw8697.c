@@ -4847,6 +4847,7 @@ static ssize_t aw8697_haptic_ram_test_show(struct device *dev, struct device_att
 
 	len += snprintf(buf + len, PAGE_SIZE - len,
 					"%d\n", aw8697->ram_test_result);
+	aw8697_ram_update(aw8697);
 	return len;
 }
 
