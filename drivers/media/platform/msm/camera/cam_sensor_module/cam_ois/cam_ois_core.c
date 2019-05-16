@@ -1222,10 +1222,12 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
     //unsigned char gyroresult = 0;
     struct timespec mStartTime, mEndTime, diff;
     UINT64 mSpendTime = 0;
+    enum cci_i2c_master_t entry_cci_master;
     if (!o_ctrl) {
         CAM_ERR(CAM_OIS, "Invalid Args");
         return -EINVAL;
     }
+    entry_cci_master = o_ctrl->io_master_info.cci_client->cci_i2c_master;
     getnstimeofday(&mStartTime);
 
     //Master_1:imx586 Master_0:s5k3m5
@@ -1235,8 +1237,8 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
         o_ctrl->ois_gyro_id);
 
     if (MASTER_1 == o_ctrl->io_master_info.cci_client->cci_i2c_master &&
-        false == imx586_ois_initialized) {
-
+        false == imx586_ois_initialized)
+    {
         if(o_ctrl->ois_gyro_id==3){
             rc = SelectDownload(o_ctrl, 0x02, 0x00, 0x00, o_ctrl->ois_fw_flag);
         }else {
@@ -1319,9 +1321,10 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
                     break;
             }
         }
-    } else if (MASTER_0 == o_ctrl->io_master_info.cci_client->cci_i2c_master &&
-        false == s5k3m5_ois_initialized) {
-
+    }
+	else if (MASTER_0 == o_ctrl->io_master_info.cci_client->cci_i2c_master &&
+        false == s5k3m5_ois_initialized)
+    {
         o_ctrl->io_master_info.cci_client->cci_i2c_master = MASTER_0;
         o_ctrl->io_master_info.cci_client->sid = SLAVE_CCI_ADDR;
         if (strcmp(o_ctrl->ois_name, "ofilm_s5k3m5_lc898124ep3_ois") == 0 ){
@@ -1382,56 +1385,57 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
             o_ctrl->io_master_info.cci_client->sid = MASTER_CCI_ADDR;
             if (strcmp(o_ctrl->ois_name, "ofilm_imx586_lc898124ep3_ois") == 0 ){
                 rc = SelectDownload(o_ctrl, 0x02, 0x06, 0x00, o_ctrl->ois_fw_flag);
-            }else {
+            } else {
                 rc = SelectDownload(o_ctrl, 0x02, 0x02, 0x00, o_ctrl->ois_fw_flag);
             }
             if (0 == rc) {
-            //remap master
-            RamWrite32A(o_ctrl, 0xF000, 0x00000000 );
-            msleep(120);
-            //SPI-Master ( Act1 )  start gyro signal transfer. ( from Master to slave. )
-            RamWrite32A(o_ctrl, 0x8970, 0x00000001 );
-            msleep(5);
-            RamWrite32A(o_ctrl, 0xf111, 0x00000001 );
-            o_ctrl->io_master_info.cci_client->cci_i2c_master = MASTER_0;
-            o_ctrl->io_master_info.cci_client->sid = SLAVE_CCI_ADDR;
-            RamRead32A(o_ctrl, 0x061C, & UlReadValX );
-            RamRead32A(o_ctrl, 0x0620, & UlReadValY );
-            CAM_INFO(CAM_OIS, "Slave Gyro_X:0x%x, Gyro_Y:0x%x", UlReadValX, UlReadValY);
-            spi_type = 0;
-            RamRead32A(o_ctrl, 0xf112, & spi_type );
-            CAM_INFO(CAM_OIS, "spi_type:0x%x", spi_type);
-            imx586_ois_initialized = true;
-        } else {
-            switch (rc) {
-                case 0x01:
-                    CAM_ERR(CAM_OIS, "H/W error");
-                    break;
-                case 0x02:
-                    CAM_ERR(CAM_OIS, "Table Data & Program download verify error");
-                    break;
-                case 0xF0:
-                    CAM_ERR(CAM_OIS, "Download code select error");
-                    break;
-                case 0xF1:
-                    CAM_ERR(CAM_OIS, "Download code information read error");
-                    break;
-                case 0xF2:
-                    CAM_ERR(CAM_OIS, "Download code information disagreement");
-                    break;
-                case 0xF3:
-                    CAM_ERR(CAM_OIS, "Download code version error");
-                    break;
-                default:
-                    CAM_ERR(CAM_OIS, "Unkown error code");
-                    break;
-            }
-        }
-    }
+	            //remap master
+	            RamWrite32A(o_ctrl, 0xF000, 0x00000000 );
+	            msleep(120);
+	            //SPI-Master ( Act1 )  start gyro signal transfer. ( from Master to slave. )
+	            RamWrite32A(o_ctrl, 0x8970, 0x00000001 );
+	            msleep(5);
+	            RamWrite32A(o_ctrl, 0xf111, 0x00000001 );
+	            o_ctrl->io_master_info.cci_client->cci_i2c_master = MASTER_0;
+	            o_ctrl->io_master_info.cci_client->sid = SLAVE_CCI_ADDR;
+	            RamRead32A(o_ctrl, 0x061C, & UlReadValX );
+	            RamRead32A(o_ctrl, 0x0620, & UlReadValY );
+	            CAM_INFO(CAM_OIS, "Slave Gyro_X:0x%x, Gyro_Y:0x%x", UlReadValX, UlReadValY);
+	            spi_type = 0;
+	            RamRead32A(o_ctrl, 0xf112, & spi_type );
+	            CAM_INFO(CAM_OIS, "spi_type:0x%x", spi_type);
+	            imx586_ois_initialized = true;
+	        } else {
+	            switch (rc) {
+	                case 0x01:
+	                    CAM_ERR(CAM_OIS, "H/W error");
+	                    break;
+	                case 0x02:
+	                    CAM_ERR(CAM_OIS, "Table Data & Program download verify error");
+	                    break;
+	                case 0xF0:
+	                    CAM_ERR(CAM_OIS, "Download code select error");
+	                    break;
+	                case 0xF1:
+	                    CAM_ERR(CAM_OIS, "Download code information read error");
+	                    break;
+	                case 0xF2:
+	                    CAM_ERR(CAM_OIS, "Download code information disagreement");
+	                    break;
+	                case 0xF3:
+	                    CAM_ERR(CAM_OIS, "Download code version error");
+	                    break;
+	                default:
+	                    CAM_ERR(CAM_OIS, "Unkown error code");
+	                    break;
+	            }
+	        }
+	    }
     }
     getnstimeofday(&mEndTime);
     diff = timespec_sub(mEndTime, mStartTime);
     mSpendTime = (timespec_to_ns(&diff))/1000000;
+    o_ctrl->io_master_info.cci_client->cci_i2c_master = entry_cci_master;
     CAM_INFO(CAM_OIS, "cam_ois_fw_download rc=%d, (Spend: %d ms)", rc, mSpendTime);
 
     return 0;
