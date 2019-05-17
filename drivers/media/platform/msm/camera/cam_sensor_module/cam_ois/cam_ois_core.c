@@ -1175,10 +1175,14 @@ static int cam_ois_power_down(struct cam_ois_ctrl_t *o_ctrl)
 
 	CAM_INFO(CAM_OIS, "cam_io_release");
 
-	imx586_ois_initialized = false;
-	s5k3m5_ois_initialized = false;
-	imx586_ois_ready = false;
-	s5k3m5_ois_ready = false;
+	if (MASTER_1 == o_ctrl->io_master_info.cci_client->cci_i2c_master) {
+		imx586_ois_initialized = false;
+		imx586_ois_ready = false;
+	} else if (MASTER_0 == o_ctrl->io_master_info.cci_client->cci_i2c_master) {
+		s5k3m5_ois_initialized = false;
+		s5k3m5_ois_ready = false;
+	}
+
 	return rc;
 }
 
