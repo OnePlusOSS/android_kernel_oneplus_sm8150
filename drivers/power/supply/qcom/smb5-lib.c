@@ -90,6 +90,9 @@ static int op_set_collapse_fet(struct smb_charger *chg, bool on);
 static int op_check_battery_temp(struct smb_charger *chg);
 static int get_usb_temp(struct smb_charger *chg);
 static void op_clean_dash_status(void);
+/*@bsp,for GCEB-5917,avoid abnormal icl set after switch dash to normal charge begin*/
+void op_typec_state_change_irq_handler(void);
+/*@bsp,for GCEB-5917,avoid abnormal icl set after switch dash to normal charge end*/
 
 #define smblib_err(chg, fmt, ...)		\
 	pr_err("%s: %s: " fmt, chg->name,	\
@@ -4805,7 +4808,7 @@ void op_handle_usb_plugin(struct smb_charger *chg)
 {
 	mutex_lock(&chg->smb_lock);
 	smblib_usb_plugin_locked(chg);
-	/*smblib_usb_typec_change(chg);*/
+	op_typec_state_change_irq_handler();
 	mutex_unlock(&chg->smb_lock);
 }
 
@@ -5475,6 +5478,29 @@ static void smblib_lpd_clear_ra_open_work(struct smb_charger *chg)
 	cancel_delayed_work_sync(&chg->lpd_ra_open_work);
 	vote(chg->awake_votable, LPD_VOTER, false, 0);
 }
+/*@bsp,for GCEB-5917,avoid abnormal icl set after switch dash to normal charge begin*/
+void op_typec_state_change_irq_handler(void)
+{
+	int typec_mode;
+
+	if (g_chg->connector_type == POWER_SUPPLY_CONNECTOR_MICRO_USB) {
+		smblib_dbg(g_chg, PR_INTERRUPT,
+				"Ignoring for micro USB\n");
+		return;
+	}
+
+	typec_mode = smblib_get_prop_typec_mode(g_chg);
+	if (typec_mode != g_chg->typec_mode) {
+		smblib_handle_rp_change(g_chg, typec_mode);
+		g_chg->typec_mode = typec_mode;
+	}
+
+	smblib_dbg(g_chg, PR_INTERRUPT, "%s: cc-state-change; Type-C %s detected\n",
+				__func__, smblib_typec_mode_name[g_chg->typec_mode]);
+
+	power_supply_changed(g_chg->usb_psy);
+}
+/*@bsp,for GCEB-5917,avoid abnormal icl set after switch dash to normal charge end*/
 
 irqreturn_t typec_state_change_irq_handler(int irq, void *data)
 {
@@ -5485,11 +5511,7 @@ irqreturn_t typec_state_change_irq_handler(int irq, void *data)
 	if (chg->dash_on) {
 		pr_info("chg->dash_on = %d update typec state!\n",
 			chg->dash_on);
-		/*The dash charger will detected as CDP when boot up, this will
-		 *cause current_pr = 0 not update when dash charger remove, so
-		 * we can let dash charger update the cc state avoid this issue
-		 */
-		//return IRQ_HANDLED;
+		return IRQ_HANDLED;
 	}
 
 	if (chg->connector_type == POWER_SUPPLY_CONNECTOR_MICRO_USB) {
