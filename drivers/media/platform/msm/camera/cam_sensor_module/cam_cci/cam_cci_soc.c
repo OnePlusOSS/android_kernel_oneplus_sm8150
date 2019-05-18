@@ -99,11 +99,13 @@ int cam_cci_init(struct v4l2_subdev *sd,
 
 	cam_cci_get_clk_rates(cci_dev, c_ctrl);
 
-	/* Re-initialize the completion */
-	reinit_completion(&cci_dev->cci_master_info[master].reset_complete);
-	for (i = 0; i < NUM_QUEUES; i++)
-		reinit_completion(
-			&cci_dev->cci_master_info[master].report_q[i]);
+	for (master = MASTER_0; master < NUM_MASTERS; master++) {
+		/* Re-initialize the completion */
+		reinit_completion(&cci_dev->cci_master_info[master].reset_complete);
+		for (i = 0; i < NUM_QUEUES; i++)
+			reinit_completion(
+				&cci_dev->cci_master_info[master].report_q[i]);
+	}
 
 	/* Enable Regulators and IRQ*/
 	rc = cam_soc_util_enable_platform_resource(soc_info, true,
