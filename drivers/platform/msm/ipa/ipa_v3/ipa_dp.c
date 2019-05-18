@@ -1630,8 +1630,8 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 	sys = ipa3_ctx->ep[src_ep_idx].sys;
 
 	if (!sys || !sys->ep->valid) {
-		IPAERR("pipe not valid\n");
-		goto fail_gen;
+		IPAERR_RL("pipe %d not valid\n", src_ep_idx);
+		goto fail_pipe_not_valid;
 	}
 
 	num_frags = skb_shinfo(skb)->nr_frags;
@@ -1794,6 +1794,9 @@ fail_mem:
 		kfree(desc);
 fail_gen:
 	return -EFAULT;
+fail_pipe_not_valid:
+	return -EPIPE;
+
 }
 
 static void ipa3_wq_handle_rx(struct work_struct *work)
@@ -2399,7 +2402,7 @@ static void ipa3_cleanup_rx(struct ipa3_sys_context *sys)
 		kmem_cache_free(ipa3_ctx->rx_pkt_wrapper_cache, rx_pkt);
 	}
 
-	if (sys->repl->cache) {
+	if (sys->repl) {
 		head = atomic_read(&sys->repl->head_idx);
 		tail = atomic_read(&sys->repl->tail_idx);
 		while (head != tail) {
