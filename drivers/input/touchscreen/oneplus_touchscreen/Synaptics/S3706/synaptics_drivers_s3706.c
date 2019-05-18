@@ -121,6 +121,7 @@ static int synaptics_get_touch_points(void *chip_data, struct point_info *points
         ret = touch_i2c_read_block(chip_info->client, chip_info->reg_info.F12_2D_DATA_BASE, 8*fingers_to_process, buf);
         if (ret < 0) {
                 TPD_INFO("touch i2c read block failed\n");
+		kfree(buf);
                 return -1;
         }
         for (i = 0; i< fingers_to_process; i++) {
@@ -130,7 +131,7 @@ static int synaptics_get_touch_points(void *chip_data, struct point_info *points
                 points[i].width_major = ((buf[i*8 + 6] & 0x0f) + (buf[i*8 + 7] & 0x0f)) / 2;
                 points[i].status = buf[i*8];
         }
-		kfree(buf);
+	kfree(buf);
 	pm_qos_remove_request(&pm_qos_req_tp);
         return obj_attention;
 }
