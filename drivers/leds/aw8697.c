@@ -4791,6 +4791,7 @@ static ssize_t aw8697_haptic_ram_test_store(struct device *dev, struct device_at
 		pr_err("%s: Error allocating memory\n", __func__);
 		return count;
 	}
+	mutex_lock(&aw8697->lock);
 	aw8697_ramtest->len = tmp_len;
 	if (val == 1){
 			/* RAMINIT Enable */
@@ -4844,6 +4845,8 @@ static ssize_t aw8697_haptic_ram_test_store(struct device *dev, struct device_at
 	kfree(pbuf);
 	pbuf = NULL;
 	aw8697->ram_test_result = !aw8697->ram_test_flag_0 && !aw8697->ram_test_flag_1;
+	aw8697_ram_update(aw8697);
+	mutex_unlock(&aw8697->lock);
 	pr_info("ram_test_flag_0:%d,ram_test_flag_1:%d\n",
 			aw8697->ram_test_flag_0, aw8697->ram_test_flag_1);
 	pr_info("%s exit\n", __func__);
@@ -4859,7 +4862,6 @@ static ssize_t aw8697_haptic_ram_test_show(struct device *dev, struct device_att
 
 	len += snprintf(buf + len, PAGE_SIZE - len,
 					"%d\n", aw8697->ram_test_result);
-	aw8697_ram_update(aw8697);
 	return len;
 }
 
