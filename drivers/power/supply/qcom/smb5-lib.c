@@ -1132,6 +1132,7 @@ int smblib_mapping_cc_delta_from_field_value(struct smb_chg_param *param,
 }
 
 #define SDP_100_MA			100000
+#define SDP_500_MA			500000
 static void smblib_uusb_removal(struct smb_charger *chg)
 {
 	int rc;
@@ -1163,7 +1164,7 @@ static void smblib_uusb_removal(struct smb_charger *chg)
 	/* reset both usbin current and voltage votes */
 	vote(chg->pl_enable_votable_indirect, USBIN_I_VOTER, false, 0);
 	vote(chg->pl_enable_votable_indirect, USBIN_V_VOTER, false, 0);
-	vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true, SDP_100_MA);
+	vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true, SDP_500_MA);
 	vote(chg->usb_icl_votable, SW_QC3_VOTER, false, 0);
 	vote(chg->usb_icl_votable, HVDCP2_ICL_VOTER, false, 0);
 	vote(chg->usb_icl_votable, CHG_TERMINATION_VOTER, false, 0);
@@ -4932,7 +4933,7 @@ static void update_sw_icl_max(struct smb_charger *chg, int pst)
 	case POWER_SUPPLY_TYPE_UNKNOWN:
 	default:
 		vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
-					SDP_100_MA);
+					SDP_500_MA);
 		break;
 	}
 }
