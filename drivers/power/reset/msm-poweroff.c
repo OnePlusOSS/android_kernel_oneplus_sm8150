@@ -75,7 +75,7 @@ static struct kobject dload_kobj;
 #endif
 
 static int in_panic;
-static int dload_type = SCM_DLOAD_FULLDUMP;
+static int dload_type = SCM_DLOAD_MINIDUMP;
 static void *dload_mode_addr;
 static bool dload_mode_enabled;
 static void *emergency_dload_mode_addr;
