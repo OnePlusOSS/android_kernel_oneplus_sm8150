@@ -679,6 +679,10 @@ static int qti_haptics_load_constant_waveform(struct qti_hap_chip *chip)
 		play->playing_pattern = false;
 		play->effect = NULL;
 	} else {
+		/*op for vibration less than VMAX_MIN_PLAY_TIME_US begin*/
+		play->effect = &chip->predefined[5];
+		rc = qti_haptics_config_brake(chip, play->effect->brake);
+		/*op for vibration less than VMAX_MIN_PLAY_TIME_US begin*/
 		rc = qti_haptics_config_vmax(chip, config->vmax_mv);
 		if (rc < 0)
 			return rc;

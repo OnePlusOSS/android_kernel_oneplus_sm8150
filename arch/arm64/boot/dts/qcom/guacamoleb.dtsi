@@ -417,6 +417,9 @@
 &pm8150b_haptics {
 	status = "ok";
 	vdd-supply = <&haptics_boost_vreg>;
+	wf_5 {
+		qcom,wf-brake-pattern = [03 03 03 03];
+	};
 	wf_6 {
 		/* WEAK */
 		qcom,effect-id = <6>;
