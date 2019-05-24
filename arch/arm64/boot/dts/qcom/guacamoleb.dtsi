@@ -1,0 +1,451 @@
+/*this is for different project dtsi*/
+/* OnePlus add thermistor, by rio.zhao*/
+&pm8150_adc_tm {
+	skin_therm {
+		reg = <ADC_AMUX_THM1_PU2>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+
+	pa_therm1 {
+		reg = <ADC_AMUX_THM2_PU2>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+};
+
+&thermal_zones {
+	skin-therm {
+		polling-delay-passive = <2000>;
+		polling-delay = <0>;
+		thermal-governor = "step_wise";
+		thermal-sensors = <&pm8150_adc_tm ADC_AMUX_THM1_PU2>;
+		trips {
+			freq_config1: freq_config1 {
+				temperature = <52000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+			freq_config2: freq_config2 {
+				temperature = <54000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+		};
+		cooling-maps {
+			freq_dev0 {
+				trip = <&freq_config1>;
+				cooling-device =
+					<&msm_gpu THERMAL_NO_LIMIT
+						(THERMAL_MAX_LIMIT-1)>;/*345*/
+			};
+			freq_dev1 {
+				trip = <&freq_config1>;
+				cooling-device =
+					<&CPU0 9 9>;/*1036*/
+			};
+			freq_dev2 {
+				trip = <&freq_config1>;
+				cooling-device =
+					<&CPU4 13 13>;/*1056*/
+			};
+			freq_dev3 {
+				trip = <&freq_config1>;
+				cooling-device =
+					<&CPU7 16 16>;/*1171*/
+			};
+			freq_dev4 {
+				trip = <&freq_config2>;
+				cooling-device =
+					<&CPU0 11 11>;/*844*/
+			};
+			freq_dev5 {
+				trip = <&freq_config2>;
+				cooling-device =
+					<&CPU4 THERMAL_MAX_LIMIT
+					THERMAL_MAX_LIMIT>;
+			};
+			freq_dev6 {
+				trip = <&freq_config2>;
+				cooling-device =
+					<&CPU5 THERMAL_MAX_LIMIT
+					THERMAL_MAX_LIMIT>;
+			};
+			freq_dev7 {
+				trip = <&freq_config2>;
+				cooling-device =
+					<&CPU6 THERMAL_MAX_LIMIT
+					THERMAL_MAX_LIMIT>;
+			};
+			freq_dev8 {
+				trip = <&freq_config2>;
+				cooling-device =
+					<&CPU7 THERMAL_MAX_LIMIT
+					THERMAL_MAX_LIMIT>;
+			};
+		};
+	};
+
+	pa-therm1 {
+		polling-delay-passive = <0>;
+		polling-delay = <0>;
+		thermal-governor = "user_space";
+		thermal-sensors = <&pm8150_adc_tm ADC_AMUX_THM2_PU2>;
+		trips {
+			active-config0 {
+				temperature = <125000>;
+				hysteresis = <1000>;
+				type = "passive";
+			};
+		};
+	};
+
+	skin-msm-therm {
+		trips {
+			freq_config3: freq_config3 {
+				temperature = <63000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+			freq_config4: freq_config4 {
+				temperature = <65000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+		};
+		cooling-maps {
+			freq_dev0 {
+				trip = <&freq_config3>;
+				cooling-device =
+					<&CPU0 2 2>;/*1632 18*/
+			};
+			freq_dev1 {
+				trip = <&freq_config3>;
+				cooling-device =
+					<&CPU4 8 8>;/*1612 17*/
+			};
+			freq_dev2 {
+				trip = <&freq_config3>;
+				cooling-device =
+					<&CPU7 9 9>;/*1920 20*/
+			};
+			freq_dev3 {
+				trip = <&freq_config4>;
+				cooling-device =
+					<&CPU0 4 4>;/*1478*/
+			};
+			freq_dev4 {
+				trip = <&freq_config4>;
+				cooling-device =
+					<&CPU4 11 11>;/*1286*/
+			};
+			freq_dev5 {
+				trip = <&freq_config4>;
+				cooling-device =
+					<&CPU7 13 13>;/*1497*/
+			};
+			freq_dev6 {
+				trip = <&freq_config3>;
+				cooling-device =
+					<&msm_gpu THERMAL_NO_LIMIT
+						(THERMAL_MAX_LIMIT-3)>;/*499*/
+			};
+			freq_dev7 {
+				trip = <&freq_config4>;
+				cooling-device =
+					<&msm_gpu THERMAL_NO_LIMIT
+						(THERMAL_MAX_LIMIT-2)>;/*427*/
+			};
+		};
+	};
+};
+
+/*tp 1.8v power change to gpio119 for T0 hw*/
+&qupv3_se17_i2c {
+	sec-s6sy761@48 {
+		status = "disable";
+	//	enable1v8_gpio = <&tlmm 119 0x00>;
+		pinctrl-0 = <&tp_irq_active &tp_rst_active &tp_1v8_t0_active>;
+                pinctrl-1 = <&tp_rst_suspend &tp_1v8_t0_suspend>;
+	};
+};
+&qupv3_se17_i2c {
+	st_fts@49{
+	status = "disable";
+	};
+};
+&qupv3_se17_i2c {
+        synaptics-s3706@20 {
+        //        enable1v8_gpio = <&tlmm 119 0x00>;
+		pinctrl-0 = <&tp_irq_active &tp_1v8_t0_active &tp_rst_active>;
+                pinctrl-1 = <&tp_rst_suspend &tp_1v8_t0_suspend>;
+        };
+	/delete-node/ sec-s6sy761@48;
+	/delete-node/ st_fts@49;
+};
+
+/*fingerprint reset gpio change to gpio131 on T0*/
+&soc {
+	fingerprint_detect {
+		compatible = "oneplus,fpdetect";
+		fp-gpio-id0 = <&tlmm 90 0>;
+		fp-gpio-id1 = <&pm8150_gpios 3 0>;
+		pinctrl-names = "fp_id_init";
+		pinctrl-0 = <&fp_id0_init &fp_id1_init>;
+	};
+
+	silead_fp {
+		compatible = "sil,fingerprint";
+		interrupt-parent = <&tlmm>;
+		//avdd-supply = <&pm8150_l17>;
+		avdd-gpios = <&tlmm 101 0x00>;
+		irq-gpios = <&tlmm 118 0x00>;
+		rst-gpios = <&tlmm 131 0x00>;
+		pinctrl-names = "fp_en_init";
+		pinctrl-0 = <&fp_reset_init &fp_irq_init &fp_vdd_init>;
+		status = "okay";
+	};
+
+	goodix_fp {
+		compatible = "goodix,fingerprint";
+		interrupt-parent = <&tlmm>;
+		//vdd-3v2-supply = <&pm8998_l22>;
+		//vdd-voltage = <3200000 3200000>;
+		//vdd-current = <50000>;
+		fp-gpio-irq = <&tlmm 118 0x00>;
+		fp-gpio-reset = <&tlmm 131 0x00>;
+		fp-gpio-enable = <&tlmm 101 0x00>;
+		pinctrl-names = "fp_en_init", "fp_dis_init";
+		pinctrl-0 = <&fp_vdd_init &fp_irq_init>;
+		pinctrl-1 = <&fp_vdd_dis_init>;
+		status = "okay";
+	};
+};
+&pm8150_gpios {
+	fp_id1_init: fp_id1_init {
+		pins = "gpio3";
+		function = "normal";
+		power-source = <0>;
+		bias-disable;
+		input-enable;
+	};
+};
+&tp_rst_active{
+                mux {
+                        pins = "gpio54";
+                        function = "gpio";
+                };
+                config {
+                        pins = "gpio54";
+                        drive-strength = <8>;
+                        bias-pull-up;
+                };
+
+};
+&tlmm {
+		fp_id0_init: fp_id0_init {
+			mux {
+				pins = "gpio90";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio90";
+				drive-strength = <2>;
+				bias-disable; /* No Pull */
+				input-enable;
+			};
+		};
+
+		tp_1v8_t0_active: tp_1v8_t0_active {
+                        mux {
+                                pins = "gpio119";
+                                function = "gpio";
+                        };
+                        config {
+                                pins = "gpio119";
+                                drive-strength = <8>;
+                                bias-pull-up;
+                        };
+                };
+                tp_1v8_t0_suspend: tp_1v8_t0_suspend {
+                        mux {
+                                pins = "gpio119";
+                                function = "gpio";
+                        };
+                        config {
+                                pins = "gpio119";
+                                drive-strength = <8>;
+                                bias-pull-down;
+                        };
+                };
+};
+
+/* add for hall tri_state_key */
+
+&tri_state_key {
+			compatible = "oneplus,hall_tri_state_key";
+			status = "ok";
+			interrupt-parent = <&tlmm>;
+};
+
+&qupv3_se9_i2c {
+	//qcom,clk-freq-out = <300000>;
+   status = "ok";
+   magnachip@0D {
+               compatible = "tri_key_magnachip,tk_mxm1120,up";
+               reg = <0x0D>;
+               vdd-supply = <&pm8150l_l7>;
+               magnachip,init-interval = <200>;
+			   interrupt-parent = <&tlmm>;
+			   interrupts = <26 0x02>;
+			   dhall,irq-gpio = <&tlmm 26 0x2008>;
+               mxm,id = <1>;
+			   pinctrl-names = "uphall_tri_state_key_active";
+				pinctrl-0 = <&uphall_tri_state_key_active>;
+             };
+   magnachip@0C {
+               compatible = "tri_key_magnachip,tk_mxm1120,down";
+               reg = <0x0C>;
+               vdd-supply = <&pm8150l_l7>;
+               magnachip,init-interval = <200>;
+               interrupt-parent = <&tlmm>;
+               interrupts = <27 0x02>;
+               dhall,irq-gpio = <&tlmm 27 0x2008>;
+               mxm,id = <2>;
+			  pinctrl-names = "downhall_tri_state_key_active";
+			  pinctrl-0 = <&downhall_tri_state_key_active>;
+             };
+};
+
+&tlmm {
+	 uphall_tri_state_key_active: uphall_tri_state_key_active {
+		mux {
+			pins = "gpio26";
+			function = "gpio";
+		};
+		config {
+			pins = "gpio26";
+			drive-strength = <2>;
+			bias-pull-up;
+			};
+		};
+
+	downhall_tri_state_key_active: downhall_tri_state_key_active {
+		mux {
+			pins = "gpio27";
+			function = "gpio";
+		};
+		config {
+			pins = "gpio27";
+			drive-strength = <2>;
+			bias-pull-up;
+			};
+		};
+};
+
+/* for Battery & Charging  STRAT */
+&qupv3_se8_i2c {
+	oneplus_fastchg@26{
+		microchip,mcu-en-gpio = <&tlmm 10 0x00>;
+		microchip,usb-sw-2-gpio = <&tlmm 59 0x00>;
+   };
+};
+
+&pm8150b_charger {
+	/* for external ship mode support */
+	op,stm-ctrl-gpio = <&tlmm 21 0x00>;
+	op,vbus-ctrl-gpio = <&pm8150_gpios 9 GPIO_ACTIVE_LOW>;
+	/* ibatmax setting for different temp regions */
+	ibatmax-little-cold-ma = <320>;
+	ibatmax-little-cool-thr-ma = <1750>;
+	ibatmax-cool-thr-ma = <1000>;
+	ibatmax-cool-ma = <1450>;
+	ibatmax-warm-ma = <1050>;
+};
+
+&mtp_batterydata {
+	#include "OP-fg-batterydata-3700mah.dtsi"
+};
+/* for Battery & Charging  END */
+
+/* @bsp, USB oem config START*/
+&usb2_phy0 {
+	qcom,param-override-seq =
+		<0x67 0x6c/*Disconnection voltage +21.56%*/
+		 0x09 0x70/*Pre-emphasis:4x DC voltage level:+13.30%*/
+		 0x28 0x74>;
+};
+
+&extcon_usb1 {
+	status = "disabled";
+};
+
+&usb1 {
+	status = "disabled";
+};
+/* @bsp, USB oem config END*/
+
+/*&motor_pl {
+	status = "disabled";
+};*/
+&oem_rf_cable {
+    rf,cable-gpio-1 = <&pm8150_gpios 4 0>;
+    pinctrl-0 = <&rf_cable_ant0_active &rf_pm8150_cable_ant1>;
+};
+
+&oem_aboard_check {
+    /delete-property/ oem,aboard-gpio-1;
+    pinctrl-0 = <&ab_id1_default>;
+};
+
+&pm8150_gpios {
+	rf_pm8150_cable_ant1: rf_pm8150_cable_ant1 {
+		pins = "gpio4";
+		function = "normal";
+		power-source = <0>;
+		bias-pull-up;
+		input-enable;
+	};
+};
+
+/* OnePlus add haptic, by yangfb*/
+&haptics_boost_vreg {
+	status = "ok";
+};
+
+&pm8150b_haptics {
+	status = "ok";
+	vdd-supply = <&haptics_boost_vreg>;
+	wf_6 {
+		/* WEAK */
+		qcom,effect-id = <6>;
+		qcom,wf-vmax-mv = <2500>;
+		qcom,wf-pattern = [7e 7e 7e fe fe];
+		qcom,wf-play-rate-us = <6667>;
+		qcom,wf-brake-pattern = [00 00 00 00];
+		qcom,lra-auto-resonance-disable;
+	};
+	wf_7 {
+		/* MIDDLE */
+		qcom,effect-id = <7>;
+		qcom,wf-vmax-mv = <2500>;
+		qcom,wf-pattern = [7e 7e 7e 7e fe fe fe];
+		qcom,wf-play-rate-us = <6667>;
+		qcom,wf-brake-pattern = [00 00 00 00];
+		qcom,lra-auto-resonance-disable;
+	};
+	wf_8 {
+		/* STRONG */
+		qcom,effect-id = <8>;
+		qcom,wf-vmax-mv = <2500>;
+		qcom,wf-pattern = [7e 7e 7e 7e 7e fe fe fe];
+		qcom,wf-play-rate-us = <6667>;
+		qcom,wf-brake-pattern = [00 00 00 00];
+		qcom,lra-auto-resonance-disable;
+	};
+};
+
+&wdog{
+	qcom,bark-time = <15000>;
+};
