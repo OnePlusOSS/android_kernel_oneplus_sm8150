@@ -4117,6 +4117,8 @@ static void _sde_encoder_setup_dither(struct sde_encoder_phys *phys)
 			}
 		}
 	} else {
+        /*kent.xie@MM.Display.LCD.Feature,2018-08-19 force enable dither on Fingerprint scene */
+        if (_sde_encoder_setup_dither_for_onscreenfingerprint(phys,phys->hw_pp, dither_cfg, len))
 		phys->hw_pp->ops.setup_dither(phys->hw_pp, dither_cfg, len);
 	}
 }
