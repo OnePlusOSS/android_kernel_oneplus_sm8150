@@ -3286,6 +3286,7 @@ ssize_t oneplus_display_notify_fp_press(struct device *dev,
 extern int aod_layer_hide;
 extern bool HBM_flag;
 int oneplus_dim_status = 0;
+int oneplus_aod_fod = 0;
  ssize_t oneplus_display_notify_dim(struct device *dev,
 		struct device_attribute *attr,
 		const char *buf, size_t count)
@@ -3326,6 +3327,7 @@ int oneplus_dim_status = 0;
 		return count;
 	}else if(dsi_display->panel->aod_status==1&& dim_status == 2){
 		oneplus_onscreenfp_status = 1;
+        oneplus_aod_fod = 1;
 	}else if(dsi_display->panel->aod_status==1&& dim_status == 0){
 		oneplus_onscreenfp_status = 0;
     }
@@ -5465,6 +5467,7 @@ static int sde_crtc_onscreenfinger_atomic_check(struct sde_crtc_state *cstate,
 	int fp_index = -1;
 	int fppressed_index = -1;
     int aod_index = -1;
+	int fppressed_index_rt = -1;
 	int zpos = INT_MAX;
 	int mode;
 	int fp_mode = oneplus_onscreenfp_status;
@@ -5499,8 +5502,10 @@ static int sde_crtc_onscreenfinger_atomic_check(struct sde_crtc_state *cstate,
 		mode = sde_plane_check_fingerprint_layer(pstates[i].drm_pstate);
 		if (mode == 1)
 			fp_index = i;
-		if (mode == 2)
-		    fppressed_index = i;
+		if (mode == 2) {
+			fppressed_index = i;
+			fppressed_index_rt = i;
+		}
         if (mode ==3)
             aod_index = i;
 	}
@@ -5512,7 +5517,10 @@ static int sde_crtc_onscreenfinger_atomic_check(struct sde_crtc_state *cstate,
 	if(aod_index <0){
 		oneplus_aod_hid = 0;
 		aod_layer_hide = 0;
-    }
+	}
+
+	if(fppressed_index_rt < 0)
+		oneplus_aod_fod = 0;
 
     if(finger_type){
         if (aod_index >= 0) {
@@ -5572,6 +5580,15 @@ static int sde_crtc_onscreenfinger_atomic_check(struct sde_crtc_state *cstate,
         if (fppressed_index >= 0) {
 			if (fp_mode == 0) {
 				pstates[fppressed_index].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0;
+				if(oneplus_aod_fod == 1 && aod_index < 0) {
+					for (i = 0; i < cnt; i++) {
+						if(i!=fppressed_index ) {
+							if(pstates[i].sde_pstate->property_values[PLANE_PROP_ALPHA].value == 0){
+								pstates[i].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0xff;
+							}
+						}
+					}
+				}
 				fppressed_index = -1;
 			} else {
 				pstates[fppressed_index].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0xff;
