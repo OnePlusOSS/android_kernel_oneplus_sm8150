@@ -362,6 +362,7 @@
 	ibatmax-cool-thr-ma = <1000>;
 	ibatmax-cool-ma = <1450>;
 	ibatmax-warm-ma = <1050>;
+	op,little_cold_term_current = <250>;
 };
 
 &mtp_batterydata {

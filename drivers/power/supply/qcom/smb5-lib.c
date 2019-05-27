@@ -7745,6 +7745,7 @@ static bool op_check_vbat_is_full_by_sw(struct smb_charger *chg)
 	static int vbat_counts_hw;
 	int vbatt_full_vol_sw;
 	int vbatt_full_vol_hw;
+	int term_current;
 	int tbatt_status, icharging, batt_volt;
 
 	if (!chg->check_batt_full_by_sw)
@@ -7780,12 +7781,17 @@ static bool op_check_vbat_is_full_by_sw(struct smb_charger *chg)
 		ret_hw = 0;
 		return false;
 	}
+	if (chg->little_cold_iterm_ma > 0
+		&& (tbatt_status == BATT_TEMP_LITTLE_COLD))
+		term_current = chg->little_cold_iterm_ma;
+	else
+		term_current =  chg->sw_iterm_ma;
 
 	batt_volt = get_prop_batt_voltage_now(chg) / 1000;
 	icharging = get_prop_batt_current_now(chg) / 1000;
 	/* use SW Vfloat to check */
 	if (batt_volt > vbatt_full_vol_sw) {
-		if (icharging < 0 && (icharging * -1) <= chg->sw_iterm_ma) {
+		if (icharging < 0 && (icharging * -1) <= term_current) {
 			vbat_counts_sw++;
 			if (vbat_counts_sw > FULL_COUNTS_SW) {
 				vbat_counts_sw = 0;

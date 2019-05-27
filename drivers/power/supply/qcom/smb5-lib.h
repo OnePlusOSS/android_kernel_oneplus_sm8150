@@ -562,6 +562,7 @@ struct smb_charger {
 	int			default_icl_ua;
 	int			otg_cl_ua;
 	int			sw_iterm_ma;
+	int			little_cold_iterm_ma;
 	bool			check_batt_full_by_sw;
 	bool			OTG_ICL_CTRL;
 	int			OTG_LOW_BAT;
