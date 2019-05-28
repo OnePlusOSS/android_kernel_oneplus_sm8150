@@ -3640,6 +3640,7 @@ static void smb5_shutdown(struct platform_device *pdev)
 			smblib_masked_write(chg, SHIP_MODE_REG,
 			SHIP_MODE_EN_BIT, SHIP_MODE_EN_BIT);
 		}
+		clean_backup_soc_ex();
 		msleep(1000);
 		pr_err("after 1s\n");
 		while (1)

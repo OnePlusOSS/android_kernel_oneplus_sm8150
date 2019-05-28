@@ -130,4 +130,5 @@ extern bool dash_adapter_update_is_tx_gpio(unsigned int  gpio_num);
 extern bool dash_adapter_update_is_rx_gpio(unsigned  int gpio_num);
 extern int is_hw_support_n76e(void);
 void op_switch_normal_set(void);
+void clean_backup_soc_ex(void);
 #endif
