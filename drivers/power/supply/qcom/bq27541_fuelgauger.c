@@ -1224,8 +1224,13 @@ static bool check_bat_present(struct bq27541_device_info *di)
 	ret = bq27541_read(BQ27541_SUBCMD_CHEM_ID, &flags, 0, di);
 	if (ret < 0) {
 		pr_err("read bq27541  fail\n");
-		di->bq_present = false;
-		return false;
+		mdelay(100);
+		ret = bq27541_read(BQ27541_SUBCMD_CHEM_ID, &flags, 0, di);
+		if (ret < 0) {
+			pr_err("read bq27541  fail again\n");
+			di->bq_present = false;
+			return false;
+		}
 	}
 	di->bq_present = true;
 	return true;
