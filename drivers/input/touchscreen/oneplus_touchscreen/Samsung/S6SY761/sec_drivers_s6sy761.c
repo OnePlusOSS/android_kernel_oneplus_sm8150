@@ -293,6 +293,22 @@ static int sec_limit_switch_mode(struct chip_data_s6sy761 *chip_info, bool enabl
 
 }
 
+static int sec_ndx_detect(struct chip_data_s6sy761 *chip_info, bool enable)
+{
+       int ret = -1;
+
+       if (g_tp->ndx_detect == 2) {
+               ret = touch_i2c_write_byte(chip_info->client, SEC_CMD_NDX_DETECT, 2);
+       } else if (g_tp->ndx_detect == 1) {
+               ret = touch_i2c_write_byte(chip_info->client, SEC_CMD_NDX_DETECT, 1);
+       } else {
+               ret = touch_i2c_write_byte(chip_info->client, SEC_CMD_NDX_DETECT, 0);
+       }
+       TPD_INFO("%s: sec_ndx_detect = %d\n", __func__, g_tp->ndx_detect);
+
+    return ret;
+}
+
 static int sec_gesture_switch_mode(struct chip_data_s6sy761 *chip_info, bool enable)
 {
 	int ret = -1;

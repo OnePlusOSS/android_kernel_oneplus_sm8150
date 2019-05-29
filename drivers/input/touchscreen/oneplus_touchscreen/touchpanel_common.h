@@ -137,6 +137,7 @@ typedef enum {
     MODE_LIMIT_SWITCH,
     MODE_GESTURE_SWITCH,
     MODE_FINGERPRINT_TEST,
+    MODE_NDX_DETECT,
 }work_mode;
 
 typedef enum {
