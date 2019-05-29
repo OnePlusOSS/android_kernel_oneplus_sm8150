@@ -1912,19 +1912,6 @@ static void handle_vdm_rx(struct usbpd *pd, struct rx_msg *rx_msg)
 				break;
 			}
 
-			if (ID_HDR_PRODUCT_TYPE(vdos[0]) ==
-					ID_HDR_PRODUCT_VPD) {
-				usbpd_dbg(&pd->dev, "VPD detected turn off vbus\n");
-
-				if (pd->vbus_enabled) {
-					ret = regulator_disable(pd->vbus);
-					if (ret)
-						usbpd_err(&pd->dev, "Err disabling vbus (%d)\n",
-								ret);
-					else
-						pd->vbus_enabled = false;
-				}
-			}
 
 			if (!pd->in_explicit_contract)
 				break;
