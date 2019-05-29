@@ -1475,6 +1475,13 @@ static int sec_mode_switch(void *chip_data, work_mode mode, bool flag)
 			}
 			break;
 
+		case MODE_NDX_DETECT:
+			ret = sec_ndx_detect(chip_info, flag);
+			if (ret < 0) {
+				TPD_INFO("%s: ndx switch: %d failed\n", __func__, flag);
+			}
+			break;
+
 		case MODE_GESTURE_SWITCH:
 			ret = sec_gesture_switch_mode(chip_info, flag);
 			if (ret < 0) {

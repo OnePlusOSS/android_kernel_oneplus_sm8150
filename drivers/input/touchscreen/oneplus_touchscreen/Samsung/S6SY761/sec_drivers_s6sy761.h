@@ -151,7 +151,7 @@
 #define SEC_CMD_GRIPMODE_SWITCH					0xAD	//0 is portrait,1 is landscape
 #define SEC_CMD_PORTRAIT_CORNER					0xAB
 #define SEC_CMD_LANDSPACE_CORNER				0xAC
-
+#define SEC_CMD_NDX_DETECT                                      0x9E
 
 
 

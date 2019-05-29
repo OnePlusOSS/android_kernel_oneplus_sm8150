@@ -1491,6 +1491,64 @@ static const struct file_operations proc_limit_switch_fops = {
 	.owner = THIS_MODULE,
 };
 
+static ssize_t ndx_write(struct file *file, const char __user *buffer, size_t count, loff_t *ppos)
+{
+    int value = 0 ;
+    char buf[4] = {0};
+    struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+
+    if (count > 4) {
+        TPD_INFO("%s:count > 4\n",__func__);
+        return count;
+    }
+
+    if (!ts) {
+        TPD_INFO("%s: ts is NULL\n",__func__);
+        return count;
+    }
+
+    if (copy_from_user(buf, buffer, count)) {
+        TPD_INFO("%s: read proc input error.\n", __func__);
+        return count;
+    }
+    sscanf(buf, "%d", &value);
+	if (g_tp->ndx_detect == value)
+		return count;
+
+	g_tp->ndx_detect = value;
+    TPD_DEBUG("%s: ts->ndx_detect = %d\n", __func__, value);
+	if (ts->is_suspended == 0) {
+		mutex_lock(&ts->mutex);
+		ts->ts_ops->mode_switch(ts->chip_data, MODE_NDX_DETECT, g_tp->ndx_detect);
+		mutex_unlock(&ts->mutex);
+	}
+    return count;
+}
+
+static ssize_t ndx_read(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
+{
+    int ret = 0;
+    char page[4] = {0};
+    struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+
+    if (!ts) {
+        sprintf(page, "%d\n", -1);//no support
+    } else {
+        sprintf(page, "%d\n", g_tp->ndx_detect);//support
+    }
+    ret = simple_read_from_buffer(user_buf, count, ppos, page, strlen(page));
+    return ret;
+}
+
+static const struct file_operations proc_nxd_detect_fops = {
+	.write = ndx_write,
+	.read  = ndx_read,
+	.open  = simple_open,
+	.owner = THIS_MODULE,
+};
+
+
+
 //proc/touchpanel/black_screen_test
 static ssize_t proc_black_screen_test_read(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
 {
@@ -2386,6 +2444,12 @@ static int init_touchpanel_proc(struct touchpanel_data *ts)
 	}
 
 	prEntry_tmp = proc_create_data("tpedge_limit_enable", 0666, prEntry_tp, &proc_limit_switch_fops, ts);
+	if (prEntry_tmp == NULL) {
+		ret = -ENOMEM;
+		TPD_INFO("%s: Couldn't create proc entry, %d\n", __func__, __LINE__);
+	}
+
+	prEntry_tmp = proc_create_data("nxd_detect", 0666, prEntry_tp, &proc_nxd_detect_fops, ts);
 	if (prEntry_tmp == NULL) {
 		ret = -ENOMEM;
 		TPD_INFO("%s: Couldn't create proc entry, %d\n", __func__, __LINE__);
