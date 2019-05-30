@@ -2882,7 +2882,7 @@ static int oneplus_motor_chip_init(struct oneplus_motor_chip* chip)
 	chip->manual2auto_down_switch = true;
 	chip->is_free_fall = false;
 	chip->free_fall_irq_times = 0;
-	chip->infrared_shut_down_state = 0;
+	chip->infrared_shut_down_state = 1;
 	chip->free_fall_gpio = 0;
 	chip->free_fall_irq = 0;
 	chip->irq_monitor_started = false;
