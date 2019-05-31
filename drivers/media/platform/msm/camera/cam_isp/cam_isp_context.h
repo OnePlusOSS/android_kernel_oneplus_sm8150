@@ -193,6 +193,8 @@ struct cam_isp_context {
 	bool                             hw_acquired;
 	bool                             init_received;
 	bool                             split_acquire;
+	bool                             irq_delay_detect;
+	uint64_t			irq_timestamps;
 };
 
 /**

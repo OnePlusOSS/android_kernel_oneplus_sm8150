@@ -31,6 +31,7 @@ struct cam_isp_timestamp {
 	struct timeval          mono_time;
 	struct timeval          vt_time;
 	uint64_t                ticks;
+	uint64_t                time_usecs;
 };
 
 /*
