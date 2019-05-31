@@ -212,6 +212,9 @@ void operate_mode_switch(struct touchpanel_data *ts)
 		if (ts->touch_hold_support)
 			ts->ts_ops->mode_switch(ts->chip_data, MODE_TOUCH_HOLD, ts->touch_hold_enable);
 
+		if (ts->ndx_detect) {
+			ts->ts_ops->mode_switch(ts->chip_data, MODE_NDX_DETECT, ts->ndx_detect);
+		}
         ts->ts_ops->mode_switch(ts->chip_data, MODE_NORMAL, true);
 
     }
