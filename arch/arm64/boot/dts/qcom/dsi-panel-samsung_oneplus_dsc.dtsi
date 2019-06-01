@@ -114,8 +114,8 @@
 				qcom,mdss-mdp-transfer-time-us = <8000>; //for 60fps
 				qcom,mdss-dsi-timing-default;
 				qcom,mdss-dsi-panel-framerate = <60>;
-				qcom,mdss-dsi-panel-clockrate = <1107000000>;
-				qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 24 0A 0A 06 02 04 00 1E 1A];
+				qcom,mdss-dsi-panel-clockrate = <1100000000>;
+				qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 25 09 0A 06 02 04 00 1E 1A];
 				qcom,mdss-dsi-panel-width = <1440>;
 				qcom,mdss-dsi-panel-height = <3120>;
 				qcom,mdss-dsi-h-front-porch = <16>;
@@ -226,7 +226,7 @@
 				39 01 00 00 00 00 03 F0 5A 5A
 				39 01 00 00 00 00 03 FC 5A 5A
 				15 01 00 00 00 00 02 B0 1E
-				39 01 00 00 00 00 06 C5 09 10 B4 24 D9	/* FFC Setting; 0x09 : Enable */
+				39 01 00 00 00 00 06 C5 08 10 B4 24 FB	/* FFC Setting; 0x08 : Disable */
 				39 01 00 00 00 00 03 F0 A5 A5
 				39 01 00 00 00 00 03 FC A5 A5
 				/* OSC Spread Setting */
@@ -289,7 +289,7 @@
 				39 01 00 00 00 00 03 F0 5A 5A
 				39 01 00 00 00 00 03 FC 5A 5A
 				15 01 00 00 00 00 02 B0 1E
-				39 01 00 00 00 00 06 C5 09 10 B4 24 D9	/* FFC Setting; 0x09 : Enable */
+				39 01 00 00 00 00 06 C5 08 10 B4 24 FB	/* FFC Setting; 0x08 : Disable */
 				39 01 00 00 00 00 03 F0 A5 A5
 				39 01 00 00 00 00 03 FC A5 A5
 				/* OSC Spread Setting */
@@ -717,7 +717,7 @@
 				qcom,default-topology-index = <1>;
 				qcom,mdss-mdp-transfer-time-us = <8000>; //for 90fps
 				qcom,mdss-dsi-panel-framerate = <90>;
-				qcom,mdss-dsi-panel-clockrate = <1107000000>;
+				qcom,mdss-dsi-panel-clockrate = <1100000000>;
 				qcom,mdss-dsi-panel-width = <1080>;
 				qcom,mdss-dsi-panel-height = <2336>;
 				qcom,mdss-dsi-h-front-porch = <16>;
@@ -786,7 +786,7 @@
 				//29 01 00 00 00 00 03 9F 5A 5A
 				29 01 00 00 00 00 03 F0 A5 A5
 				];
-				qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 24 0A 0A 06 02 04 00 1E 1A];
+				qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 25 09 0A 06 02 04 00 1E 1A];
 				qcom,mdss-dsi-t-clk-pre = <0x1E>;
 				qcom,mdss-dsi-t-clk-post = <0x1A>;
 				qcom,mdss-dsi-on-command = [
@@ -827,7 +827,7 @@
 				39 01 00 00 00 00 03 F0 5A 5A
 				39 01 00 00 00 00 03 FC 5A 5A
 				15 01 00 00 00 00 02 B0 1E
-				39 01 00 00 00 00 06 C5 09 10 B4 24 D9	/* FFC Setting; 0x09 : Enable */
+				39 01 00 00 00 00 06 C5 08 10 B4 24 FB	/* FFC Setting; 0x08 : Disable */
 				39 01 00 00 00 00 03 F0 A5 A5
 				39 01 00 00 00 00 03 FC A5 A5
 				/* OSC Spread Setting */
@@ -891,7 +891,7 @@
 				39 01 00 00 00 00 03 F0 5A 5A
 				39 01 00 00 00 00 03 FC 5A 5A
 				15 01 00 00 00 00 02 B0 1E
-				39 01 00 00 00 00 06 C5 09 10 B4 24 D9	/* FFC Setting; 0x09 : Enable */
+				39 01 00 00 00 00 06 C5 08 10 B4 24 FB	/* FFC Setting; 0x08 : Disable */
 				39 01 00 00 00 00 03 F0 A5 A5
 				39 01 00 00 00 00 03 FC A5 A5
 				/* OSC Spread Setting */
@@ -1321,8 +1321,8 @@
 				qcom,mdss-mdp-transfer-time-us = <8000>; //for 60fps
 				qcom,mdss-dsi-timing-default;
 				qcom,mdss-dsi-panel-framerate = <60>;
-				qcom,mdss-dsi-panel-clockrate = <1107000000>;
-				qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 24 0A 0A 06 02 04 00 1E 1A];
+				qcom,mdss-dsi-panel-clockrate = <1100000000>;
+				qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 25 09 0A 06 02 04 00 1E 1A];
 				qcom,mdss-dsi-panel-width = <1080>;
 				qcom,mdss-dsi-panel-height = <2336>;
 				qcom,mdss-dsi-h-front-porch = <16>;
@@ -1433,7 +1433,7 @@
 				39 01 00 00 00 00 03 F0 5A 5A
 				39 01 00 00 00 00 03 FC 5A 5A
 				15 01 00 00 00 00 02 B0 1E
-				39 01 00 00 00 00 06 C5 09 10 B4 24 D9	/* FFC Setting; 0x09 : Enable */
+				39 01 00 00 00 00 06 C5 08 10 B4 24 FB	/* FFC Setting; 0x08 : Disable */
 				39 01 00 00 00 00 03 F0 A5 A5
 				39 01 00 00 00 00 03 FC A5 A5
 				/* OSC Spread Setting */
@@ -1497,7 +1497,7 @@
 				39 01 00 00 00 00 03 F0 5A 5A
 				39 01 00 00 00 00 03 FC 5A 5A
 				15 01 00 00 00 00 02 B0 1E
-				39 01 00 00 00 00 06 C5 09 10 B4 24 D9	/* FFC Setting; 0x09 : Enable */
+				39 01 00 00 00 00 06 C5 08 10 B4 24 FB	/* FFC Setting; 0x08 : Disable */
 				39 01 00 00 00 00 03 F0 A5 A5
 				39 01 00 00 00 00 03 FC A5 A5
 				/* OSC Spread Setting */
@@ -1925,7 +1925,7 @@
 				qcom,default-topology-index = <1>;
 				qcom,mdss-mdp-transfer-time-us = <8000>; //for 90fps
 				qcom,mdss-dsi-panel-framerate = <90>;
-				qcom,mdss-dsi-panel-clockrate = <1107000000>;
+				qcom,mdss-dsi-panel-clockrate = <1100000000>;
 				qcom,mdss-dsi-panel-width = <1440>;
 				qcom,mdss-dsi-panel-height = <3120>;
 				qcom,mdss-dsi-h-front-porch = <16>;
@@ -1995,7 +1995,7 @@
 				//29 01 00 00 00 00 03 9F 5A 5A
 				29 01 00 00 00 00 03 F0 A5 A5
 				];
-				qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 24 0A 0A 06 02 04 00 1E 1A];
+				qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 25 09 0A 06 02 04 00 1E 1A];
 				qcom,mdss-dsi-t-clk-pre = <0x1E>;
 				qcom,mdss-dsi-t-clk-post = <0x1A>;
 				qcom,mdss-dsi-on-command = [
@@ -2035,7 +2035,7 @@
 				39 01 00 00 00 00 03 F0 5A 5A
 				39 01 00 00 00 00 03 FC 5A 5A
 				15 01 00 00 00 00 02 B0 1E
-				39 01 00 00 00 00 06 C5 09 10 B4 24 D9	/* FFC Setting; 0x09 : Enable */
+				39 01 00 00 00 00 06 C5 08 10 B4 24 FB	/* FFC Setting; 0x08 : Disable */
 				39 01 00 00 00 00 03 F0 A5 A5
 				39 01 00 00 00 00 03 FC A5 A5
 				/* OSC Spread Setting */
@@ -2098,7 +2098,7 @@
 				39 01 00 00 00 00 03 F0 5A 5A
 				39 01 00 00 00 00 03 FC 5A 5A
 				15 01 00 00 00 00 02 B0 1E
-				39 01 00 00 00 00 06 C5 09 10 B4 24 D9	/* FFC Setting; 0x09 : Enable */
+				39 01 00 00 00 00 06 C5 08 10 B4 24 FB	/* FFC Setting; 0x08 : Disable */
 				39 01 00 00 00 00 03 F0 A5 A5
 				39 01 00 00 00 00 03 FC A5 A5
 				/* OSC Spread Setting */
@@ -2544,25 +2544,25 @@
 &dsi_samsung_oneplus_dsc_cmd {
 	qcom,mdss-dsi-display-timings {
 		timing@0 { /* wqhd 60hz */
-			qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 24 0A 0A 06 02 04 00 1E 1A];
+			qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 25 09 0A 06 02 04 00 1E 1A];
 			qcom,display-topology = <1 1 1>,<2 2 1>;
 			qcom,default-topology-index = <1>;
 			qcom,panel-roi-alignment=<720 65 720 65 720 65>;
 		};
 		timing@1 { /* fhd 90hz */
-			qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 24 0A 0A 06 02 04 00 1E 1A];
+			qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 25 09 0A 06 02 04 00 1E 1A];
 			qcom,display-topology = <1 1 1>,<2 2 1>;
 			qcom,default-topology-index = <1>;
 			qcom,panel-roi-alignment=<540 73 540 73 540 73>;
 		};
 		timing@2 { /* fhd 60hz */
-			qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 24 0A 0A 06 02 04 00 1E 1A];
+			qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 25 09 0A 06 02 04 00 1E 1A];
 			qcom,display-topology = <1 1 1>,<2 2 1>;
 			qcom,default-topology-index = <1>;
 			qcom,panel-roi-alignment=<540 73 540 73 540 73>;
 		};
 		timing@3 { /* wqhd 90hz */
-			qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 24 0A 0A 06 02 04 00 1E 1A];
+			qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 25 09 0A 06 02 04 00 1E 1A];
 			qcom,display-topology = <1 1 1>,<2 2 1>;
 			qcom,default-topology-index = <1>;
 			qcom,panel-roi-alignment=<720 65 720 65 720 65>;
