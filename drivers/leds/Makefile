@@ -87,3 +87,8 @@ obj-$(CONFIG_LEDS_USER)			+= uleds.o
 
 # LED Triggers
 obj-$(CONFIG_LEDS_TRIGGERS)		+= trigger/
+#for AWINIC AW8697 Haptic
+obj-$(CONFIG_AW8697_HAPTIC) += aw8697.o
+
+#step motor
+obj-$(CONFIG_STEP_MOTOR)        += step_motor/

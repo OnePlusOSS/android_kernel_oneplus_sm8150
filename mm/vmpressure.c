@@ -51,7 +51,9 @@ static unsigned long vmpressure_win = SWAP_CLUSTER_MAX * 16;
  */
 static const unsigned int vmpressure_level_med = 60;
 static const unsigned int vmpressure_level_critical = 95;
-
+#ifdef CONFIG_SMART_BOOST
+atomic_t vmpress[5];
+#endif
 static unsigned long vmpressure_scale_max = 100;
 module_param_named(vmpressure_scale_max, vmpressure_scale_max,
 			ulong, 0644);
@@ -414,6 +416,18 @@ static void vmpressure_global(gfp_t gfp, unsigned long scanned,
 
 	pressure = vmpressure_calc_pressure(scanned, reclaimed);
 	pressure = vmpressure_account_stall(pressure, stall, scanned);
+#ifdef CONFIG_SMART_BOOST
+	if (pressure < 20)
+		atomic_inc(&vmpress[0]);
+	else if (pressure < 40)
+		atomic_inc(&vmpress[1]);
+	else if (pressure < 60)
+		atomic_inc(&vmpress[2]);
+	else if (pressure < 80)
+		atomic_inc(&vmpress[3]);
+	else
+		atomic_inc(&vmpress[4]);
+#endif
 	vmpressure_notify(pressure);
 }
 

@@ -1,0 +1,21 @@
+Tri-state key
+
+Required Properties:
+- compatible:			Must be "ompatible = "oneplus,tri-state-key".
+
+
+Example:
+
+		tri_state_key {
+		compatible = "oneplus, tri-state-key";
+		status = "okay";
+		interrupt-parent = <&tlmm>;
+		tristate,gpio_key1 = <&tlmm 125 0x00>;
+		tristate,gpio_key2 = <&tlmm 134 0x00>;
+		tristate,gpio_key3 = <&tlmm 27 0x00>;
+		pinctrl-names =
+				"pmx_tri_state_key_active",
+				"pmx_tri_state_key_suspend";
+		pinctrl-0 = <&tri_state_key_active>;
+		pinctrl-1 = <&tri_state_key_suspend>;
+	};

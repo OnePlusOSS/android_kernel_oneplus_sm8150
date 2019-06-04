@@ -446,9 +446,10 @@
 		dmas = <&gpi_dma1 0 0 3 64 0>,
 			<&gpi_dma1 1 0 3 64 0>;
 		dma-names = "tx", "rx";
-		pinctrl-names = "default", "sleep";
+		pinctrl-names = "default", "sleep","reset";
 		pinctrl-0 = <&qupv3_se8_i2c_active>;
 		pinctrl-1 = <&qupv3_se8_i2c_sleep>;
+		pinctrl-2 = <&qupv3_se8_i2c_reset>;
 		qcom,wrapper-core = <&qupv3_1>;
 		status = "disabled";
 	};

@@ -511,22 +511,10 @@ static int ipa_connect_channels(struct gsi_data_port *d_port)
 	struct ipa_req_chan_out_params ipa_out_channel_out_params;
 
 	log_event_dbg("%s: USB GSI IN OPS", __func__);
-	ret = usb_gsi_ep_op(d_port->in_ep, &d_port->in_request,
+	usb_gsi_ep_op(d_port->in_ep, &d_port->in_request,
 		GSI_EP_OP_PREPARE_TRBS);
-	if (ret) {
-		log_event_err("%s: GSI_EP_OP_PREPARE_TRBS failed: %d\n",
-				__func__, ret);
-		return ret;
-	}
-
-	ret = usb_gsi_ep_op(d_port->in_ep, &d_port->in_request,
+	usb_gsi_ep_op(d_port->in_ep, &d_port->in_request,
 			GSI_EP_OP_STARTXFER);
-	if (ret) {
-		log_event_err("%s: GSI_EP_OP_STARTXFER failed: %d\n",
-				__func__, ret);
-		return ret;
-	}
-
 	d_port->in_xfer_rsc_index = usb_gsi_ep_op(d_port->in_ep, NULL,
 			GSI_EP_OP_GET_XFER_IDX);
 
@@ -567,22 +555,10 @@ static int ipa_connect_channels(struct gsi_data_port *d_port)
 
 	if (d_port->out_ep) {
 		log_event_dbg("%s: USB GSI OUT OPS", __func__);
-		ret = usb_gsi_ep_op(d_port->out_ep, &d_port->out_request,
+		usb_gsi_ep_op(d_port->out_ep, &d_port->out_request,
 			GSI_EP_OP_PREPARE_TRBS);
-		if (ret) {
-			log_event_err("%s: GSI_EP_OP_PREPARE_TRBS failed: %d\n",
-					__func__, ret);
-			return ret;
-		}
-
-		ret = usb_gsi_ep_op(d_port->out_ep, &d_port->out_request,
+		usb_gsi_ep_op(d_port->out_ep, &d_port->out_request,
 				GSI_EP_OP_STARTXFER);
-		if (ret) {
-			log_event_err("%s: GSI_EP_OP_STARTXFER failed: %d\n",
-					__func__, ret);
-			return ret;
-		}
-
 		d_port->out_xfer_rsc_index =
 			usb_gsi_ep_op(d_port->out_ep,
 				NULL, GSI_EP_OP_GET_XFER_IDX);
@@ -895,12 +871,10 @@ static void ipa_work_handler(struct work_struct *w)
 								__func__);
 				break;
 			}
-
+			ipa_connect_channels(d_port);
 			d_port->sm_state = STATE_CONNECT_IN_PROGRESS;
 			log_event_dbg("%s: ST_INIT_EVT_CONN_IN_PROG",
 					__func__);
-			if (peek_event(d_port) != EVT_DISCONNECTED)
-				ipa_connect_channels(d_port);
 		} else if (event == EVT_HOST_READY) {
 			/*
 			 * When in a composition such as RNDIS + ADB,

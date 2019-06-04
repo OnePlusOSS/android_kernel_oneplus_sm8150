@@ -58,6 +58,9 @@ enum migratetype {
 #endif
 	MIGRATE_PCPTYPES, /* the number of types on the pcp lists */
 	MIGRATE_HIGHATOMIC = MIGRATE_PCPTYPES,
+#ifdef CONFIG_DEFRAG_HELPER
+	MIGRATE_UNMOVABLE_DEFRAG_POOL,
+#endif
 #ifdef CONFIG_MEMORY_ISOLATION
 	MIGRATE_ISOLATE,	/* can't allocate from here */
 #endif
@@ -82,6 +85,12 @@ static inline bool is_migrate_movable(int mt)
 	return is_migrate_cma(mt) || mt == MIGRATE_MOVABLE;
 }
 
+#ifdef CONFIG_DEFRAG_HELPER
+static inline int is_migrate_defrag(int migratetype)
+{
+	return migratetype == MIGRATE_UNMOVABLE_DEFRAG_POOL;
+}
+#endif
 #define for_each_migratetype_order(order, type) \
 	for (order = 0; order < MAX_ORDER; order++) \
 		for (type = 0; type < MIGRATE_TYPES; type++)
@@ -98,6 +107,9 @@ extern int page_group_by_mobility_disabled;
 struct free_area {
 	struct list_head	free_list[MIGRATE_TYPES];
 	unsigned long		nr_free;
+#ifdef CONFIG_DEFRAG_HELPER
+	unsigned long		nr_free_defrag;
+#endif
 };
 
 struct pglist_data;
@@ -139,6 +151,10 @@ enum zone_stat_item {
 	NR_ZONE_ACTIVE_ANON,
 	NR_ZONE_INACTIVE_FILE,
 	NR_ZONE_ACTIVE_FILE,
+#ifdef CONFIG_MEMPLUS
+	NR_ZONE_INACTIVE_ANON_SWAPCACHE,
+	NR_ZONE_ACTIVE_ANON_SWAPCACHE,
+#endif
 	NR_ZONE_UNEVICTABLE,
 	NR_ZONE_WRITE_PENDING,	/* Count of dirty, writeback and unstable pages */
 	NR_MLOCK,		/* mlock()ed pages found and moved off LRU */
@@ -149,7 +165,13 @@ enum zone_stat_item {
 #if IS_ENABLED(CONFIG_ZSMALLOC)
 	NR_ZSPAGES,		/* allocated in zsmalloc */
 #endif
+#ifdef CONFIG_SMART_BOOST
+	NR_ZONE_UID_LRU,
+#endif
 	NR_FREE_CMA_PAGES,
+#ifdef CONFIG_DEFRAG_HELPER
+	NR_FREE_DEFRAG_POOL,
+#endif
 	NR_VM_ZONE_STAT_ITEMS };
 
 enum node_stat_item {
@@ -158,6 +180,10 @@ enum node_stat_item {
 	NR_ACTIVE_ANON,		/*  "     "     "   "       "         */
 	NR_INACTIVE_FILE,	/*  "     "     "   "       "         */
 	NR_ACTIVE_FILE,		/*  "     "     "   "       "         */
+#ifdef CONFIG_MEMPLUS
+	NR_INACTIVE_ANON_SWAPCACHE,
+	NR_ACTIVE_ANON_SWAPCACHE,
+#endif
 	NR_UNEVICTABLE,		/*  "     "     "   "       "         */
 	NR_SLAB_RECLAIMABLE,
 	NR_SLAB_UNRECLAIMABLE,
@@ -204,13 +230,20 @@ enum lru_list {
 	LRU_ACTIVE_ANON = LRU_BASE + LRU_ACTIVE,
 	LRU_INACTIVE_FILE = LRU_BASE + LRU_FILE,
 	LRU_ACTIVE_FILE = LRU_BASE + LRU_FILE + LRU_ACTIVE,
+#ifdef CONFIG_MEMPLUS
+	LRU_INACTIVE_ANON_SWPCACHE,
+	LRU_ACTIVE_ANON_SWPCACHE,
+#endif
 	LRU_UNEVICTABLE,
 	NR_LRU_LISTS
 };
 
 #define for_each_lru(lru) for (lru = 0; lru < NR_LRU_LISTS; lru++)
-
+#ifdef CONFIG_MEMPLUS
+#define for_each_evictable_lru(lru) for (lru = 0; lru <= LRU_ACTIVE_ANON_SWPCACHE; lru++)
+#else
 #define for_each_evictable_lru(lru) for (lru = 0; lru <= LRU_ACTIVE_FILE; lru++)
+#endif
 
 static inline int is_file_lru(enum lru_list lru)
 {
@@ -219,7 +252,11 @@ static inline int is_file_lru(enum lru_list lru)
 
 static inline int is_active_lru(enum lru_list lru)
 {
+#ifdef CONFIG_MEMPLUS
+		return (lru == LRU_ACTIVE_ANON || lru == LRU_ACTIVE_FILE || lru == LRU_ACTIVE_ANON_SWPCACHE);
+#else
 	return (lru == LRU_ACTIVE_ANON || lru == LRU_ACTIVE_FILE);
+#endif
 }
 
 struct zone_reclaim_stat {
@@ -235,8 +272,20 @@ struct zone_reclaim_stat {
 	unsigned long		recent_scanned[2];
 };
 
+#ifdef CONFIG_SMART_BOOST
+struct uid_node {
+	struct uid_node __rcu *next;
+	uid_t uid;
+	unsigned int hot_count;
+	struct list_head  page_cache_list;
+	struct rcu_head rcu;
+};
+#endif
 struct lruvec {
 	struct list_head		lists[NR_LRU_LISTS];
+#ifdef CONFIG_SMART_BOOST
+	struct uid_node **uid_hash;
+#endif
 	struct zone_reclaim_stat	reclaim_stat;
 	/* Evictions & activations on the inactive file list */
 	atomic_long_t			inactive_age;
@@ -249,7 +298,11 @@ struct lruvec {
 
 /* Mask used at gathering information at once (see memcontrol.c) */
 #define LRU_ALL_FILE (BIT(LRU_INACTIVE_FILE) | BIT(LRU_ACTIVE_FILE))
+#ifdef CONFIG_MEMPLUS
+#define LRU_ALL_ANON (BIT(LRU_INACTIVE_ANON) | BIT(LRU_ACTIVE_ANON) | BIT(LRU_INACTIVE_ANON_SWPCACHE) | BIT(LRU_ACTIVE_ANON_SWPCACHE))
+#else
 #define LRU_ALL_ANON (BIT(LRU_INACTIVE_ANON) | BIT(LRU_ACTIVE_ANON))
+#endif
 #define LRU_ALL	     ((1 << NR_LRU_LISTS) - 1)
 
 /* Isolate unmapped file */
@@ -879,7 +932,7 @@ static inline int is_highmem_idx(enum zone_type idx)
 }
 
 /**
- * is_highmem - helper function to quickly check if a struct zone is a 
+ * is_highmem - helper function to quickly check if a struct zone is a
  *              highmem zone or not.  This is an attempt to keep references
  *              to ZONE_{DMA/NORMAL/HIGHMEM/etc} in general code to a minimum.
  * @zone - pointer to struct zone variable

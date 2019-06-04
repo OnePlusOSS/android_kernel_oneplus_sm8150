@@ -82,6 +82,10 @@
 		((x) == SDE_RM_TOPOLOGY_DUALPIPE_3DMERGE) || \
 		((x) == SDE_RM_TOPOLOGY_DUALPIPE_3DMERGE_DSC))
 
+#define DSI_PANEL_SAMSUNG_S6E3HC2 0
+#define DSI_PANEL_SAMSUNG_S6E3FC2X01 1
+extern char dsi_panel_name;
+
 /**
  * enum sde_enc_rc_events - events for resource control state machine
  * @SDE_ENC_RC_EVENT_KICKOFF:
@@ -1896,7 +1900,12 @@ static int _sde_encoder_update_rsc_client(
 	    (rsc_config->prefill_lines != prefill_lines) ||
 	    (rsc_config->jitter_numer != mode_info.jitter_numer) ||
 	    (rsc_config->jitter_denom != mode_info.jitter_denom)) {
-		rsc_config->fps = mode_info.frame_rate;
+		if (dsi_panel_name == DSI_PANEL_SAMSUNG_S6E3HC2) {
+			rsc_config->fps = 90;
+		}
+		else {
+			rsc_config->fps = mode_info.frame_rate;
+		}
 		rsc_config->vtotal = mode_info.vtotal;
 		rsc_config->prefill_lines = prefill_lines;
 		rsc_config->jitter_numer = mode_info.jitter_numer;
@@ -4050,6 +4059,38 @@ void sde_encoder_trigger_kickoff_pending(struct drm_encoder *drm_enc)
 	sde_enc->idle_pc_restore = false;
 }
 
+
+/*kent.xie@MM.Display.LCD.Feature,2018-08-19 force enable dither on Fingerprint scene */
+extern bool sde_crtc_get_fingerprint_mode(struct drm_crtc_state *crtc_state);
+static bool
+_sde_encoder_setup_dither_for_onscreenfingerprint(struct sde_encoder_phys *phys,struct sde_hw_pingpong *hw_pp,
+ void *dither_cfg, int len)
+{
+ struct drm_encoder *drm_enc = phys->parent;
+ struct drm_msm_dither dither;
+
+ if (!drm_enc || !drm_enc->crtc)
+ return -EFAULT;
+
+ if (!sde_crtc_get_fingerprint_mode(drm_enc->crtc->state))
+ return -EINVAL;
+
+ if (len != sizeof(dither))
+ return -EINVAL;
+
+ memcpy(&dither, dither_cfg, len);
+ dither.c0_bitdepth = 6;
+ dither.c1_bitdepth = 6;
+ dither.c2_bitdepth = 6;
+ dither.c3_bitdepth = 6;
+ dither.temporal_en = 1;
+
+ phys->hw_pp->ops.setup_dither(hw_pp, &dither, len);
+
+ return 0;
+}
+
+
 static void _sde_encoder_setup_dither(struct sde_encoder_phys *phys)
 {
 	void *dither_cfg;
@@ -4095,6 +4136,8 @@ static void _sde_encoder_setup_dither(struct sde_encoder_phys *phys)
 		for (i = 0; i < MAX_CHANNELS_PER_ENC; i++) {
 			hw_pp = sde_enc->hw_pp[i];
 			if (hw_pp) {
+                /*kent.xie@MM.Display.LCD.Feature,2018-08-19 force enable dither on Fingerprint scene */
+            if (_sde_encoder_setup_dither_for_onscreenfingerprint(phys,hw_pp, dither_cfg, len))
 				phys->hw_pp->ops.setup_dither(hw_pp, dither_cfg,
 								len);
 			}
@@ -4482,6 +4525,7 @@ int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
 		sde_connector_set_qsync_params(
 				sde_enc->cur_master->connector);
 
+
 	/* prepare for next kickoff, may include waiting on previous kickoff */
 	SDE_ATRACE_BEGIN("sde_encoder_prepare_for_kickoff");
 	for (i = 0; i < sde_enc->num_phys_encs; i++) {
@@ -4505,8 +4549,10 @@ int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
 			}
 		}
 	}
-
+	SDE_ATRACE_BEGIN("sde_encoder_resource_control");
 	rc = sde_encoder_resource_control(drm_enc, SDE_ENC_RC_EVENT_KICKOFF);
+	SDE_ATRACE_END("sde_encoder_resource_control");
+
 	if (rc) {
 		SDE_ERROR_ENC(sde_enc, "resource kickoff failed rc %d\n", rc);
 		ret = rc;
@@ -4531,13 +4577,18 @@ int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
 				phys->ops.hw_reset(phys);
 		}
 	}
-
+	SDE_ATRACE_BEGIN("_sde_encoder_update_master");
 	_sde_encoder_update_master(drm_enc, params);
+	SDE_ATRACE_END("_sde_encoder_update_master");
 
+	SDE_ATRACE_BEGIN("_sde_encoder_update_roi");
 	_sde_encoder_update_roi(drm_enc);
+	SDE_ATRACE_END("_sde_encoder_update_roi");
 
 	if (sde_enc->cur_master && sde_enc->cur_master->connector) {
+		SDE_ATRACE_BEGIN("sde_connector_pre_kickoff");
 		rc = sde_connector_pre_kickoff(sde_enc->cur_master->connector);
+		SDE_ATRACE_END("sde_connector_pre_kickoff");
 		if (rc) {
 			SDE_ERROR_ENC(sde_enc, "kickoff conn%d failed rc %d\n",
 					sde_enc->cur_master->connector->base.id,

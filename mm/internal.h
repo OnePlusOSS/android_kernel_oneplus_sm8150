@@ -100,6 +100,8 @@ static inline void set_page_refcounted(struct page *page)
 
 extern unsigned long highest_memmap_pfn;
 
+extern atomic_t alloc_ongoing;
+
 /*
  * Maximum number of reclaim retries without progress before the OOM
  * killer is consider the only way forward.
@@ -141,6 +143,7 @@ struct alloc_context {
 	int migratetype;
 	enum zone_type high_zoneidx;
 	bool spread_dirty_pages;
+	bool lr_handle;
 };
 
 #define ac_classzone_idx(ac) zonelist_zone_idx(ac->preferred_zoneref)
@@ -515,6 +518,9 @@ unsigned long reclaim_clean_pages_from_list(struct zone *zone,
 #define ALLOC_HIGH		0x20 /* __GFP_HIGH set */
 #define ALLOC_CPUSET		0x40 /* check for correct cpuset */
 #define ALLOC_CMA		0x80 /* allow allocations from CMA areas */
+#ifdef CONFIG_DEFRAG_HELPER
+#define ALLOC_UNMOVE    0x800
+#endif
 
 enum ttu_flags;
 struct tlbflush_unmap_batch;

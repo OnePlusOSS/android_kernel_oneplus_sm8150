@@ -66,17 +66,6 @@
 	qcom,spss-prod-firmware-name = "spss2p";	/* 8 chars max */
 };
 
-&mdss_rotator {
-	smmu_rot_unsec: qcom,smmu_rot_unsec_cb {
-		compatible = "qcom,smmu_sde_rot_unsec";
-		iommus = <&apps_smmu 0x2040 0x0>;
-	};
-	smmu_rot_sec: qcom,smmu_rot_sec_cb {
-		compatible = "qcom,smmu_sde_rot_sec";
-		iommus = <&apps_smmu 0x2041 0x0>;
-	};
-};
-
 &clock_gcc {
 	compatible = "qcom,gcc-sm8150-v2", "syscon";
 };
@@ -492,7 +481,6 @@
 			2649600 1179
 			2745600 1288
 			2841600 1427
-			2956800 1670
 		>;
 		idle-cost-data = <
 			110 90 70
@@ -572,7 +560,6 @@
 			2649600 147
 			2745600 160
 			2841600 180
-			2956800 197
 		>;
 		idle-cost-data = <
 			3 2 1
@@ -588,7 +575,7 @@
 	qcom,chipid = <0x06040001>;
 
 	/* Power level to start throttling */
-	qcom,throttle-pwrlevel = <0>;
+	qcom,throttle-pwrlevel = <3>;
 
 	/* Updated Bus Scale Settings */
 	qcom,msm-bus,num-cases = <12>;
@@ -613,136 +600,64 @@
 		<26 512 0 7211000>,    // 10 bus=1804
 		<26 512 0 8363000>;    // 11 bus=2092
 
-	/delete-property/qcom,initial-pwrlevel;
+	qcom,initial-pwrlevel = <4>;
 
 	operating-points-v2 = <&gpu_opp_table_v2>;
 
-	qcom,gpu-speed-bin = <0x4130 0xe0000000 29>;
-
-	/delete-node/qcom,gpu-pwrlevels;
-	qcom,gpu-pwrlevel-bins {
+	qcom,gpu-pwrlevels {
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		compatible="qcom,gpu-pwrlevel-bins";
-		qcom,gpu-pwrlevels-0 {
-			#address-cells = <1>;
-			#size-cells = <0>;
+		compatible = "qcom,gpu-pwrlevels";
 
-			qcom,speed-bin = <0>;
-			qcom,initial-pwrlevel = <4>;
-
-			qcom,gpu-pwrlevel@0 {
-				reg = <0>;
-				qcom,gpu-freq = <585000000>;
-				qcom,bus-freq = <11>;
-				qcom,bus-min = <11>;
-				qcom,bus-max = <11>;
-			};
-
-			qcom,gpu-pwrlevel@1 {
-				reg = <1>;
-				qcom,gpu-freq = <499200000>;
-				qcom,bus-freq = <9>;
-				qcom,bus-min = <8>;
-				qcom,bus-max = <11>;
-			};
-
-			qcom,gpu-pwrlevel@2 {
-				reg = <2>;
-				qcom,gpu-freq = <427000000>;
-				qcom,bus-freq = <6>;
-				qcom,bus-min = <5>;
-				qcom,bus-max = <9>;
-			};
-
-			qcom,gpu-pwrlevel@3 {
-				reg = <3>;
-				qcom,gpu-freq = <345000000>;
-				qcom,bus-freq = <3>;
-				qcom,bus-min = <3>;
-				qcom,bus-max = <5>;
-			};
-
-			qcom,gpu-pwrlevel@4 {
-				reg = <4>;
-				qcom,gpu-freq = <257000000>;
-				qcom,bus-freq = <3>;
-				qcom,bus-min = <2>;
-				qcom,bus-max = <4>;
-			};
-
-			qcom,gpu-pwrlevel@5 {
-				reg = <5>;
-				qcom,gpu-freq = <0>;
-				qcom,bus-freq = <0>;
-				qcom,bus-min = <0>;
-				qcom,bus-max = <0>;
-			};
+		qcom,gpu-pwrlevel@0 {
+			reg = <0>;
+			qcom,gpu-freq = <585000000>;
+			qcom,bus-freq = <11>;
+			qcom,bus-min = <11>;
+			qcom,bus-max = <11>;
 		};
-		qcom,gpu-pwrlevels-1 {
-			#address-cells = <1>;
-			#size-cells = <0>;
 
-			qcom,speed-bin = <1>;
-			qcom,initial-pwrlevel = <5>;
-
-			qcom,gpu-pwrlevel@0 {
-				reg = <0>;
-				qcom,gpu-freq = <675000000>;
-				qcom,bus-freq = <11>;
-				qcom,bus-min = <11>;
-				qcom,bus-max = <11>;
-			};
-
-			qcom,gpu-pwrlevel@1 {
-				reg = <1>;
-				qcom,gpu-freq = <585000000>;
-				qcom,bus-freq = <10>;
-				qcom,bus-min = <9>;
-				qcom,bus-max = <11>;
-			};
-
-			qcom,gpu-pwrlevel@2 {
-				reg = <2>;
-				qcom,gpu-freq = <499200000>;
-				qcom,bus-freq = <9>;
-				qcom,bus-min = <8>;
-				qcom,bus-max = <11>;
-			};
-
-			qcom,gpu-pwrlevel@3 {
-				reg = <3>;
-				qcom,gpu-freq = <427000000>;
-				qcom,bus-freq = <6>;
-				qcom,bus-min = <5>;
-				qcom,bus-max = <9>;
-			};
-
-			qcom,gpu-pwrlevel@4 {
-				reg = <4>;
-				qcom,gpu-freq = <345000000>;
-				qcom,bus-freq = <4>;
-				qcom,bus-min = <3>;
-				qcom,bus-max = <5>;
-			};
-
-			qcom,gpu-pwrlevel@5 {
-				reg = <5>;
-				qcom,gpu-freq = <257000000>;
-				qcom,bus-freq = <3>;
-				qcom,bus-min = <2>;
-				qcom,bus-max = <4>;
-			};
-
-			qcom,gpu-pwrlevel@6 {
-				reg = <6>;
-				qcom,gpu-freq = <0>;
-				qcom,bus-freq = <0>;
-				qcom,bus-min = <0>;
-				qcom,bus-max = <0>;
-			};
+		qcom,gpu-pwrlevel@1 {
+			reg = <1>;
+			qcom,gpu-freq = <499200000>;
+			qcom,bus-freq = <9>;
+			qcom,bus-min = <8>;
+			qcom,bus-max = <11>;
 		};
+
+		qcom,gpu-pwrlevel@2 {
+			reg = <2>;
+			qcom,gpu-freq = <427000000>;
+			qcom,bus-freq = <6>;
+			qcom,bus-min = <5>;
+			qcom,bus-max = <9>;
+		};
+
+		qcom,gpu-pwrlevel@3 {
+			reg = <3>;
+			qcom,gpu-freq = <345000000>;
+			qcom,bus-freq = <3>;
+			qcom,bus-min = <3>;
+			qcom,bus-max = <5>;
+		};
+
+		qcom,gpu-pwrlevel@4 {
+			reg = <4>;
+			qcom,gpu-freq = <257000000>;
+			qcom,bus-freq = <3>;
+			qcom,bus-min = <2>;
+			qcom,bus-max = <4>;
+		};
+
+		qcom,gpu-pwrlevel@5 {
+			reg = <5>;
+			qcom,gpu-freq = <0>;
+			qcom,bus-freq = <0>;
+			qcom,bus-min = <0>;
+			qcom,bus-max = <0>;
+		};
+		/delete-node/ qcom,gpu-pwrlevel@6;
 	};
 
 	qcom,l3-pwrlevels {
@@ -778,17 +693,16 @@
 
 	qcom,gpu-acd-table {
 		/* Corresponds to levels in the GPU perf table */
-		qcom,acd-enable-by-level = <0x7e>;
+		qcom,acd-enable-by-level = <0x3e>;
 		qcom,acd-stride = <0x2>;
-		qcom,acd-num-levels = <0x6>;
+		qcom,acd-num-levels = <0x5>;
 
 		/* ACDCR, ACDTD */
 		qcom,acd-data = <0xa02d5ffd 0x00007611 /* LowSVS */
 				0xa02d5ffd 0x00006911 /* SVS */
 				0xa02d5ffd 0x00006111 /* SVS_L1 */
 				0xa02d5ffd 0x00006011 /* SVS_L2 */
-				0x802d5ffd 0x00005411 /* NOM */
-				0x802d5ffd 0x00005411>; /* NOM_L1 */
+				0x802d5ffd 0x00005411>; /* NOM */
 	};
 };
 
@@ -1126,6 +1040,12 @@
 	     USB3_DP_QSERDES_TXA_RCV_DETECT_LVL_2 0x12 0
 	     USB3_DP_QSERDES_TXA_RES_CODE_LANE_TX 0x00 0
 	     USB3_DP_QSERDES_TXA_RES_CODE_LANE_RX 0x00 0
+	     /*op do optimize A/B side 0x1214/0x1614:0x06 0x1308/0x1708:0x0c
+	      *0x120C/0x160C:0x06
+	      */
+	     USB3_DP_QSERDES_TXA_TX_DRV_LVL 0x06 0
+	     USB3_DP_QSERDES_TXA_PRE_EMPH 0x0c 0
+	     USB3_DP_QSERDES_TXA_TX_EMP_POST1_LVL 0x06 0
 	     USB3_DP_QSERDES_TXA_RES_CODE_LANE_OFFSET_TX 0x16 0
 	     USB3_DP_QSERDES_TXA_RES_CODE_LANE_OFFSET_RX 0x05 0
 	     USB3_DP_QSERDES_TXA_PI_QEC_CTRL 0x20 0
@@ -1169,6 +1089,12 @@
 	     USB3_DP_QSERDES_TXB_RCV_DETECT_LVL_2 0x12 0
 	     USB3_DP_QSERDES_TXB_RES_CODE_LANE_TX 0x00 0
 	     USB3_DP_QSERDES_TXB_RES_CODE_LANE_RX 0x00 0
+	     /*op do optimize A/B side 0x1214/0x1614:0x06 0x1308/0x1708:0x0c
+	      *0x120C/0x160C:0x06
+	      */
+	     USB3_DP_QSERDES_TXB_TX_DRV_LVL 0x06 0
+	     USB3_DP_QSERDES_TXB_PRE_EMPH 0x0c 0
+	     USB3_DP_QSERDES_TXB_TX_EMP_POST1_LVL 0x06 0
 	     USB3_DP_QSERDES_TXB_RES_CODE_LANE_OFFSET_TX 0x16 0
 	     USB3_DP_QSERDES_TXB_RES_CODE_LANE_OFFSET_RX 0x05 0
 	     USB3_DP_QSERDES_TXB_PI_QEC_CTRL 0x01 0

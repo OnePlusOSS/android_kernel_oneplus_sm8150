@@ -923,8 +923,11 @@ static unsigned long scan_swap_map(struct swap_info_struct *si,
 		return 0;
 
 }
-
+#ifdef CONFIG_MEMPLUS
+int get_swap_pages(int n_goal, bool cluster, swp_entry_t swp_entries[], unsigned long swap_bdv)
+#else
 int get_swap_pages(int n_goal, bool cluster, swp_entry_t swp_entries[])
+#endif
 {
 	unsigned long nr_pages = cluster ? SWAPFILE_CLUSTER : 1;
 	struct swap_info_struct *si, *next;
@@ -977,6 +980,13 @@ start_over:
 		spin_unlock(&swap_avail_lock);
 start:
 		spin_lock(&si->lock);
+#ifdef CONFIG_MEMPLUS
+		if (swap_bdv ^ (si->flags & SWP_SYNCHRONOUS_IO)) {
+			spin_lock(&swap_avail_lock);
+			spin_unlock(&si->lock);
+			goto nextsi;
+		}
+#endif
 		if (!si->highest_bit || !(si->flags & SWP_WRITEOK)) {
 			spin_lock(&swap_avail_lock);
 			if (plist_node_empty(&si->avail_lists[node])) {
@@ -1215,6 +1225,53 @@ static void swapcache_free(swp_entry_t entry)
 			free_swap_slot(entry);
 	}
 }
+#ifdef CONFIG_MEMPLUS
+bool is_fast_entry(swp_entry_t entry)
+{
+	struct swap_info_struct *p;
+	bool ret = false;
+	
+	p = swap_info_get(entry);
+	if (p) {
+		if (p->flags & SWP_SYNCHRONOUS_IO)
+			ret = true;
+		spin_unlock(&p->lock);
+	}
+	return ret;
+}
+bool enough_swap_size(unsigned long req_size, int swap_bdv)
+{
+	bool ret = false;
+	unsigned int n = 0;
+	unsigned int type;
+
+	if (swap_bdv > 1)
+		return ret;
+
+	spin_lock(&swap_lock);
+	for (type = 0; type < nr_swapfiles; type++) {
+		struct swap_info_struct *sis = swap_info[type];
+		int fast_i = (sis->flags & SWP_SYNCHRONOUS_IO)? 1:0;
+
+		if (fast_i == swap_bdv) {
+			spin_lock(&sis->lock);
+			if (sis->flags & SWP_WRITEOK) {
+				n += sis->pages - sis->inuse_pages;
+				if (n > req_size) {
+					ret = true;
+					spin_unlock(&sis->lock);
+					goto unlock;
+				}
+			}
+			spin_unlock(&sis->lock);
+		}
+	}
+
+unlock:
+	spin_unlock(&swap_lock);
+	return ret;
+}
+#endif /* CONFIG_MEMPLUS */
 
 #ifdef CONFIG_THP_SWAP
 static void swapcache_free_cluster(swp_entry_t entry)

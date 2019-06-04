@@ -384,7 +384,7 @@ static bool dsi_bridge_mode_fixup(struct drm_bridge *bridge,
 		if (rc) {
 			pr_err("[%s] seamless mode mismatch failure rc=%d\n",
 				c_bridge->display->name, rc);
-			return false;
+		//	return false;
 		}
 
 		cur_mode = crtc_state->crtc->mode;

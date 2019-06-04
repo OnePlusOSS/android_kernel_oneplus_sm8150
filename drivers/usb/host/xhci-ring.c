@@ -2744,6 +2744,10 @@ irqreturn_t xhci_irq(struct usb_hcd *hcd)
 		goto out;
 	}
 
+/* david.liu@bsp, 20171121 Abort suspend when interrupt is pending */
+	if (status & STS_HCE)
+		xhci_warn(xhci, "WARNING: Host controller Error\n");
+
 	if (!(status & STS_EINT))
 		goto out;
 

@@ -219,4 +219,8 @@ source "drivers/sensors/Kconfig"
 
 source "drivers/esoc/Kconfig"
 
+source "drivers/oneplus/Kconfig"
+
+source "drivers/param_read_write/Kconfig"
+source "drivers/oem_debug/Kconfig"
 endmenu

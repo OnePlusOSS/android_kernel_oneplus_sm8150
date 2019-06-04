@@ -1,0 +1,3 @@
+config DEFRAG
+	default y
+	bool "Oneplus CoreTech helper, used for defrag module"

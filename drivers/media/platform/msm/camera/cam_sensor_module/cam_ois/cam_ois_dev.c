@@ -15,6 +15,37 @@
 #include "cam_ois_soc.h"
 #include "cam_ois_core.h"
 #include "cam_debug_util.h"
+#include "linux/proc_fs.h"
+#include "ois_fw/Ois.h"
+#include "ois_fw/OisAPI.h"
+struct cam_ois_ctrl_t *ctrl = NULL;
+
+
+
+static int RamRead32A(struct cam_ois_ctrl_t *o_ctrl,
+    UINT32 addr, UINT32* data)
+{
+    int32_t rc = 0;
+    int retry = 3;
+    if (o_ctrl == NULL) {
+        CAM_ERR(CAM_OIS, "Invalid Args dev");
+        return -EINVAL;
+    }
+    //CAM_INFO(CAM_OIS, "o_ctrl valid, power state = %d, iomaster = %p dev" , o_ctrl->cam_ois_state,&(o_ctrl->io_master_info));
+    for(int i = 0; i < retry; i++)
+    {
+        rc = camera_io_dev_read(&(o_ctrl->io_master_info), (uint32_t)addr, (uint32_t *)data,
+            CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_DWORD);
+        if (rc < 0) {
+            CAM_ERR(CAM_OIS, "read 0x%04x failed, retry:%d", addr, i+1);
+        } else {
+            //CAM_INFO(CAM_OIS, "I2C read address = %p result = %d dev", addr, *data);
+            return rc;
+        }
+    }
+    //CAM_INFO(CAM_OIS, "I2C read address = %p result = %d dev", addr, *data);
+    return rc;
+}
 
 static long cam_ois_subdev_ioctl(struct v4l2_subdev *sd,
 	unsigned int cmd, void *arg)
@@ -388,12 +419,62 @@ static struct i2c_driver cam_ois_i2c_driver = {
 	},
 };
 
+static ssize_t OISread(struct file *p_file,
+	char __user *puser_buf, size_t count, loff_t *p_offset)
+{
+
+	char page[256] = {0};
+	int len = 0;
+	int ret = 0;
+	uint32_t hall_x=0;
+	uint32_t hall_y=0;
+	if (puser_buf == NULL ) return 0;
+	ret = RamRead32A(ctrl, HALL_RAM_HXIDAT , &hall_x );
+	if(ret < 0) CAM_ERR(CAM_OIS, "read HALL data fail for X");
+	ret = RamRead32A(ctrl, HALL_RAM_HYIDAT , &hall_y );
+	if(ret < 0) CAM_ERR(CAM_OIS, "read HALL data fail for Y");
+	hall_x >>= 16;
+	hall_y >>= 16;
+	len = sprintf(page, "%08d%08d", hall_x, hall_y);
+	//CAM_INFO(CAM_OIS, "hall_x = %d, hall_y = %d, hall_x = 0x%x, hall_y = 0x%x", hall_x, hall_y, hall_x, hall_y);
+	if (len > *p_offset) {
+		len -= *p_offset;
+	}
+	else {
+		len = 0;
+	}
+	if (copy_to_user(puser_buf, page, (len < count ? len : count))) {
+		CAM_ERR(CAM_OIS, "copy to user error");
+		return -EFAULT;
+	}
+	*p_offset += len < count ? len : count;
+
+	return (len < count ? len : count);
+}
+
+static ssize_t OISwrite(struct file *p_file,
+	const char __user *puser_buf,
+	size_t count, loff_t *p_offset)
+{
+	CAM_ERR(CAM_OIS, "OISwrite");
+	return 0;
+}
+
+
+static const struct file_operations proc_file_fops = {
+ .owner = THIS_MODULE,
+ .read  = OISread,
+ .write = OISwrite,
+};
+
 static struct cam_ois_registered_driver_t registered_driver = {
 	0, 0};
 
 static int __init cam_ois_driver_init(void)
 {
 	int rc = 0;
+	struct proc_dir_entry *face_common_dir = NULL;
+	struct proc_dir_entry *proc_file_entry = NULL;
 
 	rc = platform_driver_register(&cam_ois_platform_driver);
 	if (rc) {
@@ -411,6 +492,19 @@ static int __init cam_ois_driver_init(void)
 	}
 
 	registered_driver.i2c_driver = 1;
+
+	face_common_dir =  proc_mkdir("OIS", NULL);
+	if(!face_common_dir) {
+		CAM_ERR(CAM_OIS, "create dir fail CAM_ERROR API");
+		//return FACE_ERROR_GENERAL;
+	}
+
+	proc_file_entry = proc_create("OISGyro", 0444, face_common_dir, &proc_file_fops);
+	if(proc_file_entry == NULL)
+		CAM_ERR(CAM_OIS, "Create fail");
+	else
+		CAM_ERR(CAM_OIS, "Create successs");
+
 	return rc;
 }
 

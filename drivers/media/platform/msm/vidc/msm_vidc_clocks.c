@@ -1067,7 +1067,7 @@ void msm_clock_data_reset(struct msm_vidc_inst *inst)
 
 	dprintk(VIDC_DBG, "Init DCVS Load\n");
 
-	if (!inst || !inst->core || !inst->clk_data.entry) {
+	if (!inst || !inst->core) {
 		dprintk(VIDC_ERR, "%s Invalid args: Inst = %pK\n",
 			__func__, inst);
 		return;
@@ -1185,7 +1185,8 @@ int msm_vidc_get_extra_buff_count(struct msm_vidc_inst *inst,
 	 * batch size count of extra buffers added on output port
 	 */
 	if (is_output_buffer(inst, buffer_type)) {
-		if (inst->decode_batching && is_decode_session(inst) &&
+		if (inst->core->resources.decode_batching &&
+			is_decode_session(inst) &&
 			count < inst->batch.size)
 			count = inst->batch.size;
 	}

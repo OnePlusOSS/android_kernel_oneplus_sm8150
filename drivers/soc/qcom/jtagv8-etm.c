@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -183,13 +183,8 @@
 #define HW_SOC_ID_M8953		(293)
 #define GET_FEAT_VERSION_CMD	3
 
-/* spread out etm register write */
 #define etm_writel(etm, val, off)	\
-do {							\
-	writel_relaxed_no_log(val, etm->base + off);	\
-	udelay(20);					\
-} while (0)
-
+		   writel_relaxed_no_log(val, etm->base + off)
 #define etm_writel_log(etm, val, off)	\
 		   __raw_writel(val, etm->base + off)
 
@@ -315,12 +310,6 @@ static inline void etm_mm_save_state(struct etm_ctx *etmdata)
 			pr_err_ratelimited("programmers model is not stable\n"
 					   );
 
-		etmdata->state[i++] = etm_readl(etmdata, TRCPRGCTLR);
-		if (!(etmdata->state[0] & BIT(0))) {
-			atomic_notifier_call_chain(&etm_save_notifier_list,
-							0, NULL);
-			break;
-		}
 		/* main control and configuration registers */
 		etmdata->state[i++] = etm_readl(etmdata, TRCPROCSELR);
 		etmdata->state[i++] = etm_readl(etmdata, TRCCONFIGR);
@@ -386,6 +375,8 @@ static inline void etm_mm_save_state(struct etm_ctx *etmdata)
 		}
 		/* claim tag registers */
 		etmdata->state[i++] = etm_readl(etmdata, TRCCLAIMCLR);
+		/* program ctrl register */
+		etmdata->state[i++] = etm_readl(etmdata, TRCPRGCTLR);
 
 		/* ensure trace unit is idle to be powered down */
 		for (count = TIMEOUT_US; (BVAL(etm_readl(etmdata, TRCSTATR), 0)
@@ -423,10 +414,6 @@ static inline void etm_mm_restore_state(struct etm_ctx *etmdata)
 			etm_os_lock(etmdata);
 		}
 
-		if (!(etmdata->state[0] & BIT(0))) {
-			etm_os_unlock(etmdata);
-			break;
-		}
 		/* main control and configuration registers */
 		etm_writel(etmdata, etmdata->state[i++], TRCPROCSELR);
 		etm_writel(etmdata, etmdata->state[i++], TRCCONFIGR);
@@ -492,7 +479,7 @@ static inline void etm_mm_restore_state(struct etm_ctx *etmdata)
 		/* claim tag registers */
 		etm_writel(etmdata, etmdata->state[i++], TRCCLAIMSET);
 		/* program ctrl register */
-		etm_writel(etmdata, etmdata->state[0], TRCPRGCTLR);
+		etm_writel(etmdata, etmdata->state[i++], TRCPRGCTLR);
 
 		etm_os_unlock(etmdata);
 		break;

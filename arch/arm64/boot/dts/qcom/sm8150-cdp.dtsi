@@ -41,13 +41,13 @@
 	extcon_usb1: extcon_usb1 {
 		compatible = "linux,extcon-usb-gpio";
 		vbus-gpio = <&pm8150_gpios 10 GPIO_ACTIVE_HIGH>;
-		id-gpio = <&tlmm 101 GPIO_ACTIVE_HIGH>;
+		/*id-gpio = <&tlmm 101 GPIO_ACTIVE_HIGH>; GPIO 101 for fingerprint VDD enable*/
 		vbus-out-gpio = <&pm8150_gpios 9 GPIO_ACTIVE_HIGH>;
 
-		pinctrl-names = "default";
+		/*pinctrl-names = "default";
 		pinctrl-0 = <&usb2_vbus_det_default
 			     &usb2_id_det_default
-			     &usb2_vbus_boost_default>;
+			     &usb2_vbus_boost_default>; GPIO 101 for fingerprint VDD enable*/
 	};
 };
 
@@ -544,7 +544,6 @@
 		polling-delay = <0>;
 		thermal-governor = "user_space";
 		thermal-sensors = <&pm8150b_adc_tm ADC_AMUX_THM1_PU2>;
-		wake-capable-sensor;
 		trips {
 			active-config0 {
 				temperature = <125000>;
@@ -559,7 +558,6 @@
 		polling-delay = <0>;
 		thermal-governor = "user_space";
 		thermal-sensors = <&pm8150_adc_tm ADC_XO_THERM_PU2>;
-		wake-capable-sensor;
 		trips {
 			active-config0 {
 				temperature = <125000>;
@@ -574,7 +572,6 @@
 		polling-delay = <0>;
 		thermal-governor = "user_space";
 		thermal-sensors = <&pm8150_adc_tm ADC_AMUX_THM1_PU2>;
-		wake-capable-sensor;
 		trips {
 			active-config0 {
 				temperature = <125000>;
@@ -589,7 +586,6 @@
 		polling-delay = <0>;
 		thermal-governor = "user_space";
 		thermal-sensors = <&pm8150_adc_tm ADC_AMUX_THM2_PU2>;
-		wake-capable-sensor;
 		trips {
 			active-config0 {
 				temperature = <125000>;
@@ -604,7 +600,6 @@
 		polling-delay = <0>;
 		thermal-governor = "user_space";
 		thermal-sensors = <&pm8150l_adc_tm ADC_AMUX_THM1_PU2>;
-		wake-capable-sensor;
 		trips {
 			active-config0 {
 				temperature = <125000>;
@@ -619,7 +614,6 @@
 		polling-delay = <0>;
 		thermal-governor = "user_space";
 		thermal-sensors = <&pm8150l_adc_tm ADC_AMUX_THM2_PU2>;
-		wake-capable-sensor;
 		trips {
 			active-config0 {
 				temperature = <125000>;
@@ -634,7 +628,6 @@
 		polling-delay = <0>;
 		thermal-governor = "user_space";
 		thermal-sensors = <&pm8150l_adc_tm ADC_AMUX_THM3_PU2>;
-		wake-capable-sensor;
 		trips {
 			active-config0 {
 				temperature = <125000>;

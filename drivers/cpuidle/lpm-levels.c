@@ -126,6 +126,12 @@ module_param_named(print_parsed_dt, print_parsed_dt, bool, 0664);
 static bool sleep_disabled;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0664);
 
+void msm_cpuidle_set_sleep_disable(bool disable)
+{
+	sleep_disabled = disable;
+	pr_info("%s:sleep_disabled=%d\n", __func__, disable);
+}
+
 /**
  * msm_cpuidle_get_deep_idle_latency - Get deep idle latency value
  *

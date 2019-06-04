@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -81,17 +81,14 @@
 #define ATEST1_SEL_MASK			GENMASK(6, 0)
 #define ISNS_INT_VAL			0x09
 
-#define BATT_PROFILE_VOTER	"BATT_PROFILE_VOTER"
 #define CP_VOTER		"CP_VOTER"
 #define USER_VOTER		"USER_VOTER"
 #define ILIM_VOTER		"ILIM_VOTER"
 #define FCC_VOTER		"FCC_VOTER"
 #define ICL_VOTER		"ICL_VOTER"
-#define TAPER_END_VOTER		"TAPER_END_VOTER"
 #define WIRELESS_VOTER		"WIRELESS_VOTER"
 #define SRC_VOTER		"SRC_VOTER"
 #define SWITCHER_TOGGLE_VOTER	"SWITCHER_TOGGLE_VOTER"
-#define SOC_LEVEL_VOTER		"SOC_LEVEL_VOTER"
 
 enum {
 	SWITCHER_OFF_WINDOW_IRQ = 0,
@@ -128,7 +125,6 @@ struct smb1390 {
 	struct votable		*disable_votable;
 	struct votable		*ilim_votable;
 	struct votable		*fcc_votable;
-	struct votable		*fv_votable;
 	struct votable		*cp_awake_votable;
 
 	/* power supplies */
@@ -141,8 +137,6 @@ struct smb1390 {
 	bool			taper_work_running;
 	struct smb1390_iio	iio;
 	int			irq_status;
-	int			taper_entry_fv;
-	u32			max_cutoff_soc;
 };
 
 struct smb_irq {
@@ -212,14 +206,6 @@ static bool is_psy_voter_available(struct smb1390 *chip)
 		}
 	}
 
-	if (!chip->fv_votable) {
-		chip->fv_votable = find_votable("FV");
-		if (!chip->fv_votable) {
-			pr_debug("Couldn't find FV votable\n");
-			return false;
-		}
-	}
-
 	return true;
 }
 
@@ -231,28 +217,6 @@ static void cp_toggle_switcher(struct smb1390 *chip)
 	usleep_range(20, 30);
 
 	vote(chip->disable_votable, SWITCHER_TOGGLE_VOTER, false, 0);
-}
-
-static int smb1390_is_batt_soc_valid(struct smb1390 *chip)
-{
-	int rc;
-	union power_supply_propval pval = {0, };
-
-	if (!chip->batt_psy)
-		goto out;
-
-	rc = power_supply_get_property(chip->batt_psy,
-			POWER_SUPPLY_PROP_CAPACITY, &pval);
-	if (rc < 0) {
-		pr_err("Couldn't get CAPACITY rc=%d\n", rc);
-		goto out;
-	}
-
-	if (pval.intval >= chip->max_cutoff_soc)
-		return false;
-
-out:
-	return true;
 }
 
 static irqreturn_t default_irq_handler(int irq, void *data)
@@ -580,13 +544,10 @@ static void smb1390_status_change_work(struct work_struct *work)
 	struct smb1390 *chip = container_of(work, struct smb1390,
 					    status_change_work);
 	union power_supply_propval pval = {0, };
-	int max_fcc_ma, rc;
+	int rc;
 
 	if (!is_psy_voter_available(chip))
 		goto out;
-
-	vote(chip->disable_votable, SOC_LEVEL_VOTER,
-			smb1390_is_batt_soc_valid(chip) ? false : true, 0);
 
 	rc = power_supply_get_property(chip->usb_psy,
 			POWER_SUPPLY_PROP_SMB_EN_MODE, &pval);
@@ -635,14 +596,6 @@ static void smb1390_status_change_work(struct work_struct *work)
 				get_effective_result(chip->fcc_votable) / 2);
 
 		/*
-		 * Remove SMB1390 Taper condition disable vote if float voltage
-		 * increased in comparison to voltage at which it entered taper.
-		 */
-		if (chip->taper_entry_fv <
-				get_effective_result(chip->fv_votable))
-			vote(chip->disable_votable, TAPER_END_VOTER, false, 0);
-
-		/*
 		 * all votes that would result in disabling the charge pump have
 		 * been cast; ensure the charhe pump is still enabled before
 		 * continuing.
@@ -668,12 +621,7 @@ static void smb1390_status_change_work(struct work_struct *work)
 		}
 	} else {
 		vote(chip->disable_votable, SRC_VOTER, true, 0);
-		vote(chip->disable_votable, TAPER_END_VOTER, false, 0);
-		max_fcc_ma = get_client_vote(chip->fcc_votable,
-				BATT_PROFILE_VOTER);
-		vote(chip->fcc_votable, CP_VOTER,
-				max_fcc_ma > 0 ? true : false, max_fcc_ma);
-		vote(chip->disable_votable, SOC_LEVEL_VOTER, true, 0);
+		vote(chip->fcc_votable, CP_VOTER, false, 0);
 	}
 
 out:
@@ -690,8 +638,11 @@ static void smb1390_taper_work(struct work_struct *work)
 	if (!is_psy_voter_available(chip))
 		goto out;
 
-	chip->taper_entry_fv = get_effective_result(chip->fv_votable);
-	while (true) {
+	do {
+		fcc_uA = get_effective_result(chip->fcc_votable) - 100000;
+		pr_debug("taper work reducing FCC to %duA\n", fcc_uA);
+		vote(chip->fcc_votable, CP_VOTER, true, fcc_uA);
+
 		rc = power_supply_get_property(chip->batt_psy,
 					POWER_SUPPLY_PROP_CHARGE_TYPE, &pval);
 		if (rc < 0) {
@@ -699,36 +650,12 @@ static void smb1390_taper_work(struct work_struct *work)
 			goto out;
 		}
 
-		if (get_effective_result(chip->fv_votable) >
-						chip->taper_entry_fv) {
-			pr_debug("Float voltage increased. Exiting taper\n");
-			goto out;
-		} else {
-			chip->taper_entry_fv =
-					get_effective_result(chip->fv_votable);
-		}
-
-		if (pval.intval == POWER_SUPPLY_CHARGE_TYPE_TAPER) {
-			fcc_uA = get_client_vote(chip->fcc_votable, CP_VOTER)
-								- 100000;
-			pr_debug("taper work reducing FCC to %duA\n", fcc_uA);
-			vote(chip->fcc_votable, CP_VOTER, true, fcc_uA);
-
-			if (fcc_uA < 2000000) {
-				vote(chip->disable_votable, TAPER_END_VOTER,
-								true, 0);
-				goto out;
-			}
-		} else {
-			pr_debug("In fast charging. Wait for next taper\n");
-		}
-
 		msleep(500);
-	}
+	} while (fcc_uA >= 2000000
+		 && pval.intval == POWER_SUPPLY_CHARGE_TYPE_TAPER);
 
 out:
 	pr_debug("taper work exit\n");
-	vote(chip->fcc_votable, CP_VOTER, false, 0);
 	chip->taper_work_running = false;
 }
 
@@ -751,10 +678,6 @@ static int smb1390_parse_dt(struct smb1390 *chip)
 			return rc;
 		}
 	}
-
-	chip->max_cutoff_soc = 85; /* 85% */
-	of_property_read_u32(chip->dev->of_node, "qcom,max-cutoff-soc",
-			&chip->max_cutoff_soc);
 
 	return rc;
 }
@@ -801,9 +724,6 @@ static int smb1390_init_hw(struct smb1390 *chip)
 	 * traditional parallel charging if present
 	 */
 	vote(chip->disable_votable, USER_VOTER, true, 0);
-	/* keep charge pump disabled if SOC is above threshold */
-	vote(chip->disable_votable, SOC_LEVEL_VOTER,
-			smb1390_is_batt_soc_valid(chip) ? false : true, 0);
 
 	/*
 	 * Improve ILIM accuracy:
@@ -987,7 +907,6 @@ static int smb1390_remove(struct platform_device *pdev)
 
 	/* explicitly disable charging */
 	vote(chip->disable_votable, USER_VOTER, true, 0);
-	vote(chip->disable_votable, SOC_LEVEL_VOTER, true, 0);
 	cancel_work(&chip->taper_work);
 	cancel_work(&chip->status_change_work);
 	wakeup_source_unregister(chip->cp_ws);

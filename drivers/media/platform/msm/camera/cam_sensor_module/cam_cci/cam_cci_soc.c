@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -45,6 +45,7 @@ int cam_cci_init(struct v4l2_subdev *sd,
 
 	CAM_DBG(CAM_CCI, "Base address %pK", base);
 
+#if 0
 	if (cci_dev->ref_count++) {
 		CAM_DBG(CAM_CCI, "ref_count %d", cci_dev->ref_count);
 		master = c_ctrl->cci_info->cci_i2c_master;
@@ -77,11 +78,18 @@ int cam_cci_init(struct v4l2_subdev *sd,
 		}
 		return 0;
 	}
+#endif
 
+	if ((cci_dev->ref_count) &&
+		(cci_dev->cci_state == CCI_STATE_ENABLED)) {
+		cci_dev->ref_count++;
+		return 0;
+	}
+
+	cci_dev->ref_count++;
 	ahb_vote.type = CAM_VOTE_ABSOLUTE;
 	ahb_vote.vote.level = CAM_SVS_VOTE;
 	axi_vote.compressed_bw = CAM_CPAS_DEFAULT_AXI_BW;
-	axi_vote.compressed_bw_ab = CAM_CPAS_DEFAULT_AXI_BW;
 	axi_vote.uncompressed_bw = CAM_CPAS_DEFAULT_AXI_BW;
 
 	rc = cam_cpas_start(cci_dev->cpas_handle,
@@ -170,6 +178,7 @@ int cam_cci_init(struct v4l2_subdev *sd,
 		base + CCI_I2C_M1_RD_THRESHOLD_ADDR);
 
 	cci_dev->cci_state = CCI_STATE_ENABLED;
+	CAM_INFO(CAM_CCI, "End init ref_count %d dev=%s", cci_dev->ref_count,cci_dev->device_name);
 
 	return 0;
 
@@ -386,9 +395,10 @@ int cam_cci_soc_release(struct cci_device *cci_dev)
 		return -EINVAL;
 	}
 	if (--cci_dev->ref_count) {
-		CAM_DBG(CAM_CCI, "ref_count Exit %d", cci_dev->ref_count);
+		CAM_INFO(CAM_CCI, "ref_count Exit %d dev=%s", cci_dev->ref_count,cci_dev->device_name);
 		return 0;
 	}
+
 	for (i = 0; i < MASTER_MAX; i++)
 		if (cci_dev->write_wq[i])
 			flush_workqueue(cci_dev->write_wq[i]);
@@ -407,6 +417,7 @@ int cam_cci_soc_release(struct cci_device *cci_dev)
 	cci_dev->cycles_per_us = 0;
 
 	cam_cpas_stop(cci_dev->cpas_handle);
+	CAM_INFO(CAM_CCI, "End release ref_count %d dev=%s", cci_dev->ref_count,cci_dev->device_name);
 
 	return rc;
 }

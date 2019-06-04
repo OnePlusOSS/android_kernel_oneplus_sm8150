@@ -645,11 +645,20 @@ static int ffs_ep0_open(struct inode *inode, struct file *file)
 	ffs_log("state %d setup_state %d flags %lu opened %d", ffs->state,
 		ffs->setup_state, ffs->flags, atomic_read(&ffs->opened));
 
-	if (unlikely(ffs->state == FFS_CLOSING))
+/* bsp, 20170104 Add log to check ep0 status */
+	if (atomic_read(&ffs->opened)) {
+		pr_err("ep0 is already opened!\n");
 		return -EBUSY;
+	}
+
+	if (unlikely(ffs->state == FFS_CLOSING)) {
+		pr_err("FFS_CLOSING!\n");
+		return -EBUSY;
+	}
 
 	file->private_data = ffs;
 	ffs_data_opened(ffs);
+	pr_info("ep0_open success!\n");
 
 	return 0;
 }
@@ -1084,40 +1093,19 @@ static ssize_t ffs_epfile_io(struct file *file, struct ffs_io_data *io_data)
 			 * status. usb_ep_dequeue API should guarantee no race
 			 * condition with req->complete callback.
 			 */
-			spin_lock_irq(&epfile->ffs->eps_lock);
-			interrupted = true;
-			/*
-			 * While we were acquiring lock endpoint got
-			 * disabled (disconnect) or changed
-			 (composition switch) ?
-			 */
-			if (epfile->ep == ep) {
-				usb_ep_dequeue(ep->ep, req);
-				interrupted = ep->status < 0;
-			}
-			spin_unlock_irq(&epfile->ffs->eps_lock);
+			usb_ep_dequeue(ep->ep, req);
+			interrupted = ep->status < 0;
 		}
 
 		ffs_log("ep status %d for req %pK", ep->status, req);
 
-		if (interrupted) {
+		if (interrupted)
 			ret = -EINTR;
-			goto error_mutex;
-		}
-
-		ret = -ENODEV;
-		spin_lock_irq(&epfile->ffs->eps_lock);
-		/*
-		 * While we were acquiring lock endpoint got
-		 * disabled (disconnect) or changed
-		 * (composition switch) ?
-		 */
-		if (epfile->ep == ep)
-			ret = ep->status;
-		spin_unlock_irq(&epfile->ffs->eps_lock);
-		if (io_data->read && ret > 0)
+		else if (io_data->read && ep->status > 0)
 			ret = __ffs_epfile_read_data(epfile, data, ep->status,
 						     &io_data->data);
+		else
+			ret = ep->status;
 		goto error_mutex;
 	} else if (!(req = usb_ep_alloc_request(ep->ep, GFP_ATOMIC))) {
 		ret = -ENOMEM;
@@ -3774,7 +3762,6 @@ static void ffs_func_unbind(struct usb_configuration *c,
 		if (ep->ep && ep->req)
 			usb_ep_free_request(ep->ep, ep->req);
 		ep->req = NULL;
-		ep->ep = NULL;
 		++ep;
 	}
 	spin_unlock_irqrestore(&func->ffs->eps_lock, flags);

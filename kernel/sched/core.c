@@ -2472,6 +2472,8 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 	 */
 	p->prio = current->normal_prio;
 
+	p->compensate_need = 0;
+
 	/*
 	 * Revert to default priority/policy on fork if requested.
 	 */
@@ -4899,8 +4901,9 @@ out_put_task:
 }
 
 char sched_lib_name[LIB_PATH_LENGTH];
+unsigned int sched_lib_mask_check;
 unsigned int sched_lib_mask_force;
-bool is_sched_lib_based_app(pid_t pid)
+static inline bool is_sched_lib_based_app(pid_t pid)
 {
 	const char *name = NULL;
 	struct vm_area_struct *vma;
@@ -4952,6 +4955,19 @@ put_task_struct:
 	return found;
 }
 
+long msm_sched_setaffinity(pid_t pid, struct cpumask *new_mask)
+{
+	if (sched_lib_mask_check != 0 && sched_lib_mask_force != 0 &&
+		(cpumask_bits(new_mask)[0] == sched_lib_mask_check) &&
+		is_sched_lib_based_app(pid)) {
+
+		cpumask_t forced_mask = { {sched_lib_mask_force} };
+
+		cpumask_copy(new_mask, &forced_mask);
+	}
+	return sched_setaffinity(pid, new_mask);
+}
+
 static int get_user_cpu_mask(unsigned long __user *user_mask_ptr, unsigned len,
 			     struct cpumask *new_mask)
 {
@@ -4982,7 +4998,7 @@ SYSCALL_DEFINE3(sched_setaffinity, pid_t, pid, unsigned int, len,
 
 	retval = get_user_cpu_mask(user_mask_ptr, len, new_mask);
 	if (retval == 0)
-		retval = sched_setaffinity(pid, new_mask);
+		retval = msm_sched_setaffinity(pid, new_mask);
 	free_cpumask_var(new_mask);
 	return retval;
 }

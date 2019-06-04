@@ -1,4 +1,4 @@
-/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -132,7 +132,6 @@ static int qcom_mhi_qrtr_probe(struct mhi_device *mhi_dev,
 {
 	struct qrtr_mhi_dev *qdev;
 	u32 net_id;
-	bool rt;
 	int rc;
 
 	qdev = devm_kzalloc(&mhi_dev->dev, sizeof(*qdev), GFP_KERNEL);
@@ -147,12 +146,10 @@ static int qcom_mhi_qrtr_probe(struct mhi_device *mhi_dev,
 	if (rc < 0)
 		net_id = QRTR_EP_NET_ID_AUTO;
 
-	rt = of_property_read_bool(mhi_dev->dev.of_node, "qcom,low-latency");
-
 	INIT_LIST_HEAD(&qdev->ul_pkts);
 	spin_lock_init(&qdev->ul_lock);
 
-	rc = qrtr_endpoint_register(&qdev->ep, net_id, rt);
+	rc = qrtr_endpoint_register(&qdev->ep, net_id);
 	if (rc)
 		return rc;
 

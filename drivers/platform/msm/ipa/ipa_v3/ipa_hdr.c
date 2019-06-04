@@ -100,8 +100,7 @@ static int ipa3_hdr_proc_ctx_to_hw_format(struct ipa_mem_buffer *mem,
 				entry->hdr->phys_base,
 				hdr_base_addr,
 				entry->hdr->offset_entry,
-				entry->l2tp_params,
-				ipa3_ctx->use_64_bit_dma_mask);
+				entry->l2tp_params);
 		if (ret)
 			return ret;
 	}

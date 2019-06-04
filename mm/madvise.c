@@ -192,8 +192,13 @@ out:
 }
 
 #ifdef CONFIG_SWAP
+#ifdef CONFIG_MEMPLUS
+int swapin_walk_pmd_entry(pmd_t *pmd, unsigned long start,
+	unsigned long end, struct mm_walk *walk)
+#else
 static int swapin_walk_pmd_entry(pmd_t *pmd, unsigned long start,
 	unsigned long end, struct mm_walk *walk)
+#endif
 {
 	pte_t *orig_pte;
 	struct vm_area_struct *vma = walk->private;
@@ -208,6 +213,10 @@ static int swapin_walk_pmd_entry(pmd_t *pmd, unsigned long start,
 		struct page *page;
 		spinlock_t *ptl;
 
+#ifdef CONFIG_MEMPLUS
+		if (!list_empty(&vma->vm_mm->mmap_sem.wait_list))
+			return -1;
+#endif
 		orig_pte = pte_offset_map_lock(vma->vm_mm, pmd, start, &ptl);
 		pte = *(orig_pte + ((index - start) / PAGE_SIZE));
 		pte_unmap_unlock(orig_pte, ptl);
@@ -217,7 +226,28 @@ static int swapin_walk_pmd_entry(pmd_t *pmd, unsigned long start,
 		entry = pte_to_swp_entry(pte);
 		if (unlikely(non_swap_entry(entry)))
 			continue;
+#ifdef CONFIG_MEMPLUS
+		if (is_fast_entry(entry)) {
+			int ret = 0;
+			struct vm_fault fe = {
+				.vma = vma,
+				.pte = &pte,
+				.orig_pte = pte,
+				.address = index,
+				.flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_RETRY_NOWAIT,
+				.pmd = pmd,
+				.vma_flags = vma->vm_flags,
+				.vma_page_prot = vma->vm_page_prot,
+			};
 
+			ret = do_swap_page(&fe);
+			if (ret & VM_FAULT_ERROR) {
+				printk(KERN_ERR "%s: do_swap_page ERROR\n", __func__);
+				break;
+			}
+			continue;
+		} else
+#endif
 		page = read_swap_cache_async(entry, GFP_HIGHUSER_MOVABLE,
 							vma, index, false);
 		if (page)

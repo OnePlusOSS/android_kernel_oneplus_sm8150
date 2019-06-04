@@ -1130,6 +1130,7 @@ again:
 	/*
 	 * Prevent the page fault handler to copy the page while stale tlb entry
 	 * are still not flushed.
+	 * ethan.peng 2019/1/22 CR2366100.
 	 */
 	if (IS_ENABLED(CONFIG_SPECULATIVE_PAGE_FAULT) &&
 	    is_cow_mapping(vma->vm_flags))
@@ -1636,8 +1637,20 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long start,
 	tlb_gather_mmu(&tlb, mm, start, end);
 	update_hiwater_rss(mm);
 	mmu_notifier_invalidate_range_start(mm, start, end);
-	for ( ; vma && vma->vm_start < end; vma = vma->vm_next)
+	for ( ; vma && vma->vm_start < end; vma = vma->vm_next) {
 		unmap_single_vma(&tlb, vma, start, end, NULL);
+
+		/*
+		 * zap_page_range does not specify whether mmap_sem should be
+		 * held for read or write. That allows parallel zap_page_range
+		 * operations to unmap a PTE and defer a flush meaning that
+		 * this call observes pte_none and fails to flush the TLB.
+		 * Rather than adding a complex API, ensure that no stale
+		 * TLB entries exist when this call returns.
+		 */
+		flush_tlb_range(vma, start, end);
+	}
+
 	mmu_notifier_invalidate_range_end(mm, start, end);
 	tlb_finish_mmu(&tlb, start, end);
 }
@@ -3200,7 +3213,10 @@ int do_swap_page(struct vm_fault *vmf)
 	 * before page_add_anon_rmap() and swap_free(); try_to_free_swap()
 	 * must be called after the swap_free(), or it will never succeed.
 	 */
-
+#ifdef CONFIG_MEMPLUS
+	if (current_is_swapind())
+		SetPageWillneed(page);
+#endif
 	inc_mm_counter_fast(vma->vm_mm, MM_ANONPAGES);
 	dec_mm_counter_fast(vma->vm_mm, MM_SWAPENTS);
 	pte = mk_pte(page, vmf->vma_page_prot);

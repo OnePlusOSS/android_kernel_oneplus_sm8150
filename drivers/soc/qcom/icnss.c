@@ -51,6 +51,9 @@
 #include "icnss_private.h"
 #include "icnss_qmi.h"
 
+#include <linux/project_info.h>
+static u32 fw_version;
+static u32 fw_version_ext;
 #define MAX_PROP_SIZE			32
 #define NUM_LOG_PAGES			10
 #define NUM_LOG_LONG_PAGES		4
@@ -641,15 +644,6 @@ bool icnss_is_rejuvenate(void)
 }
 EXPORT_SYMBOL(icnss_is_rejuvenate);
 
-bool icnss_is_pdr(void)
-{
-	if (!penv)
-		return false;
-	else
-		return test_bit(ICNSS_PDR, &penv->state);
-}
-EXPORT_SYMBOL(icnss_is_pdr);
-
 int icnss_power_off(struct device *dev)
 {
 	struct icnss_priv *priv = dev_get_drvdata(dev);
@@ -895,6 +889,29 @@ static int icnss_driver_event_server_exit(void *data)
 	return 0;
 }
 
+/* Initial and show wlan firmware build version */
+void cnss_set_fw_version(u32 version, u32 ext)
+{
+	fw_version = version;
+	fw_version_ext = ext;
+}
+EXPORT_SYMBOL(cnss_set_fw_version);
+
+static ssize_t cnss_version_information_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	if (!penv)
+		return -ENODEV;
+	return scnprintf(buf, PAGE_SIZE, "%u.%u.%u.%u.%u\n",
+		 (fw_version & 0xf0000000) >> 28,
+	(fw_version & 0xf000000) >> 24, (fw_version & 0xf00000) >> 20,
+	fw_version & 0x7fff, (fw_version_ext & 0xf0000000) >> 28);
+}
+
+static DEVICE_ATTR(cnss_version_information, 0444,
+			cnss_version_information_show, NULL);
+
+
 static int icnss_call_driver_probe(struct icnss_priv *priv)
 {
 	int ret = 0;
@@ -962,11 +979,9 @@ static int icnss_pd_restart_complete(struct icnss_priv *priv)
 
 	icnss_call_driver_shutdown(priv);
 
-	clear_bit(ICNSS_PDR, &priv->state);
 	clear_bit(ICNSS_REJUVENATE, &priv->state);
 	clear_bit(ICNSS_PD_RESTART, &priv->state);
 	priv->early_crash_ind = false;
-	priv->is_ssr = false;
 
 	if (!priv->ops || !priv->ops->reinit)
 		goto out;
@@ -1314,8 +1329,6 @@ static int icnss_modem_notifier_nb(struct notifier_block *nb,
 	if (code != SUBSYS_BEFORE_SHUTDOWN)
 		return NOTIFY_OK;
 
-	priv->is_ssr = true;
-
 	if (code == SUBSYS_BEFORE_SHUTDOWN && !notif->crashed &&
 	    test_bit(ICNSS_BLOCK_SHUTDOWN, &priv->state)) {
 		if (!wait_for_completion_timeout(&priv->unblock_shutdown,
@@ -1440,9 +1453,6 @@ static int icnss_service_notifier_notify(struct notifier_block *nb,
 
 	if (notification != SERVREG_NOTIF_SERVICE_STATE_DOWN_V01)
 		goto done;
-
-	if (!priv->is_ssr)
-		set_bit(ICNSS_PDR, &priv->state);
 
 	event_data = kzalloc(sizeof(*event_data), GFP_KERNEL);
 
@@ -2110,6 +2120,7 @@ int icnss_trigger_recovery(struct device *dev)
 	if (test_bit(ICNSS_PD_RESTART, &priv->state)) {
 		icnss_pr_err("PD recovery already in progress: state: 0x%lx\n",
 			     priv->state);
+		ret = -EPERM;
 		goto out;
 	}
 
@@ -2638,9 +2649,6 @@ static int icnss_stats_show_state(struct seq_file *s, struct icnss_priv *priv)
 			continue;
 		case ICNSS_BLOCK_SHUTDOWN:
 			seq_puts(s, "BLOCK SHUTDOWN");
-			continue;
-		case ICNSS_PDR:
-			seq_puts(s, "PDR TRIGGERED");
 		}
 
 		seq_printf(s, "UNKNOWN-%d", i);
@@ -3263,6 +3271,9 @@ static int icnss_probe(struct platform_device *pdev)
 			     ret);
 
 	penv = priv;
+	device_create_file(&penv->pdev->dev,
+		 &dev_attr_cnss_version_information);
+	push_component_info(WCN, "WCN3998", "QualComm");
 
 	init_completion(&priv->unblock_shutdown);
 
@@ -3287,6 +3298,8 @@ static int icnss_remove(struct platform_device *pdev)
 	device_init_wakeup(&penv->pdev->dev, false);
 
 	icnss_debugfs_destroy(penv);
+	device_remove_file(&penv->pdev->dev,
+		 &dev_attr_cnss_version_information);
 
 	complete_all(&penv->unblock_shutdown);
 

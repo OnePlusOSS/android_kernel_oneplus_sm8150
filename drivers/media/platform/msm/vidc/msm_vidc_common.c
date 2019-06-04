@@ -2867,7 +2867,7 @@ bool is_batching_allowed(struct msm_vidc_inst *inst)
 	 * - not a thumbnail session
 	 * - UBWC color format
 	 */
-	if (inst->decode_batching && is_decode_session(inst) &&
+	if (inst->core->resources.decode_batching && is_decode_session(inst) &&
 		(inst->fmts[OUTPUT_PORT].fourcc == V4L2_PIX_FMT_H264 ||
 		inst->fmts[OUTPUT_PORT].fourcc == V4L2_PIX_FMT_HEVC ||
 		inst->fmts[OUTPUT_PORT].fourcc == V4L2_PIX_FMT_VP9) &&
@@ -3173,7 +3173,8 @@ static int msm_comm_init_buffer_count(struct msm_vidc_inst *inst)
 				HAL_BUFFER_INPUT);
 	bufreq->buffer_count_min = inst->fmts[port].input_min_count;
 	/* batching needs minimum batch size count of input buffers */
-	if (inst->decode_batching && is_decode_session(inst) &&
+	if (inst->core->resources.decode_batching &&
+		is_decode_session(inst) &&
 		bufreq->buffer_count_min < inst->batch.size)
 		bufreq->buffer_count_min = inst->batch.size;
 	bufreq->buffer_count_min_host = bufreq->buffer_count_actual =
@@ -5203,14 +5204,6 @@ int msm_comm_flush(struct msm_vidc_inst *inst, u32 flags)
 				"Invalid params, inst %pK\n", inst);
 		return -EINVAL;
 	}
-
-	if (inst->state < MSM_VIDC_OPEN_DONE) {
-		dprintk(VIDC_ERR,
-			"Invalid state to call flush, inst %pK, state %#x\n",
-			inst, inst->state);
-		return -EINVAL;
-	}
-
 	core = inst->core;
 	hdev = core->device;
 

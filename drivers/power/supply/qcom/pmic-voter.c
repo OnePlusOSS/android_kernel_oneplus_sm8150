@@ -392,7 +392,10 @@ int vote(struct votable *votable, const char *client_str, bool enabled, int val)
 			client_str, client_id, enabled ? "on" : "off", val);
 		goto out;
 	}
-
+	if (votable->name && (strcmp(votable->name, "USB_ICL") == 0))
+		pr_err("%s: %s,%d voting %s of val=%d\n",
+			votable->name,
+			client_str, client_id, enabled ? "on" : "off", val);
 	pr_debug("%s: %s,%d voting %s of val=%d\n",
 		votable->name,
 		client_str, client_id, enabled ? "on" : "off", val);

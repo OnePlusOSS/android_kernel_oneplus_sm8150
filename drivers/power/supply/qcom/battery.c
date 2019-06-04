@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,7 +32,6 @@
 #define DRV_MAJOR_VERSION	1
 #define DRV_MINOR_VERSION	0
 
-#define BATT_PROFILE_VOTER		"BATT_PROFILE_VOTER"
 #define CHG_STATE_VOTER			"CHG_STATE_VOTER"
 #define TAPER_STEPPER_VOTER		"TAPER_STEPPER_VOTER"
 #define TAPER_END_VOTER			"TAPER_END_VOTER"
@@ -319,8 +318,7 @@ static ssize_t slave_pct_store(struct class *c, struct class_attribute *attr,
 	vote(chip->pl_disable_votable, ICL_LIMIT_VOTER, disable, 0);
 	rerun_election(chip->fcc_votable);
 	rerun_election(chip->fv_votable);
-	if (IS_USBIN(chip->pl_mode))
-		split_settled(chip);
+	split_settled(chip);
 
 	return count;
 }
@@ -578,12 +576,11 @@ static void pl_taper_work(struct work_struct *work)
 						pl_taper_work);
 	union power_supply_propval pval = {0, };
 	int rc;
-	int fcc_ua, total_fcc_ua, master_fcc_ua, slave_fcc_ua = 0;
+	int eff_fcc_ua;
+	int total_fcc_ua, master_fcc_ua, slave_fcc_ua = 0;
 
 	chip->taper_entry_fv = get_effective_result(chip->fv_votable);
 	chip->taper_work_running = true;
-	fcc_ua = get_client_vote(chip->fcc_votable, BATT_PROFILE_VOTER);
-	vote(chip->fcc_votable, TAPER_STEPPER_VOTER, true, fcc_ua);
 	while (true) {
 		if (get_effective_result(chip->pl_disable_votable)) {
 			/*
@@ -632,22 +629,21 @@ static void pl_taper_work(struct work_struct *work)
 
 		chip->charge_type = pval.intval;
 		if (pval.intval == POWER_SUPPLY_CHARGE_TYPE_TAPER) {
-			fcc_ua = get_client_vote(chip->fcc_votable,
-					TAPER_STEPPER_VOTER);
-			if (fcc_ua < 0) {
+			eff_fcc_ua = get_effective_result(chip->fcc_votable);
+			if (eff_fcc_ua < 0) {
 				pr_err("Couldn't get fcc, exiting taper work\n");
 				goto done;
 			}
-			fcc_ua -= TAPER_REDUCTION_UA;
-			if (fcc_ua < 0) {
+			eff_fcc_ua = eff_fcc_ua - TAPER_REDUCTION_UA;
+			if (eff_fcc_ua < 0) {
 				pr_err("Can't reduce FCC any more\n");
 				goto done;
 			}
 
 			pl_dbg(chip, PR_PARALLEL, "master is taper charging; reducing FCC to %dua\n",
-					fcc_ua);
+					eff_fcc_ua);
 			vote(chip->fcc_votable, TAPER_STEPPER_VOTER,
-					true, fcc_ua);
+					true, eff_fcc_ua);
 		} else {
 			pl_dbg(chip, PR_PARALLEL, "master is fast charging; waiting for next taper\n");
 		}
@@ -672,6 +668,7 @@ static int pl_fcc_vote_callback(struct votable *votable, void *data,
 
 	if (!chip->main_psy)
 		return 0;
+	pr_info("total_fcc_ua=%d\n", total_fcc_ua);
 
 	if (!chip->cp_ilim_votable)
 		chip->cp_ilim_votable = find_votable("CP_ILIM");
@@ -902,7 +899,7 @@ static int pl_fv_vote_callback(struct votable *votable, void *data,
 		return 0;
 
 	pval.intval = fv_uv;
-
+	pr_info("fv_uv=%d\n", fv_uv);
 	rc = power_supply_set_property(chip->main_psy,
 			POWER_SUPPLY_PROP_VOLTAGE_MAX, &pval);
 	if (rc < 0) {

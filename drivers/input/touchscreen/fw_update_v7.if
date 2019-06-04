@@ -1,0 +1,1877 @@
+/*
+ * Synaptics DSX touchscreen driver
+ *
+ * Copyright (C) 2012 Synaptics Incorporated
+ *
+ * Copyright (C) 2012 Alexandra Chin <alexandra.chin@tw.synaptics.com>
+ * Copyright (C) 2012 Scott Lin <scott.lin@tw.synaptics.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ */
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/slab.h>
+#include <linux/interrupt.h>
+#include <linux/delay.h>
+#include <linux/input.h>
+#include <linux/firmware.h>
+#include <linux/platform_device.h>
+
+
+#define DO_STARTUP_FW_UPDATE
+
+#ifdef DO_STARTUP_FW_UPDATE
+#ifdef CONFIG_FB
+#define WAIT_FOR_FB_READY
+#define FB_READY_WAIT_MS 100
+#define FB_READY_TIMEOUT_S 30
+#endif
+#endif
+
+#define FORCE_UPDATE false
+#define DO_LOCKDOWN false
+
+#define MAX_IMAGE_NAME_LEN 256
+#define MAX_FIRMWARE_ID_LEN 10
+
+#define IMAGE_HEADER_VERSION_05 0x05
+#define IMAGE_HEADER_VERSION_06 0x06
+#define IMAGE_HEADER_VERSION_10 0x10
+
+#define IMAGE_AREA_OFFSET 0x100
+#define LOCKDOWN_SIZE 0x50
+
+#define V5V6_BOOTLOADER_ID_OFFSET 0
+
+#define V5_PROPERTIES_OFFSET 2
+#define V5_BLOCK_SIZE_OFFSET 3
+#define V5_BLOCK_COUNT_OFFSET 5
+#define V5_BLOCK_NUMBER_OFFSET 0
+#define V5_BLOCK_DATA_OFFSET 2
+
+#define V6_PROPERTIES_OFFSET 1
+#define V6_BLOCK_SIZE_OFFSET 2
+#define V6_BLOCK_COUNT_OFFSET 3
+#define V6_PROPERTIES_2_OFFSET 4
+#define V6_GUEST_CODE_BLOCK_COUNT_OFFSET 5
+#define V6_BLOCK_NUMBER_OFFSET 0
+#define V6_BLOCK_DATA_OFFSET 1
+#define V6_FLASH_COMMAND_OFFSET 2
+#define V6_FLASH_STATUS_OFFSET 3
+
+#define V7_FLASH_STATUS_OFFSET 0
+#define V7_PARTITION_ID_OFFSET 1
+#define V7_BLOCK_NUMBER_OFFSET 2
+#define V7_TRANSFER_LENGTH_OFFSET 3
+#define V7_COMMAND_OFFSET 4
+#define V7_PAYLOAD_OFFSET 5
+
+#define V7_PARTITION_SUPPORT_BYTES 4
+
+#define F35_ERROR_CODE_OFFSET 0
+#define F35_CHUNK_NUM_LSB_OFFSET 0
+#define F35_CHUNK_NUM_MSB_OFFSET 1
+#define F35_CHUNK_DATA_OFFSET 2
+#define F35_CHUNK_COMMAND_OFFSET 18
+
+#define F35_CHUNK_SIZE 16
+#define F35_ERASE_ALL_WAIT_MS 3000
+#define F35_RESET_WAIT_MS 250
+
+#define SLEEP_MODE_NORMAL (0x00)
+#define SLEEP_MODE_SENSOR_SLEEP (0x01)
+#define SLEEP_MODE_RESERVED0 (0x02)
+#define SLEEP_MODE_RESERVED1 (0x03)
+
+#define ENABLE_WAIT_MS (1 * 1000)
+#define WRITE_WAIT_MS (3 * 1000)
+#define ERASE_WAIT_MS (5 * 1000)
+
+#define MIN_SLEEP_TIME_US 50
+#define MAX_SLEEP_TIME_US 100
+
+#define INT_DISABLE_WAIT_MS 20
+#define ENTER_FLASH_PROG_WAIT_MS 20
+
+#define PRODUCT_ID_SIZE 10
+
+#define MASK_16BIT 0xFFFF
+#define MASK_8BIT 0xFF
+#define MASK_7BIT 0x7F
+#define MASK_6BIT 0x3F
+#define MASK_5BIT 0x1F
+#define MASK_4BIT 0x0F
+#define MASK_3BIT 0x07
+#define MASK_2BIT 0x03
+#define MASK_1BIT 0x01
+
+enum f34_version {
+	F34_V0 = 0,
+	F34_V1,
+	F34_V2,
+};
+
+enum bl_version {
+	BL_V5 = 5,
+	BL_V6 = 6,
+	BL_V7 = 7,
+};
+
+enum flash_area {
+	NONE = 0,
+	UI_FIRMWARE,
+	UI_CONFIG,
+};
+
+enum update_mode {
+	NORMAL = 1,
+	FORCE = 2,
+	LOCKDOWN = 8,
+};
+
+enum config_area {
+	UI_CONFIG_AREA = 0,
+	PM_CONFIG_AREA,
+	BL_CONFIG_AREA,
+	DP_CONFIG_AREA,
+	FLASH_CONFIG_AREA,
+};
+
+enum v7_partition_id {
+	BOOTLOADER_PARTITION = 0x01,
+	DEVICE_CONFIG_PARTITION,
+	FLASH_CONFIG_PARTITION,
+	MANUFACTURING_BLOCK_PARTITION,
+	GUEST_SERIALIZATION_PARTITION,
+	GLOBAL_PARAMETERS_PARTITION,
+	CORE_CODE_PARTITION,
+	CORE_CONFIG_PARTITION,
+	GUEST_CODE_PARTITION,
+	DISPLAY_CONFIG_PARTITION,
+};
+
+enum v7_flash_command {
+	CMD_V7_IDLE = 0x00,
+	CMD_V7_ENTER_BL,
+	CMD_V7_READ,
+	CMD_V7_WRITE,
+	CMD_V7_ERASE,
+	CMD_V7_ERASE_AP,
+	CMD_V7_SENSOR_ID,
+};
+
+enum v5v6_flash_command {
+	CMD_V5V6_IDLE = 0x0,
+	CMD_V5V6_WRITE_FW = 0x2,
+	CMD_V5V6_ERASE_ALL = 0x3,
+	CMD_V5V6_WRITE_LOCKDOWN = 0x4,
+	CMD_V5V6_READ_CONFIG = 0x5,
+	CMD_V5V6_WRITE_CONFIG = 0x6,
+	CMD_V5V6_ERASE_UI_CONFIG = 0x7,
+	CMD_V5V6_ERASE_BL_CONFIG = 0x9,
+	CMD_V5V6_ERASE_DISP_CONFIG = 0xa,
+	CMD_V5V6_ERASE_GUEST_CODE = 0xb,
+	CMD_V5V6_WRITE_GUEST_CODE = 0xc,
+	CMD_V5V6_ENABLE_FLASH_PROG = 0xf,
+};
+
+enum flash_command {
+	CMD_IDLE = 0,
+	CMD_WRITE_FW,
+	CMD_WRITE_CONFIG,
+	CMD_WRITE_LOCKDOWN,
+	CMD_WRITE_GUEST_CODE,
+	CMD_READ_CONFIG,
+	CMD_ERASE_ALL,
+	CMD_ERASE_UI_FIRMWARE,
+	CMD_ERASE_UI_CONFIG,
+	CMD_ERASE_BL_CONFIG,
+	CMD_ERASE_DISP_CONFIG,
+	CMD_ERASE_FLASH_CONFIG,
+	CMD_ERASE_GUEST_CODE,
+	CMD_ENABLE_FLASH_PROG,
+};
+
+enum f35_flash_command {
+	CMD_F35_IDLE = 0x0,
+	CMD_F35_RESERVED = 0x1,
+	CMD_F35_WRITE_CHUNK = 0x2,
+	CMD_F35_ERASE_ALL = 0x3,
+	CMD_F35_RESET = 0x10,
+};
+
+enum container_id {
+	TOP_LEVEL_CONTAINER = 0,
+	UI_CONTAINER,
+	UI_CONFIG_CONTAINER,
+	BL_CONTAINER,
+	BL_IMAGE_CONTAINER,
+	BL_CONFIG_CONTAINER,
+	BL_LOCKDOWN_INFO_CONTAINER,
+	PERMANENT_CONFIG_CONTAINER,
+	GUEST_CODE_CONTAINER,
+	BL_PROTOCOL_DESCRIPTOR_CONTAINER,
+	UI_PROTOCOL_DESCRIPTOR_CONTAINER,
+	RMI_SELF_DISCOVERY_CONTAINER,
+	RMI_PAGE_CONTENT_CONTAINER,
+	GENERAL_INFORMATION_CONTAINER,
+	DEVICE_CONFIG_CONTAINER,
+	FLASH_CONFIG_CONTAINER,
+	GUEST_SERIALIZATION_CONTAINER,
+	GLOBAL_PARAMETERS_CONTAINER,
+	CORE_CODE_CONTAINER,
+	CORE_CONFIG_CONTAINER,
+	DISPLAY_CONFIG_CONTAINER,
+};
+
+struct pdt_properties {
+	union {
+		struct {
+			unsigned char reserved_1:6;
+			unsigned char has_bsr:1;
+			unsigned char reserved_2:1;
+		} __packed;
+		unsigned char data[1];
+	};
+};
+
+struct partition_table {
+	unsigned char partition_id:5;
+	unsigned char byte_0_reserved:3;
+	unsigned char byte_1_reserved;
+	unsigned char partition_length_7_0;
+	unsigned char partition_length_15_8;
+	unsigned char start_physical_address_7_0;
+	unsigned char start_physical_address_15_8;
+	unsigned char partition_properties_7_0;
+	unsigned char partition_properties_15_8;
+} __packed;
+
+struct f01_device_control {
+	union {
+		struct {
+			unsigned char sleep_mode:2;
+			unsigned char nosleep:1;
+			unsigned char reserved:2;
+			unsigned char charger_connected:1;
+			unsigned char report_rate:1;
+			unsigned char configured:1;
+		} __packed;
+		unsigned char data[1];
+	};
+};
+
+struct f34_v7_query_0 {
+	union {
+		struct {
+			unsigned char subpacket_1_size:3;
+			unsigned char has_config_id:1;
+			unsigned char f34_query0_b4:1;
+			unsigned char has_thqa:1;
+			unsigned char f34_query0_b6__7:2;
+		} __packed;
+		unsigned char data[1];
+	};
+};
+
+struct f34_v7_query_1_7 {
+	union {
+		struct {
+			/* query 1 */
+			unsigned char bl_minor_revision;
+			unsigned char bl_major_revision;
+
+			/* query 2 */
+			unsigned char bl_fw_id_7_0;
+			unsigned char bl_fw_id_15_8;
+			unsigned char bl_fw_id_23_16;
+			unsigned char bl_fw_id_31_24;
+
+			/* query 3 */
+			unsigned char minimum_write_size;
+			unsigned char block_size_7_0;
+			unsigned char block_size_15_8;
+			unsigned char flash_page_size_7_0;
+			unsigned char flash_page_size_15_8;
+
+			/* query 4 */
+			unsigned char adjustable_partition_area_size_7_0;
+			unsigned char adjustable_partition_area_size_15_8;
+
+			/* query 5 */
+			unsigned char flash_config_length_7_0;
+			unsigned char flash_config_length_15_8;
+
+			/* query 6 */
+			unsigned char payload_length_7_0;
+			unsigned char payload_length_15_8;
+
+			/* query 7 */
+			unsigned char f34_query7_b0:1;
+			unsigned char has_bootloader:1;
+			unsigned char has_device_config:1;
+			unsigned char has_flash_config:1;
+			unsigned char has_manufacturing_block:1;
+			unsigned char has_guest_serialization:1;
+			unsigned char has_global_parameters:1;
+			unsigned char has_core_code:1;
+			unsigned char has_core_config:1;
+			unsigned char has_guest_code:1;
+			unsigned char has_display_config:1;
+			unsigned char f34_query7_b11__15:5;
+			unsigned char f34_query7_b16__23;
+			unsigned char f34_query7_b24__31;
+		} __packed;
+		unsigned char data[21];
+	};
+};
+
+struct f34_v7_data_1_5 {
+	union {
+		struct {
+			unsigned char partition_id:5;
+			unsigned char f34_data1_b5__7:3;
+			unsigned char block_offset_7_0;
+			unsigned char block_offset_15_8;
+			unsigned char transfer_length_7_0;
+			unsigned char transfer_length_15_8;
+			unsigned char command;
+			unsigned char payload_0;
+			unsigned char payload_1;
+		} __packed;
+		unsigned char data[8];
+	};
+};
+
+struct f34_v5v6_flash_properties {
+	union {
+		struct {
+			unsigned char reg_map:1;
+			unsigned char unlocked:1;
+			unsigned char has_config_id:1;
+			unsigned char has_pm_config:1;
+			unsigned char has_bl_config:1;
+			unsigned char has_disp_config:1;
+			unsigned char has_ctrl1:1;
+			unsigned char has_query4:1;
+		} __packed;
+		unsigned char data[1];
+	};
+};
+
+struct register_offset {
+	unsigned char properties;
+	unsigned char properties_2;
+	unsigned char block_size;
+	unsigned char block_count;
+	unsigned char gc_block_count;
+	unsigned char flash_status;
+	unsigned char partition_id;
+	unsigned char block_number;
+	unsigned char transfer_length;
+	unsigned char flash_cmd;
+	unsigned char payload;
+};
+
+struct block_count {
+	unsigned short ui_firmware;
+	unsigned short ui_config;
+	unsigned short dp_config;
+	unsigned short fl_config;
+	unsigned short pm_config;
+	unsigned short bl_config;
+	unsigned short lockdown;
+	unsigned short guest_code;
+};
+
+struct physical_address {
+	unsigned short ui_firmware;
+	unsigned short ui_config;
+	unsigned short dp_config;
+	unsigned short guest_code;
+	unsigned short pm_config;
+};
+
+struct container_descriptor {
+	unsigned char content_checksum[4];
+	unsigned char container_id[2];
+	unsigned char minor_version;
+	unsigned char major_version;
+	unsigned char reserved_08;
+	unsigned char reserved_09;
+	unsigned char reserved_0a;
+	unsigned char reserved_0b;
+	unsigned char container_option_flags[4];
+	unsigned char content_options_length[4];
+	unsigned char content_options_address[4];
+	unsigned char content_length[4];
+	unsigned char content_address[4];
+};
+
+struct image_header_10 {
+	unsigned char checksum[4];
+	unsigned char reserved_04;
+	unsigned char reserved_05;
+	unsigned char minor_header_version;
+	unsigned char major_header_version;
+	unsigned char reserved_08;
+	unsigned char reserved_09;
+	unsigned char reserved_0a;
+	unsigned char reserved_0b;
+	unsigned char top_level_container_start_addr[4];
+};
+
+struct block_data {
+	unsigned int size;
+	const unsigned char *data;
+};
+
+struct image_metadata {
+	bool contains_firmware_id;
+	bool contains_bootloader;
+	bool contains_disp_config;
+	bool contains_guest_code;
+	bool contains_flash_config;
+	unsigned int firmware_id;
+	unsigned int checksum;
+	unsigned int bootloader_size;
+	unsigned int disp_config_offset;
+	unsigned char bl_version;
+	unsigned char product_id[PRODUCT_ID_SIZE + 1];
+	unsigned char cstmr_product_id[PRODUCT_ID_SIZE + 1];
+	struct block_data bootloader;
+	struct block_data ui_firmware;
+	struct block_data ui_config;
+	struct block_data dp_config;
+	struct block_data fl_config;
+	struct block_data bl_config;
+	struct block_data guest_code;
+	struct block_data lockdown;
+	struct block_count blkcount;
+	struct physical_address phyaddr;
+};
+struct synaptics_rmi4_fn_desc {
+	union {
+		struct {
+			unsigned char query_base_addr;
+			unsigned char cmd_base_addr;
+			unsigned char ctrl_base_addr;
+			unsigned char data_base_addr;
+			unsigned char intr_src_count:3;
+			unsigned char reserved_1:2;
+			unsigned char fn_version:2;
+			unsigned char reserved_2:1;
+			unsigned char fn_number;
+		} __packed;
+		unsigned char data[6];
+	};
+};
+
+
+struct synaptics_rmi4_fwu_handle {
+	enum bl_version bl_version;
+	bool initialized;
+	bool in_bl_mode;
+	bool in_ub_mode;
+	bool force_update;
+	bool do_lockdown;
+	bool has_guest_code;
+	bool new_partition_table;
+	unsigned int data_pos;
+	unsigned char *ext_data_source;
+	unsigned char *read_config_buf;
+	unsigned char intr_mask;
+	unsigned char command;
+	unsigned char bootloader_id[2];
+	unsigned char flash_status;
+	unsigned char partitions;
+	unsigned short block_size;
+	unsigned short config_size;
+	unsigned short config_area;
+	unsigned short config_block_count;
+	unsigned short flash_config_length;
+	unsigned short payload_length;
+	unsigned short partition_table_bytes;
+	unsigned short read_config_buf_size;
+	const unsigned char *config_data;
+	const unsigned char *image;
+	unsigned char *image_name;
+	unsigned int image_size;
+    unsigned char bl_reset_add;
+	struct image_metadata img;
+	struct register_offset off;
+	struct block_count blkcount;
+	struct physical_address phyaddr;
+	struct f34_v5v6_flash_properties flash_properties;
+	struct synaptics_rmi4_fn_desc f34_fd;
+	struct synaptics_rmi4_fn_desc f35_fd;
+	struct workqueue_struct *fwu_workqueue;
+	struct work_struct fwu_work;
+    struct i2c_client *client;
+};
+
+static struct synaptics_rmi4_fwu_handle *fwu;
+
+static unsigned int le_to_uint(const unsigned char *ptr)
+{
+	return (unsigned int)ptr[0] +
+			(unsigned int)ptr[1] * 0x100 +
+			(unsigned int)ptr[2] * 0x10000 +
+			(unsigned int)ptr[3] * 0x1000000;
+}
+/*
+static void fwu_compare_partition_tables(void)
+{
+	if (fwu->phyaddr.ui_firmware != fwu->img.phyaddr.ui_firmware) {
+		fwu->new_partition_table = true;
+		return;
+	}
+
+	if (fwu->phyaddr.ui_config != fwu->img.phyaddr.ui_config) {
+		fwu->new_partition_table = true;
+		return;
+	}
+
+	if (fwu->flash_properties.has_disp_config) {
+		if (fwu->phyaddr.dp_config != fwu->img.phyaddr.dp_config) {
+			fwu->new_partition_table = true;
+			return;
+		}
+	}
+
+	if (fwu->flash_properties.has_disp_config) {
+		if (fwu->phyaddr.dp_config != fwu->img.phyaddr.dp_config) {
+			fwu->new_partition_table = true;
+			return;
+		}
+	}
+
+	if (fwu->has_guest_code) {
+		if (fwu->phyaddr.guest_code != fwu->img.phyaddr.guest_code) {
+			fwu->new_partition_table = true;
+			return;
+		}
+	}
+
+	fwu->new_partition_table = false;
+
+	return;
+}
+*/
+
+static void fwu_parse_partition_table(const unsigned char *partition_table,
+		struct block_count *blkcount, struct physical_address *phyaddr)
+{
+	unsigned char ii;
+	unsigned char index;
+	//unsigned char offset;
+	unsigned short partition_length;
+	unsigned short physical_address;
+	struct partition_table *ptable;
+
+	for (ii = 0; ii < fwu->partitions; ii++) {
+		index = ii * 8 + 2;
+		ptable = (struct partition_table *)&partition_table[index];
+		partition_length = ptable->partition_length_15_8 << 8 |
+				ptable->partition_length_7_0;
+		physical_address = ptable->start_physical_address_15_8 << 8 |
+				ptable->start_physical_address_7_0;
+		TPD_DEBUG("%s: Partition entry %d:\n",
+				__func__, ii);
+/*
+		for (offset = 0; offset < 8; offset++) {
+			TPD_DEBUG("%s: 0x%02x\n",
+					__func__,
+					partition_table[index + offset]);
+		}
+*/
+		switch (ptable->partition_id) {
+		case CORE_CODE_PARTITION:
+			blkcount->ui_firmware = partition_length;
+			phyaddr->ui_firmware = physical_address;
+			TPD_DEBUG("%s: Core code block count: %d\n",
+					__func__, blkcount->ui_firmware);
+			break;
+		case CORE_CONFIG_PARTITION:
+			blkcount->ui_config = partition_length;
+			phyaddr->ui_config = physical_address;
+			TPD_DEBUG("%s: Core config block count: %d\n",
+					__func__, blkcount->ui_config);
+			break;
+		case DISPLAY_CONFIG_PARTITION:
+			blkcount->dp_config = partition_length;
+			phyaddr->dp_config = physical_address;
+			TPD_DEBUG("%s: Display config block count: %d\n",
+					__func__, blkcount->dp_config);
+			break;
+		case FLASH_CONFIG_PARTITION:
+			blkcount->fl_config = partition_length;
+			TPD_DEBUG("%s: Flash config block count: %d\n",
+					__func__, blkcount->fl_config);
+			break;
+		case GUEST_CODE_PARTITION:
+			blkcount->guest_code = partition_length;
+			phyaddr->guest_code = physical_address;
+			TPD_DEBUG("%s: Guest code block count: %d\n",
+					__func__, blkcount->guest_code);
+			break;
+		case GUEST_SERIALIZATION_PARTITION:
+			blkcount->pm_config = partition_length;
+			TPD_DEBUG("%s: Guest serialization block count: %d\n",
+					__func__, blkcount->pm_config);
+			break;
+		case GLOBAL_PARAMETERS_PARTITION:
+			blkcount->bl_config = partition_length;
+			TPD_DEBUG("%s: Global parameters block count: %d\n",
+					__func__, blkcount->bl_config);
+			break;
+		case DEVICE_CONFIG_PARTITION:
+			blkcount->lockdown = partition_length;
+			TPD_DEBUG("%s: Device config block count: %d\n",
+					__func__, blkcount->lockdown);
+			break;
+		};
+	}
+
+	return;
+}
+
+
+static void fwu_parse_image_header_10_bl_container(const unsigned char *image)
+{
+	unsigned char ii;
+	unsigned char num_of_containers;
+	unsigned int addr;
+	unsigned int container_id;
+	unsigned int length;
+	const unsigned char *content;
+	struct container_descriptor *descriptor;
+
+	num_of_containers = (fwu->img.bootloader.size - 4) / 4;
+
+	for (ii = 1; ii <= num_of_containers; ii++) {
+		addr = le_to_uint(fwu->img.bootloader.data + (ii * 4));
+		descriptor = (struct container_descriptor *)(image + addr);
+		container_id = descriptor->container_id[0] |
+				descriptor->container_id[1] << 8;
+		content = image + le_to_uint(descriptor->content_address);
+		length = le_to_uint(descriptor->content_length);
+		switch (container_id) {
+		case BL_CONFIG_CONTAINER:
+		case GLOBAL_PARAMETERS_CONTAINER:
+			fwu->img.bl_config.data = content;
+			fwu->img.bl_config.size = length;
+			break;
+		case BL_LOCKDOWN_INFO_CONTAINER:
+		case DEVICE_CONFIG_CONTAINER:
+			fwu->img.lockdown.data = content;
+			fwu->img.lockdown.size = length;
+			break;
+		default:
+			break;
+		};
+	}
+
+	return;
+}
+
+static void fwu_parse_image_header_10(void)
+{
+	unsigned char ii;
+	unsigned char num_of_containers;
+	unsigned int addr;
+	unsigned int offset;
+	unsigned int container_id;
+	unsigned int length;
+	const unsigned char *image;
+	const unsigned char *content;
+	struct container_descriptor *descriptor;
+	struct image_header_10 *header;
+
+	image = fwu->image;
+	header = (struct image_header_10 *)image;
+
+	fwu->img.checksum = le_to_uint(header->checksum);
+
+	/* address of top level container */
+	offset = le_to_uint(header->top_level_container_start_addr);
+	descriptor = (struct container_descriptor *)(image + offset);
+
+	/* address of top level container content */
+	offset = le_to_uint(descriptor->content_address);
+	num_of_containers = le_to_uint(descriptor->content_length) / 4;
+
+	for (ii = 0; ii < num_of_containers; ii++) {
+		addr = le_to_uint(image + offset);
+		offset += 4;
+		descriptor = (struct container_descriptor *)(image + addr);
+		container_id = descriptor->container_id[0] |
+				descriptor->container_id[1] << 8;
+		content = image + le_to_uint(descriptor->content_address);
+		length = le_to_uint(descriptor->content_length);
+		switch (container_id) {
+		case UI_CONTAINER:
+		case CORE_CODE_CONTAINER:
+			fwu->img.ui_firmware.data = content;
+			fwu->img.ui_firmware.size = length;
+            TPD_DEBUG("%s ui_firmware_pointer[%p]\n",__func__,fwu->img.ui_firmware.data);
+			break;
+		case UI_CONFIG_CONTAINER:
+		case CORE_CONFIG_CONTAINER:
+			fwu->img.ui_config.data = content;
+			fwu->img.ui_config.size = length;
+			break;
+		case BL_CONTAINER:
+			fwu->img.bl_version = *content;
+			fwu->img.bootloader.data = content;
+			fwu->img.bootloader.size = length;
+			fwu_parse_image_header_10_bl_container(image);
+			break;
+		case GUEST_CODE_CONTAINER:
+			fwu->img.contains_guest_code = true;
+			fwu->img.guest_code.data = content;
+			fwu->img.guest_code.size = length;
+			break;
+		case DISPLAY_CONFIG_CONTAINER:
+			fwu->img.contains_disp_config = true;
+			fwu->img.dp_config.data = content;
+			fwu->img.dp_config.size = length;
+			break;
+		case FLASH_CONFIG_CONTAINER:
+			fwu->img.contains_flash_config = true;
+			fwu->img.fl_config.data = content;
+			fwu->img.fl_config.size = length;
+			break;
+		case GENERAL_INFORMATION_CONTAINER:
+			fwu->img.contains_firmware_id = true;
+			fwu->img.firmware_id = le_to_uint(content + 4);
+			break;
+		default:
+			break;
+		}
+	}
+
+	return;
+}
+
+static int fwu_parse_image_info(unsigned char *fw)
+{
+	struct image_header_10 *header;
+
+	header = (struct image_header_10 *)fw;
+
+	memset(&fwu->img, 0x00, sizeof(fwu->img));
+
+	fwu_parse_image_header_10();
+
+	if (!fwu->img.contains_flash_config) {
+		return -EINVAL;
+	}
+
+	//fwu_parse_partition_table(fwu->img.fl_config.data,
+			//&fwu->img.blkcount, &fwu->img.phyaddr);
+
+	//fwu_compare_partition_tables();
+
+	return 0;
+}
+
+static int fwu_read_flash_status(void)
+{
+	int retval;
+	unsigned char status;
+	unsigned char command;
+
+	retval = synaptics_rmi4_i2c_read_block(fwu->client,
+			fwu->f34_fd.data_base_addr + fwu->off.flash_status,sizeof(status),&status);
+	if (retval < 0) {
+		return retval;
+	}
+    //TPD_ERR("flash_status_address[0x%x] status[0x%x]\n",fwu->f34_fd.data_base_addr + fwu->off.flash_status,status);
+	fwu->in_bl_mode = status >> 7;
+
+	if (fwu->bl_version == BL_V5)
+		fwu->flash_status = (status >> 4) & MASK_3BIT;
+	else if (fwu->bl_version == BL_V6)
+		fwu->flash_status = status & MASK_3BIT;
+	else if (fwu->bl_version == BL_V7)
+		fwu->flash_status = status & MASK_5BIT;
+
+	if (fwu->flash_status != 0x00) {
+		TPD_ERR("%s: Flash status = %d, command = 0x%02x\n",
+				__func__, fwu->flash_status, fwu->command);
+	}
+
+	retval = synaptics_rmi4_i2c_read_block(fwu->client,
+			fwu->f34_fd.data_base_addr + fwu->off.flash_cmd,
+			sizeof(command),&command);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to read flash command[%d]\n",
+				__func__,command);
+		return retval;
+	}
+    //TPD_ERR("flash_command_address[0x%x] command[0x%x]\n",fwu->f34_fd.data_base_addr + fwu->off.flash_cmd,command);
+
+	if (fwu->bl_version == BL_V5)
+		fwu->command = command & MASK_4BIT;
+	else if (fwu->bl_version == BL_V6)
+		fwu->command = command & MASK_6BIT;
+	else if (fwu->bl_version == BL_V7)
+		fwu->command = command;
+
+	return 0;
+}
+
+static int fwu_wait_for_idle(int timeout_ms, bool poll)
+{
+	int count = 0;
+	int timeout_count = ((timeout_ms * 1000) / MAX_SLEEP_TIME_US) + 1;
+
+	do {
+		usleep_range(MIN_SLEEP_TIME_US, MAX_SLEEP_TIME_US);
+
+		count++;
+		if (poll || (count == timeout_count))
+			fwu_read_flash_status();
+
+		if ((fwu->command == CMD_IDLE) && (fwu->flash_status == 0x00))
+			return 0;
+	} while (count < timeout_count);
+
+	TPD_ERR("%s: Timed out waiting for idle status command[%d],flash_status[%d]\n",
+			__func__,fwu->command,fwu->flash_status);
+
+	return -ETIMEDOUT;
+}
+static int fwu_write_f34_v7_command_single_transaction(unsigned char cmd)
+{
+	int retval;
+	unsigned char base;
+	struct f34_v7_data_1_5 data_1_5;
+
+	base = fwu->f34_fd.data_base_addr;
+
+	memset(data_1_5.data, 0x00, sizeof(data_1_5.data));
+	retval = synaptics_rmi4_i2c_read_block(fwu->client,
+			base + fwu->off.partition_id,
+			sizeof(data_1_5.data),data_1_5.data);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to read queries 1 to 7\n",
+				__func__);
+		return retval;
+	}
+
+	switch (cmd) {
+	case CMD_ERASE_ALL:
+		data_1_5.partition_id = CORE_CODE_PARTITION;
+		data_1_5.command = CMD_V7_ERASE_AP;
+		break;
+	case CMD_ERASE_UI_FIRMWARE:
+		data_1_5.partition_id = CORE_CODE_PARTITION;
+		data_1_5.command = CMD_V7_ERASE;
+		break;
+	case CMD_ERASE_BL_CONFIG:
+		data_1_5.partition_id = GLOBAL_PARAMETERS_PARTITION;
+		data_1_5.command = CMD_V7_ERASE;
+		break;
+	case CMD_ERASE_UI_CONFIG:
+		data_1_5.partition_id = CORE_CONFIG_PARTITION;
+		data_1_5.command = CMD_V7_ERASE;
+		break;
+	case CMD_ERASE_DISP_CONFIG:
+		data_1_5.partition_id = DISPLAY_CONFIG_PARTITION;
+		data_1_5.command = CMD_V7_ERASE;
+		break;
+	case CMD_ERASE_FLASH_CONFIG:
+		data_1_5.partition_id = FLASH_CONFIG_PARTITION;
+		data_1_5.command = CMD_V7_ERASE;
+		break;
+	case CMD_ERASE_GUEST_CODE:
+		data_1_5.partition_id = GUEST_CODE_PARTITION;
+		data_1_5.command = CMD_V7_ERASE;
+		break;
+	case CMD_ENABLE_FLASH_PROG:
+		data_1_5.partition_id = BOOTLOADER_PARTITION;
+		data_1_5.command = CMD_V7_ENTER_BL;
+		break;
+	};
+
+	data_1_5.payload_0 = fwu->bootloader_id[0];
+	data_1_5.payload_1 = fwu->bootloader_id[1];
+
+	retval = synaptics_rmi4_i2c_write_block(fwu->client,
+			base + fwu->off.partition_id,
+			sizeof(data_1_5.data),data_1_5.data);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to write single transaction command\n",
+				__func__);
+		return retval;
+	}
+
+	return 0;
+}
+
+static int fwu_write_f34_v7_command(unsigned char cmd)
+{
+	int retval;
+	unsigned char base;
+	unsigned char command;
+
+	base = fwu->f34_fd.data_base_addr;
+
+	switch (cmd) {
+	case CMD_WRITE_FW:
+	case CMD_WRITE_CONFIG:
+	case CMD_WRITE_GUEST_CODE:
+		command = CMD_V7_WRITE;
+		break;
+	case CMD_READ_CONFIG:
+		command = CMD_V7_READ;
+		break;
+	case CMD_ERASE_ALL:
+		command = CMD_V7_ERASE_AP;
+		break;
+	case CMD_ERASE_UI_FIRMWARE:
+	case CMD_ERASE_BL_CONFIG:
+	case CMD_ERASE_UI_CONFIG:
+	case CMD_ERASE_DISP_CONFIG:
+	case CMD_ERASE_FLASH_CONFIG:
+	case CMD_ERASE_GUEST_CODE:
+		command = CMD_V7_ERASE;
+		break;
+	case CMD_ENABLE_FLASH_PROG:
+		command = CMD_V7_ENTER_BL;
+		break;
+	default:
+		TPD_ERR("%s: Invalid command 0x%02x\n",
+				__func__, cmd);
+		return -EINVAL;
+	};
+
+	fwu->command = command;
+
+	switch (cmd) {
+	case CMD_ERASE_ALL:
+	case CMD_ERASE_UI_FIRMWARE:
+	case CMD_ERASE_BL_CONFIG:
+	case CMD_ERASE_UI_CONFIG:
+	case CMD_ERASE_DISP_CONFIG:
+	case CMD_ERASE_FLASH_CONFIG:
+	case CMD_ERASE_GUEST_CODE:
+	case CMD_ENABLE_FLASH_PROG:
+		retval = fwu_write_f34_v7_command_single_transaction(cmd);
+		if (retval < 0)
+			return retval;
+		else
+			return 0;
+	default:
+		break;
+	};
+
+	retval = synaptics_rmi4_i2c_write_block(fwu->client,
+			base + fwu->off.flash_cmd,
+			sizeof(command),&command);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to write flash command\n",
+				__func__);
+		return retval;
+	}
+
+	return 0;
+}
+
+static int fwu_write_f34_command(unsigned char cmd)
+{
+	int retval;
+
+	retval = fwu_write_f34_v7_command(cmd);
+
+	return retval;
+}
+
+static int fwu_write_f34_v7_partition_id(unsigned char cmd)
+{
+	int retval;
+	unsigned char base;
+	unsigned char partition = 0;
+
+	base = fwu->f34_fd.data_base_addr;
+
+	switch (cmd) {
+	case CMD_WRITE_FW:
+		partition = CORE_CODE_PARTITION;
+		break;
+	case CMD_WRITE_CONFIG:
+	case CMD_READ_CONFIG:
+		if (fwu->config_area == UI_CONFIG_AREA)
+			partition = CORE_CONFIG_PARTITION;
+		else if (fwu->config_area == DP_CONFIG_AREA)
+			partition = DISPLAY_CONFIG_PARTITION;
+		else if (fwu->config_area == PM_CONFIG_AREA)
+			partition = GUEST_SERIALIZATION_PARTITION;
+		else if (fwu->config_area == BL_CONFIG_AREA)
+			partition = GLOBAL_PARAMETERS_PARTITION;
+		else if (fwu->config_area == FLASH_CONFIG_AREA)
+			partition = FLASH_CONFIG_PARTITION;
+		break;
+	case CMD_WRITE_GUEST_CODE:
+		partition = GUEST_CODE_PARTITION;
+		break;
+	case CMD_ERASE_ALL:
+		partition = CORE_CODE_PARTITION;
+		break;
+	case CMD_ERASE_BL_CONFIG:
+		partition = GLOBAL_PARAMETERS_PARTITION;
+		break;
+	case CMD_ERASE_UI_CONFIG:
+		partition = CORE_CONFIG_PARTITION;
+		break;
+	case CMD_ERASE_DISP_CONFIG:
+		partition = DISPLAY_CONFIG_PARTITION;
+		break;
+	case CMD_ERASE_FLASH_CONFIG:
+		partition = FLASH_CONFIG_PARTITION;
+		break;
+	case CMD_ERASE_GUEST_CODE:
+		partition = GUEST_CODE_PARTITION;
+		break;
+	case CMD_ENABLE_FLASH_PROG:
+		partition = BOOTLOADER_PARTITION;
+		break;
+	default:
+		TPD_ERR("%s: Invalid command 0x%02x\n",
+				__func__, cmd);
+		return -EINVAL;
+	};
+
+	retval = synaptics_rmi4_i2c_write_block(fwu->client,
+			base + fwu->off.partition_id,
+			sizeof(partition),&partition);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to write partition ID\n",
+				__func__);
+		return retval;
+	}
+
+	return 0;
+}
+
+static int fwu_write_f34_partition_id(unsigned char cmd)
+{
+	int retval;
+
+	retval = fwu_write_f34_v7_partition_id(cmd);
+
+	return retval;
+}
+
+static int fwu_read_f34_v7_partition_table(void)
+{
+	int retval;
+	unsigned char base;
+	unsigned char length[2];
+	unsigned short block_number = 0;
+
+	base = fwu->f34_fd.data_base_addr;
+
+	fwu->config_area = FLASH_CONFIG_AREA;
+
+	retval = fwu_write_f34_partition_id(CMD_READ_CONFIG);
+	if (retval < 0)
+		return retval;
+
+	retval = synaptics_rmi4_i2c_write_block(fwu->client,
+			base + fwu->off.block_number,
+			sizeof(block_number),(unsigned char *)&block_number);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to write block number\n",
+				__func__);
+		return retval;
+	}
+
+	length[0] = (unsigned char)(fwu->flash_config_length & MASK_8BIT);
+	length[1] = (unsigned char)(fwu->flash_config_length >> 8);
+
+	retval = synaptics_rmi4_i2c_write_block(fwu->client,
+			base + fwu->off.transfer_length,
+			sizeof(length), length);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to write transfer length\n",
+				__func__);
+		return retval;
+	}
+
+	retval = fwu_write_f34_command(CMD_READ_CONFIG);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to write command\n",
+				__func__);
+		return retval;
+	}
+
+	retval = fwu_wait_for_idle(WRITE_WAIT_MS, true);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to wait for idle status\n",
+				__func__);
+		return retval;
+	}
+
+	retval = synaptics_rmi4_i2c_read_block(fwu->client,
+			base + fwu->off.payload,fwu->partition_table_bytes,fwu->read_config_buf);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to read block data\n",
+				__func__);
+		return retval;
+	}
+
+	return 0;
+}
+
+static int fwu_read_f34_v7_queries(void)
+{
+	int retval;
+	unsigned char ii;
+	unsigned char base;
+	unsigned char index;
+	unsigned char offset;
+	unsigned char *ptable;
+	struct f34_v7_query_0 query_0;
+	struct f34_v7_query_1_7 query_1_7;
+
+	base = fwu->f34_fd.query_base_addr;
+
+	retval = synaptics_rmi4_i2c_read_block(fwu->client,
+			base,
+			sizeof(query_0.data),query_0.data);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to read query 0\n",
+				__func__);
+		return retval;
+	}
+
+	offset = query_0.subpacket_1_size + 1;
+
+	retval = synaptics_rmi4_i2c_read_block(fwu->client,
+			base + offset,
+			sizeof(query_1_7.data),query_1_7.data);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to read queries 1 to 7\n",
+				__func__);
+		return retval;
+	}
+
+	fwu->bootloader_id[0] = query_1_7.bl_minor_revision;
+	fwu->bootloader_id[1] = query_1_7.bl_major_revision;
+
+	fwu->block_size = query_1_7.block_size_15_8 << 8 |
+			query_1_7.block_size_7_0;
+
+	fwu->flash_config_length = query_1_7.flash_config_length_15_8 << 8 |
+			query_1_7.flash_config_length_7_0;
+
+	fwu->payload_length = query_1_7.payload_length_15_8 << 8 |
+			query_1_7.payload_length_7_0;
+
+	fwu->off.flash_status = V7_FLASH_STATUS_OFFSET;
+	fwu->off.partition_id = V7_PARTITION_ID_OFFSET;
+	fwu->off.block_number = V7_BLOCK_NUMBER_OFFSET;
+	fwu->off.transfer_length = V7_TRANSFER_LENGTH_OFFSET;
+	fwu->off.flash_cmd = V7_COMMAND_OFFSET;
+	fwu->off.payload = V7_PAYLOAD_OFFSET;
+
+	fwu->flash_properties.has_disp_config = query_1_7.has_display_config;
+	fwu->flash_properties.has_pm_config = query_1_7.has_guest_serialization;
+	fwu->flash_properties.has_bl_config = query_1_7.has_global_parameters;
+
+	fwu->has_guest_code = query_1_7.has_guest_code;
+
+	index = sizeof(query_1_7.data) - V7_PARTITION_SUPPORT_BYTES;
+
+	fwu->partitions = 0;
+	for (offset = 0; offset < V7_PARTITION_SUPPORT_BYTES; offset++) {
+		for (ii = 0; ii < 8; ii++) {
+			if (query_1_7.data[index + offset] & (1 << ii))
+				fwu->partitions++;
+		}
+	}
+
+	fwu->partition_table_bytes = fwu->partitions * 8 + 2;
+
+	kfree(fwu->read_config_buf);
+	fwu->read_config_buf = kzalloc(fwu->partition_table_bytes, GFP_KERNEL);
+	if (!fwu->read_config_buf) {
+		TPD_ERR("%s: Failed to alloc mem for fwu->read_config_buf\n",
+				__func__);
+		fwu->read_config_buf_size = 0;
+		return -ENOMEM;
+	}
+	fwu->read_config_buf_size = fwu->partition_table_bytes;
+	ptable = fwu->read_config_buf;
+
+	retval = fwu_read_f34_v7_partition_table();
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to read partition table\n",
+				__func__);
+		return retval;
+	}
+
+	fwu_parse_partition_table(ptable, &fwu->blkcount, &fwu->phyaddr);
+
+	return 0;
+}
+
+static int fwu_read_f34_queries(void)
+{
+	int retval;
+
+	memset(&fwu->blkcount, 0x00, sizeof(fwu->blkcount));
+	memset(&fwu->phyaddr, 0x00, sizeof(fwu->phyaddr));
+	retval = fwu_read_f34_v7_queries();
+
+	return retval;
+}
+static int fwu_write_f34_v7_blocks(unsigned char *block_ptr,
+		unsigned short block_cnt, unsigned char command)
+{
+	int retval;
+	unsigned char base;
+	unsigned char length[2];
+	unsigned short transfer;
+	unsigned short max_transfer;
+	unsigned short remaining = block_cnt;
+	unsigned short block_number = 0;
+    int send_cnt = 1;
+
+	base = fwu->f34_fd.data_base_addr;
+
+    retval = fwu_wait_for_idle(WRITE_WAIT_MS, true);
+    if (retval < 0) {
+        TPD_ERR("%s: line[%d]Failed to wait for idle status\n",__func__, __LINE__);
+    }
+
+	retval = fwu_write_f34_partition_id(command);
+	if (retval < 0)
+		return retval;
+
+	retval = synaptics_rmi4_i2c_write_block(fwu->client,
+			base + fwu->off.block_number,
+			sizeof(block_number),(unsigned char *)&block_number);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to write block number\n",__func__);
+		return retval;
+	}
+
+	if (fwu->payload_length > (PAGE_SIZE / fwu->block_size))
+		max_transfer = PAGE_SIZE / fwu->block_size;
+	else
+		max_transfer = fwu->payload_length;
+
+	do {
+		if (remaining / max_transfer)
+			transfer = max_transfer;
+		else
+			transfer = remaining;
+
+        TPD_DEBUG("send_cnt[%d],transfer_block[%d],remaining[%d]\n",send_cnt++,transfer,remaining);
+		length[0] = (unsigned char)(transfer & MASK_8BIT);
+		length[1] = (unsigned char)(transfer >> 8);
+
+		retval = synaptics_rmi4_i2c_write_block(fwu->client,
+				base + fwu->off.transfer_length,
+				sizeof(length),length);
+		if (retval < 0) {
+			TPD_ERR("%s: Failed to write transfer length (%d blocks remaining)\n",
+					__func__, remaining);
+			return retval;
+		}
+
+		retval = fwu_write_f34_command(command);
+		if (retval < 0) {
+			TPD_ERR("%s: Failed to write command (%d blocks remaining)\n",
+					__func__, remaining);
+			return retval;
+		}
+
+		retval = synaptics_rmi4_i2c_write_block(fwu->client,
+				base + fwu->off.payload,
+				transfer * fwu->block_size,block_ptr);
+		if (retval < 0) {
+			TPD_ERR("%s: Failed to write block data (%d blocks remaining)\n",
+					__func__, remaining);
+			return retval;
+		}
+
+		retval = fwu_wait_for_idle(WRITE_WAIT_MS, true);
+		if (retval < 0) {
+			TPD_ERR("%s: Failed to wait for idle status (%d blocks remaining)\n",
+					__func__, remaining);
+			return retval;
+		}
+
+		block_ptr += (transfer * fwu->block_size);
+		remaining -= transfer;
+	} while (remaining);
+
+	return 0;
+}
+
+static int fwu_write_f34_blocks(unsigned char *block_ptr,
+		unsigned short block_cnt, unsigned char cmd)
+{
+	int retval;
+	retval = fwu_write_f34_v7_blocks(block_ptr, block_cnt, cmd);
+	return retval;
+}
+
+static int fwu_read_f34_v7_blocks(unsigned short block_cnt,
+		unsigned char command)
+{
+	int retval;
+	unsigned char base;
+	unsigned char length[2];
+	unsigned short transfer;
+	unsigned short max_transfer;
+	unsigned short remaining = block_cnt;
+	unsigned short block_number = 0;
+	unsigned short index = 0;
+
+	base = fwu->f34_fd.data_base_addr;
+
+	retval = fwu_write_f34_partition_id(command);
+	if (retval < 0)
+		return retval;
+
+	retval = synaptics_rmi4_i2c_write_block(fwu->client,
+			base + fwu->off.block_number,
+			sizeof(block_number),(unsigned char *)&block_number);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to write block number\n",
+				__func__);
+		return retval;
+	}
+
+	if (fwu->payload_length > (PAGE_SIZE / fwu->block_size))
+		max_transfer = PAGE_SIZE / fwu->block_size;
+	else
+		max_transfer = fwu->payload_length;
+
+	do {
+		if (remaining / max_transfer)
+			transfer = max_transfer;
+		else
+			transfer = remaining;
+
+		length[0] = (unsigned char)(transfer & MASK_8BIT);
+		length[1] = (unsigned char)(transfer >> 8);
+
+		retval = synaptics_rmi4_i2c_write_block(fwu->client,
+				base + fwu->off.transfer_length,sizeof(length),length);
+		if (retval < 0) {
+			TPD_ERR("%s: Failed to write transfer length (%d blocks remaining)\n",
+					__func__, remaining);
+			return retval;
+		}
+
+		retval = fwu_write_f34_command(command);
+		if (retval < 0) {
+			TPD_ERR("%s: Failed to write command (%d blocks remaining)\n",
+					__func__, remaining);
+			return retval;
+		}
+
+		retval = fwu_wait_for_idle(WRITE_WAIT_MS, false);
+		if (retval < 0) {
+			TPD_ERR("%s: Failed to wait for idle status (%d blocks remaining)\n",
+					__func__, remaining);
+			return retval;
+		}
+
+		retval = synaptics_rmi4_i2c_read_block(fwu->client,
+				base + fwu->off.payload,
+                transfer * fwu->block_size,&fwu->read_config_buf[index]);
+		if (retval < 0) {
+			TPD_ERR("%s: Failed to read block data (%d blocks remaining)\n",
+					__func__, remaining);
+			return retval;
+		}
+
+		index += (transfer * fwu->block_size);
+		remaining -= transfer;
+	} while (remaining);
+
+	return 0;
+}
+
+static int fwu_read_f34_blocks(unsigned short block_cnt, unsigned char cmd)
+{
+	int retval;
+
+	retval = fwu_read_f34_v7_blocks(block_cnt, cmd);
+
+	return retval;
+}
+
+static int fwu_check_ui_firmware_size(void)
+{
+	unsigned short block_count;
+
+	block_count = fwu->img.ui_firmware.size / fwu->block_size;
+
+	if (block_count != fwu->blkcount.ui_firmware) {
+		TPD_ERR("%s: UI firmware size mismatch\n",__func__);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int fwu_check_ui_configuration_size(void)
+{
+	unsigned short block_count;
+
+	block_count = fwu->img.ui_config.size / fwu->block_size;
+
+	if (block_count != fwu->blkcount.ui_config) {
+		TPD_ERR("%s: UI configuration size mismatch\n",__func__);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int fwu_check_bl_configuration_size(void)
+{
+	unsigned short block_count;
+
+	block_count = fwu->img.bl_config.size / fwu->block_size;
+
+	if (block_count != fwu->blkcount.bl_config) {
+		TPD_ERR("%s: Bootloader configuration size mismatch\n",__func__);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int fwu_write_firmware(void)
+{
+	unsigned short firmware_block_count;
+
+	firmware_block_count = fwu->img.ui_firmware.size / fwu->block_size;
+
+	return fwu_write_f34_blocks((unsigned char *)fwu->img.ui_firmware.data,
+			firmware_block_count, CMD_WRITE_FW);
+}
+
+static int fwu_erase_configuration(void)
+{
+	int retval;
+
+	switch (fwu->config_area) {
+	case UI_CONFIG_AREA:
+		retval = fwu_write_f34_command(CMD_ERASE_UI_CONFIG);
+		if (retval < 0)
+			return retval;
+		break;
+	case DP_CONFIG_AREA:
+		retval = fwu_write_f34_command(CMD_ERASE_DISP_CONFIG);
+		if (retval < 0)
+			return retval;
+		break;
+	case BL_CONFIG_AREA:
+		retval = fwu_write_f34_command(CMD_ERASE_BL_CONFIG);
+		if (retval < 0)
+			return retval;
+		break;
+	}
+
+
+	retval = fwu_wait_for_idle(ERASE_WAIT_MS, false);
+	if (retval < 0)
+		return retval;
+
+
+	return retval;
+}
+
+static int fwu_erase_all(void)
+{
+	int retval;
+
+	if (fwu->bl_version == BL_V7) {
+		retval = fwu_write_f34_command(CMD_ERASE_UI_FIRMWARE);
+		if (retval < 0)
+			return retval;
+
+		TPD_ERR("%s: Erase command written\n",__func__);
+
+		retval = fwu_wait_for_idle(ERASE_WAIT_MS, false);
+		if (retval < 0)
+			return retval;
+
+		TPD_ERR("%s: Idle status detected\n",__func__);
+
+		fwu->config_area = UI_CONFIG_AREA;
+		retval = fwu_erase_configuration();
+		if (retval < 0)
+			return retval;
+	} else {
+		retval = fwu_write_f34_command(CMD_ERASE_ALL);
+		if (retval < 0)
+			return retval;
+
+		TPD_ERR("%s: Erase all command written\n",__func__);
+
+		retval = fwu_wait_for_idle(ERASE_WAIT_MS, false);
+		if (retval < 0)
+			return retval;
+
+		TPD_ERR("%s: Idle status detected\n",__func__);
+	}
+
+	if (fwu->flash_properties.has_disp_config) {
+		fwu->config_area = DP_CONFIG_AREA;
+		retval = fwu_erase_configuration();
+		if (retval < 0)
+			return retval;
+	}
+
+	return 0;
+}
+
+static int fwu_write_configuration(void)
+{
+	return fwu_write_f34_blocks((unsigned char *)fwu->config_data,
+			fwu->config_block_count, CMD_WRITE_CONFIG);
+}
+
+static int fwu_write_ui_configuration(void)
+{
+	fwu->config_area = UI_CONFIG_AREA;
+	fwu->config_data = fwu->img.ui_config.data;
+	fwu->config_size = fwu->img.ui_config.size;
+	fwu->config_block_count = fwu->config_size / fwu->block_size;
+
+	return fwu_write_configuration();
+}
+
+static int fwu_write_flash_configuration(void)
+{
+	int retval;
+    
+	TPD_ERR("%s: enter!!\n",__func__);
+	fwu->config_area = FLASH_CONFIG_AREA;
+	fwu->config_data = fwu->img.fl_config.data;
+	fwu->config_size = fwu->img.fl_config.size;
+	fwu->config_block_count = fwu->config_size / fwu->block_size;
+
+	if (fwu->config_block_count != fwu->blkcount.fl_config) {
+		TPD_ERR("%s: Flash configuration size mismatch\n",__func__);
+		return -EINVAL;
+	}
+
+	retval = fwu_write_f34_command(CMD_ERASE_FLASH_CONFIG);
+	if (retval < 0)
+		return retval;
+
+
+	retval = fwu_wait_for_idle(ERASE_WAIT_MS, false);
+	if (retval < 0){
+        TPD_ERR("Erase configuration wait Idle status timeout!\n");
+		return retval;
+    }
+
+	retval = fwu_write_configuration();
+	if (retval < 0){
+        TPD_ERR("write configuration error!\n");
+		return retval;
+    }
+	TPD_ERR("%s: finish!!\n",__func__);
+	return 0;
+}
+
+static int fwu_write_partition_table(void)
+{
+	int retval;
+	unsigned short block_count;
+
+	block_count = fwu->blkcount.bl_config;
+	fwu->config_area = BL_CONFIG_AREA;
+	fwu->config_size = fwu->block_size * block_count;
+	kfree(fwu->read_config_buf);
+	fwu->read_config_buf = kzalloc(fwu->config_size, GFP_KERNEL);
+	if (!fwu->read_config_buf) {
+		TPD_ERR("%s: Failed to alloc mem for fwu->read_config_buf\n",__func__);
+		fwu->read_config_buf_size = 0;
+		return -ENOMEM;
+	}
+	fwu->read_config_buf_size = fwu->config_size;
+
+	retval = fwu_read_f34_blocks(block_count, CMD_READ_CONFIG);
+	if (retval < 0)
+		return retval;
+
+	retval = fwu_write_flash_configuration();
+	if (retval < 0)
+		return retval;
+
+	fwu->config_area = BL_CONFIG_AREA;
+	fwu->config_data = fwu->read_config_buf;
+	fwu->config_size = fwu->img.bl_config.size;
+	fwu->config_block_count = fwu->config_size / fwu->block_size;
+
+	retval = fwu_write_configuration();
+	if (retval < 0)
+		return retval;
+
+	return 0;
+}
+
+static int fwu_do_reflash(void)
+{
+	int retval;
+
+	if (!fwu->new_partition_table) {
+		retval = fwu_check_ui_firmware_size();
+		if (retval < 0)
+			return retval;
+
+		retval = fwu_check_ui_configuration_size();
+		if (retval < 0)
+			return retval;
+
+		retval = fwu_check_bl_configuration_size();
+		if (retval < 0)
+			return retval;
+        }
+
+	retval = fwu_erase_all();
+	if (retval < 0)
+		return retval;
+
+	if (fwu->new_partition_table) {
+		retval = fwu_write_partition_table();
+		if (retval < 0)
+			return retval;
+		pr_notice("%s: Partition table programmed\n", __func__);
+	}
+
+	retval = fwu_write_firmware();
+	if (retval < 0)
+		return retval;
+	pr_notice("%s: Firmware programmed\n", __func__);
+
+	fwu->config_area = UI_CONFIG_AREA;
+	retval = fwu_write_ui_configuration();
+	if (retval < 0)
+		return retval;
+	pr_notice("%s: Configuration programmed\n", __func__);
+
+	return retval;
+}
+
+static int scan_pdt(void)
+{
+	int retval = 0;
+	char add_buf[6] = { 0 };
+
+	retval = synaptics_rmi4_i2c_read_block(fwu->client,0xE9,sizeof(add_buf),add_buf);
+	if (retval < 0)
+		return retval;
+	fwu->f34_fd.query_base_addr = add_buf[0];
+	fwu->f34_fd.ctrl_base_addr = add_buf[2];
+	fwu->f34_fd.data_base_addr = add_buf[3];
+	if (add_buf[4]>>5) 
+		fwu->bl_version = BL_V7;
+	TPD_ERR("F34_query_base_addr[0x%x],F34_ctrl_base_addr[0x%x],F34_data_base_addr[0x%x]\n",\
+	add_buf[0],add_buf[2],add_buf[3]);
+
+	retval = synaptics_rmi4_i2c_read_block(fwu->client,0xE3,sizeof(add_buf),add_buf);
+	fwu->bl_reset_add = add_buf[1];
+
+    return retval;
+}
+
+static int fwu_read_f34_serialization(void)
+{
+	int retval;
+	unsigned char base;
+	unsigned char length[2];
+	unsigned short block_number = 0;
+        unsigned char buffer[32];
+        //static bool judge_version = true;
+	base = fwu->f34_fd.data_base_addr;
+
+	fwu->config_area = PM_CONFIG_AREA;
+
+	retval = fwu_write_f34_partition_id(CMD_READ_CONFIG);
+	if (retval < 0)
+		return retval;
+
+	retval = synaptics_rmi4_i2c_write_block(fwu->client,
+			base + fwu->off.block_number,
+			sizeof(block_number),(unsigned char *)&block_number);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to write block number\n",
+				__func__);
+		return retval;
+	}
+
+	length[0] = (unsigned char)(fwu->blkcount.pm_config & MASK_8BIT);
+	length[1] = (unsigned char)(fwu->blkcount.pm_config >> 8);
+
+	retval = synaptics_rmi4_i2c_write_block(fwu->client,
+			base + fwu->off.transfer_length,
+			sizeof(length), length);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to write transfer length\n",
+				__func__);
+		return retval;
+	}
+
+	retval = fwu_write_f34_command(CMD_READ_CONFIG);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to write command\n",
+				__func__);
+		return retval;
+	}
+
+	retval = fwu_wait_for_idle(WRITE_WAIT_MS, true);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to wait for idle status\n",
+				__func__);
+		return retval;
+	}
+	/*buffer = kzalloc(fwu->blkcount.pm_config, GFP_KERNEL);
+	if (!buffer) {
+		TPD_ERR("%s: Failed to alloc mem for fwu->blkcount->pm_config\n",
+				__func__);
+		return -ENOMEM;
+	}
+        */
+	retval = synaptics_rmi4_i2c_read_block(fwu->client,
+			base + fwu->off.payload,fwu->blkcount.pm_config,buffer);
+	if (retval < 0) {
+		TPD_ERR("%s: Failed to read block data\n",
+				__func__);
+		return retval;
+	}
+	TPD_ERR("%s:buffer5[0x%02x]\n",__func__,buffer[5]);
+	if(!(buffer[0] || buffer[1] || buffer[2] || buffer[4] || buffer[5])){
+              TPD_ERR("%s:tp hardware version is 15801\n",__func__);
+              return  1;
+        }else{
+              TPD_ERR("%s:tp hardware version is 15801vb\n",__func__);
+              return 0;
+	}
+}
+
+int fwu_start_reflash_check(const unsigned char *fw_image, struct i2c_client *client)
+{
+	int retval;
+	//unsigned char *fw = (unsigned char *)fw_image;
+
+	fwu = kzalloc(sizeof(*fwu), GFP_KERNEL);
+	if (!fwu) {
+		TPD_ERR("%s: Failed to alloc mem for fwu\n",__func__);
+		return -1;
+	}
+
+	fwu->client = client;
+
+	retval = scan_pdt();
+	if (retval < 0)
+		return retval;
+	fwu->image = fw_image;
+
+	memset(&fwu->blkcount, 0x00, sizeof(fwu->blkcount));
+	memset(&fwu->phyaddr, 0x00, sizeof(fwu->phyaddr));
+	retval = fwu_read_f34_v7_queries();
+	if (retval < 0) {
+		TPD_ERR("%s: fwu_read_f34_v7_queries\n",__func__);
+		return retval;
+	}
+        TPD_DEBUG("%s: fwu_read_f34_serialization\n",__func__);
+
+	retval = fwu_read_f34_serialization();
+        kfree(fwu);
+        return retval;
+	}
+
+int fwu_start_reflash(const unsigned char *fw_image, struct i2c_client *client)
+{
+	int retval = 0;
+	unsigned char *fw = (unsigned char *)fw_image;
+	fwu = kzalloc(sizeof(*fwu), GFP_KERNEL);
+	if (!fwu) {
+		TPD_ERR("%s: Failed to alloc mem for fwu\n",__func__);
+		return -ENOMEM;
+	}
+	fwu->client = client;
+
+	retval = scan_pdt();
+	fwu->image = fw_image;
+
+	fwu_read_f34_queries();
+	retval = fwu_parse_image_info(fw);
+
+	retval = fwu_read_flash_status();
+	if (retval < 0)
+                goto exit_free_fwu;
+  
+	msleep(INT_DISABLE_WAIT_MS);
+
+	retval = fwu_write_f34_command(CMD_ENABLE_FLASH_PROG);
+	if (retval < 0)
+                goto exit_free_fwu;
+
+	retval = fwu_wait_for_idle(ENABLE_WAIT_MS, false);
+	if (retval < 0){
+                goto exit_free_fwu;
+        }
+	if (!fwu->in_bl_mode) {
+		kfree(fwu);
+		fwu = NULL;
+		TPD_ERR("%s: BL mode not entered\n",__func__);
+		return -EINVAL;
+	}
+	TPD_ERR("fwu->bl_version[%d] fwu->in_bl_mode[%d]\n",fwu->bl_version,fwu->in_bl_mode);
+	retval = scan_pdt();
+
+	TPD_ERR("CMD_ERASE_UI_FIRMWARE.....................\n");
+	retval = fwu_write_f34_command(CMD_ERASE_UI_FIRMWARE);
+
+	retval = fwu_wait_for_idle(ERASE_WAIT_MS, true);
+	if (retval < 0){
+		TPD_ERR("CMD_ERASE_UI_FIRMWARE timeout!\n");
+		goto exit_free_fwu;
+	}
+	TPD_ERR("CMD_ERASE_UI_CONFIG.............\n");
+	retval = fwu_write_f34_command(CMD_ERASE_UI_CONFIG);
+	retval = fwu_wait_for_idle(ERASE_WAIT_MS, true);
+	if (retval < 0){
+		TPD_ERR("CMD_ERASE_UI_FIRMWARE timeout!\n");
+		goto exit_free_fwu;
+	}
+
+	if (1){
+		retval = fwu_write_firmware();
+	}else{
+		retval = fwu_do_reflash();
+	}
+	retval = fwu_write_ui_configuration();
+	synaptics_rmi4_i2c_write_byte(fwu->client,fwu->bl_reset_add,0x01);//reset tp   
+	return retval;
+
+exit_free_fwu:
+	kfree(fwu);
+	fwu = NULL;
+	return retval;
+}

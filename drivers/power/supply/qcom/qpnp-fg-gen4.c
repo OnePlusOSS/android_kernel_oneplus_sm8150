@@ -24,6 +24,8 @@
 #include "fg-core.h"
 #include "fg-reg.h"
 #include "fg-alg.h"
+/* @bsp, 2018/07/13 Battery & Charging porting */
+#include <linux/power/oem_external_fg.h>
 
 #define FG_GEN4_DEV_NAME	"qcom,fg-gen4"
 #define TTF_AWAKE_VOTER		"fg_ttf_awake"
@@ -159,6 +161,15 @@
 #define MONOTONIC_SOC_WORD		463
 #define MONOTONIC_SOC_OFFSET		0
 
+/* @bsp, 2018/07/14 Battery & Charging porting */
+static void oem_update_cc_cv_setpoint(struct fg_dev *chip,
+	int cv_float_point);
+static void oneplus_set_allow_read_iic(struct fg_dev *chip,
+	bool status);
+static void oneplus_set_lcd_off_status(struct fg_dev *chip,
+	bool status);
+static struct external_battery_gauge *external_fg;
+
 /* v2 SRAM address and offset in ascending order */
 #define RSLOW_SCALE_FN_DISCHG_V2_WORD	281
 #define RSLOW_SCALE_FN_DISCHG_V2_OFFSET	0
@@ -196,7 +207,6 @@ struct fg_dt_props {
 	bool	five_pin_battery;
 	bool	esr_calib_dischg;
 	bool	multi_profile_load;
-	bool	soc_hi_res;
 	int	cutoff_volt_mv;
 	int	empty_volt_mv;
 	int	cutoff_curr_ma;
@@ -270,7 +280,6 @@ struct fg_gen4_chip {
 	bool			rslow_low;
 	bool			rapid_soc_dec_en;
 	bool			vbatt_low;
-	bool			chg_term_good;
 };
 
 struct bias_config {
@@ -293,6 +302,26 @@ static int fg_sram_dump_period_ms = 20000;
 module_param_named(
 	sram_dump_period_ms, fg_sram_dump_period_ms, int, 0600
 );
+
+/* @bsp, 2018/07/13 Battery & Charging porting */
+void external_battery_gauge_register(
+				struct external_battery_gauge *batt_gauge)
+{
+	if (external_fg) {
+		external_fg = batt_gauge;
+		pr_err("multiple battery gauge called\n");
+	} else
+		external_fg = batt_gauge;
+}
+EXPORT_SYMBOL(external_battery_gauge_register);
+
+void external_battery_gauge_unregister(
+				struct external_battery_gauge *batt_gauge)
+{
+	external_fg = NULL;
+}
+EXPORT_SYMBOL(external_battery_gauge_unregister);
+
 
 static int fg_restart_mp;
 static bool fg_sram_dump;
@@ -491,6 +520,9 @@ struct bias_config id_table[3] = {
 };
 
 #define MAX_BIAS_CODE	0x70E4
+
+/* @bsp, 2018/07/14 Battery & Charging porting */
+#define OP_SW_DEFAULT_ID 200000
 static int fg_gen4_get_batt_id(struct fg_gen4_chip *chip)
 {
 	struct fg_dev *fg = &chip->fg;
@@ -537,7 +569,8 @@ static int fg_gen4_get_batt_id(struct fg_gen4_chip *chip)
 	 */
 	batt_id_kohms = (id_table[bias_id].bias_kohms * bias_code) * 10 /
 			(MAX_BIAS_CODE - bias_code);
-	fg->batt_id_ohms = (batt_id_kohms * 1000) / 10;
+/* @bsp, 2018/07/14 Battery & Charging porting */
+	fg->batt_id_ohms = OP_SW_DEFAULT_ID;
 	return 0;
 }
 
@@ -749,21 +782,10 @@ static int fg_gen4_get_cell_impedance(struct fg_gen4_chip *chip, int *val)
 {
 	struct fg_dev *fg = &chip->fg;
 	int rc, esr_uohms, temp, vbat_term_mv, v_delta, rprot_uohms = 0;
-	int rslow_uohms;
 
-	rc = fg_get_sram_prop(fg, FG_SRAM_ESR_ACT, &esr_uohms);
-	if (rc < 0) {
-		pr_err("failed to get ESR_ACT, rc=%d\n", rc);
+	rc = fg_get_battery_resistance(fg, &esr_uohms);
+	if (rc < 0)
 		return rc;
-	}
-
-	rc = fg_get_sram_prop(fg, FG_SRAM_RSLOW, &rslow_uohms);
-	if (rc < 0) {
-		pr_err("failed to get Rslow, rc=%d\n", rc);
-		return rc;
-	}
-
-	esr_uohms += rslow_uohms;
 
 	if (!chip->dt.five_pin_battery)
 		goto out;
@@ -843,35 +865,6 @@ static int fg_gen4_get_prop_capacity(struct fg_dev *fg, int *val)
 	return 0;
 }
 
-static int fg_gen4_get_prop_capacity_raw(struct fg_gen4_chip *chip, int *val)
-{
-	struct fg_dev *fg = &chip->fg;
-	int rc;
-
-	if (!chip->dt.soc_hi_res) {
-		rc = fg_get_msoc_raw(fg, val);
-		return rc;
-	}
-
-	if (!is_input_present(fg)) {
-		rc = fg_gen4_get_prop_capacity(fg, val);
-		if (!rc)
-			*val = *val * 100;
-		return rc;
-	}
-
-	rc = fg_get_sram_prop(&chip->fg, FG_SRAM_MONOTONIC_SOC, val);
-	if (rc < 0) {
-		pr_err("Error in getting MONOTONIC_SOC, rc=%d\n", rc);
-		return rc;
-	}
-
-	/* Show it in centi-percentage */
-	*val = (*val * 10000) / 0xFFFF;
-
-	return 0;
-}
-
 static inline void get_esr_meas_current(int curr_ma, u8 *val)
 {
 	switch (curr_ma) {
@@ -917,11 +910,6 @@ static int fg_gen4_get_ttf_param(void *data, enum ttf_param param, int *val)
 	case TTF_VBAT:
 		rc = fg_get_battery_voltage(fg, val);
 		break;
-	case TTF_OCV:
-		rc = fg_get_sram_prop(fg, FG_SRAM_OCV, val);
-		if (rc < 0)
-			pr_err("Failed to get battery OCV, rc=%d\n", rc);
-		break;
 	case TTF_IBAT:
 		rc = fg_get_battery_current(fg, val);
 		break;
@@ -947,8 +935,6 @@ static int fg_gen4_get_ttf_param(void *data, enum ttf_param param, int *val)
 			*val = TTF_MODE_QNOVO;
 		else if (chip->ttf->step_chg_cfg_valid)
 			*val = TTF_MODE_V_STEP_CHG;
-		else if (chip->ttf->ocv_step_chg_cfg_valid)
-			*val = TTF_MODE_OCV_STEP_CHG;
 		else
 			*val = TTF_MODE_NORMAL;
 		break;
@@ -1514,12 +1500,6 @@ static int fg_gen4_get_batt_profile(struct fg_dev *fg)
 
 		chip->ttf->step_chg_num_params = tuple_len;
 		chip->ttf->step_chg_cfg_valid = true;
-		if (of_property_read_bool(profile_node,
-					   "qcom,ocv-based-step-chg")) {
-			chip->ttf->step_chg_cfg_valid = false;
-			chip->ttf->ocv_step_chg_cfg_valid = true;
-		}
-
 		mutex_unlock(&chip->ttf->lock);
 
 		if (chip->ttf->step_chg_cfg_valid) {
@@ -2205,6 +2185,9 @@ out:
 	return rc;
 }
 
+/* @bsp, 2018/07/13 Battery & Charging porting */
+#define DEFALUT_BATT_TEMP	250
+
 static int fg_gen4_configure_full_soc(struct fg_dev *fg, int bsoc)
 {
 	int rc;
@@ -2286,16 +2269,8 @@ static int fg_gen4_adjust_recharge_soc(struct fg_gen4_chip *chip)
 				new_recharge_soc = msoc - (FULL_CAPACITY -
 								recharge_soc);
 				fg->recharge_soc_adjusted = true;
-				if (fg->health == POWER_SUPPLY_HEALTH_GOOD)
-					chip->chg_term_good = true;
 			} else {
-				/*
-				 * If charge termination happened properly then
-				 * do nothing.
-				 */
-				if (chip->chg_term_good)
-					return 0;
-
+				/* adjusted already, do nothing */
 				if (fg->health != POWER_SUPPLY_HEALTH_GOOD)
 					return 0;
 
@@ -2306,7 +2281,7 @@ static int fg_gen4_adjust_recharge_soc(struct fg_gen4_chip *chip)
 
 				new_recharge_soc = recharge_soc;
 				fg->recharge_soc_adjusted = false;
-				chip->chg_term_good = false;
+				return 0;
 			}
 		} else {
 			if (!fg->recharge_soc_adjusted)
@@ -2325,13 +2300,11 @@ static int fg_gen4_adjust_recharge_soc(struct fg_gen4_chip *chip)
 			/* Restore the default value */
 			new_recharge_soc = recharge_soc;
 			fg->recharge_soc_adjusted = false;
-			chip->chg_term_good = false;
 		}
 	} else {
 		/* Restore the default value */
 		new_recharge_soc = recharge_soc;
 		fg->recharge_soc_adjusted = false;
-		chip->chg_term_good = false;
 	}
 
 	if (recharge_soc_status == fg->recharge_soc_adjusted)
@@ -3027,12 +3000,10 @@ static struct fg_irq_info fg_irqs[FG_GEN4_IRQ_MAX] = {
 	[MSOC_DELTA_IRQ] = {
 		.name		= "msoc-delta",
 		.handler	= fg_delta_msoc_irq_handler,
-		.wakeable	= true,
 	},
 	[BSOC_DELTA_IRQ] = {
 		.name		= "bsoc-delta",
 		.handler	= fg_delta_bsoc_irq_handler,
-		.wakeable	= true,
 	},
 	[SOC_READY_IRQ] = {
 		.name		= "soc-ready",
@@ -3087,7 +3058,6 @@ static struct fg_irq_info fg_irqs[FG_GEN4_IRQ_MAX] = {
 	[BATT_TEMP_COLD_IRQ] = {
 		.name		= "batt-temp-cold",
 		.handler	= fg_batt_temp_irq_handler,
-		.wakeable	= true,
 	},
 	[BATT_TEMP_HOT_IRQ] = {
 		.name		= "batt-temp-hot",
@@ -3527,7 +3497,6 @@ static struct kernel_param_ops fg_esr_cal_ops = {
 module_param_cb(esr_fast_cal_en, &fg_esr_cal_ops, &fg_esr_fast_cal_en, 0644);
 
 /* All power supply functions here */
-
 static int fg_psy_get_property(struct power_supply *psy,
 				       enum power_supply_property psp,
 				       union power_supply_propval *pval)
@@ -3539,10 +3508,17 @@ static int fg_psy_get_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_CAPACITY:
-		rc = fg_gen4_get_prop_capacity(fg, &pval->intval);
+/* @bsp, 2018/07/13 Battery & Charging porting */
+		if (!get_extern_fg_regist_done())
+				pval->intval = get_prop_pre_shutdown_soc();
+		else if (fg->use_external_fg && external_fg
+					&& external_fg->get_battery_soc)
+			pval->intval = external_fg->get_battery_soc();
+		else
+			pval->intval = 50;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY_RAW:
-		rc = fg_gen4_get_prop_capacity_raw(chip, &pval->intval);
+		rc = fg_get_msoc_raw(fg, &pval->intval);
 		break;
 	case POWER_SUPPLY_PROP_CC_SOC:
 		rc = fg_get_sram_prop(&chip->fg, FG_SRAM_CC_SOC, &val);
@@ -3554,16 +3530,32 @@ static int fg_psy_get_property(struct power_supply *psy,
 		pval->intval = div_s64((int64_t)val * 10000,  CC_SOC_30BIT);
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
-		if (fg->battery_missing)
-			pval->intval = 3700000;
+/* @bsp, 2018/07/13 Battery & Charging porting */
+		if (fg->use_external_fg && external_fg
+				&& external_fg->get_battery_mvolts)
+			pval->intval = external_fg->get_battery_mvolts();
 		else
-			rc = fg_get_battery_voltage(fg, &pval->intval);
+			pval->intval = 4000000;
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
-		rc = fg_get_battery_current(fg, &pval->intval);
+/* u@bsp, 2018/07/13 Battery & Charging porting */
+		if (fg->use_external_fg && external_fg
+				&& external_fg->get_average_current)
+			pval->intval = external_fg->get_average_current();
+		else
+			pval->intval = 0;
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
-		rc = fg_gen4_get_battery_temp(fg, &pval->intval);
+/* u@bsp, 2018/07/13 Battery & Charging porting */
+		if (!get_extern_fg_regist_done()
+				&& get_extern_bq_present())
+			pval->intval = DEFALUT_BATT_TEMP;
+		else if (fg->use_external_fg && external_fg
+					&& external_fg->get_average_current) {
+				pval->intval =
+					external_fg->get_battery_temperature();
+		} else
+				pval->intval = -400;
 		break;
 	case POWER_SUPPLY_PROP_RESISTANCE:
 		rc = fg_get_battery_resistance(fg, &pval->intval);
@@ -3588,9 +3580,6 @@ static int fg_psy_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_NOW_RAW:
 		rc = fg_gen4_get_charge_raw(chip, &pval->intval);
-		break;
-	case POWER_SUPPLY_PROP_CHARGE_NOW:
-		pval->intval = chip->cl->init_cap_uah;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_FULL:
 		rc = fg_gen4_get_learned_capacity(chip, &temp);
@@ -3627,6 +3616,26 @@ static int fg_psy_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_DEBUG_BATTERY:
 		pval->intval = is_debug_batt_id(fg);
+		break;
+/* @bsp, 2018/07/13 Battery & Charging porting */
+	case POWER_SUPPLY_PROP_FG_CAPACITY:
+		rc = fg_gen4_get_prop_capacity(fg, &pval->intval);
+		break;
+	case POWER_SUPPLY_PROP_FG_VOLTAGE_NOW:
+		if (fg->battery_missing)
+			pval->intval = 3700000;
+		else
+			rc = fg_get_battery_voltage(fg, &pval->intval);
+		break;
+	case POWER_SUPPLY_PROP_FG_CURRENT_NOW:
+			rc = fg_get_battery_current(fg, &pval->intval);
+		break;
+	case POWER_SUPPLY_PROP_BQ_SOC:
+		if (fg->use_external_fg && external_fg
+				&& external_fg->get_batt_bq_soc)
+			pval->intval = external_fg->get_batt_bq_soc();
+		else
+			pval->intval = 50;
 		break;
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE:
 		rc = fg_get_sram_prop(fg, FG_SRAM_VBATT_FULL, &pval->intval);
@@ -3676,6 +3685,17 @@ static int fg_psy_set_property(struct power_supply *psy,
 	u8 val, mask;
 
 	switch (psp) {
+/* @bsp, 2018/07/14 Battery & Charging porting */
+	case POWER_SUPPLY_PROP_CC_TO_CV_POINT:
+		oem_update_cc_cv_setpoint(&chip->fg, pval->intval);
+		break;
+	case POWER_SUPPLY_PROP_SET_ALLOW_READ_EXTERN_FG_IIC:
+		oneplus_set_allow_read_iic(&chip->fg, pval->intval);
+		break;
+	case POWER_SUPPLY_PROP_UPDATE_LCD_IS_OFF:
+		oneplus_set_lcd_off_status(&chip->fg, pval->intval);
+		break;
+
 	case POWER_SUPPLY_PROP_CHARGE_FULL:
 		if (chip->cl->active) {
 			pr_warn("Capacity learning active!\n");
@@ -3760,6 +3780,8 @@ static int fg_property_is_writeable(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_ESR_ACTUAL:
 	case POWER_SUPPLY_PROP_ESR_NOMINAL:
 	case POWER_SUPPLY_PROP_SOH:
+/* @bsp, 2018/07/13 Battery & Charging porting */
+	case POWER_SUPPLY_PROP_SET_ALLOW_READ_EXTERN_FG_IIC:
 	case POWER_SUPPLY_PROP_CLEAR_SOH:
 	case POWER_SUPPLY_PROP_BATT_AGE_LEVEL:
 		return 1;
@@ -3786,7 +3808,6 @@ static enum power_supply_property fg_psy_props[] = {
 	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
 	POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN,
 	POWER_SUPPLY_PROP_CHARGE_NOW_RAW,
-	POWER_SUPPLY_PROP_CHARGE_NOW,
 	POWER_SUPPLY_PROP_CHARGE_FULL,
 	POWER_SUPPLY_PROP_CHARGE_COUNTER,
 	POWER_SUPPLY_PROP_CHARGE_COUNTER_SHADOW,
@@ -3800,6 +3821,9 @@ static enum power_supply_property fg_psy_props[] = {
 	POWER_SUPPLY_PROP_TIME_TO_EMPTY_AVG,
 	POWER_SUPPLY_PROP_CC_STEP,
 	POWER_SUPPLY_PROP_CC_STEP_SEL,
+/* @bsp, 2018/07/13 Battery & Charging porting */
+	POWER_SUPPLY_PROP_SET_ALLOW_READ_EXTERN_FG_IIC,
+	POWER_SUPPLY_PROP_BQ_SOC,
 	POWER_SUPPLY_PROP_BATT_AGE_LEVEL,
 };
 
@@ -3934,12 +3958,11 @@ static int fg_delta_bsoc_irq_en_cb(struct votable *votable, void *data,
 {
 	struct fg_dev *fg = data;
 
-	if (!fg->irqs[BSOC_DELTA_IRQ].irq)
+	if (!fg->irqs[BSOC_DELTA_IRQ].irq  || fg->delta_bsoc_irq_en == enable)
 		return 0;
-
+	fg->delta_bsoc_irq_en = enable;
 	if (enable) {
 		enable_irq(fg->irqs[BSOC_DELTA_IRQ].irq);
-		enable_irq_wake(fg->irqs[BSOC_DELTA_IRQ].irq);
 	} else {
 		disable_irq_wake(fg->irqs[BSOC_DELTA_IRQ].irq);
 		disable_irq_nosync(fg->irqs[BSOC_DELTA_IRQ].irq);
@@ -4324,6 +4347,14 @@ static int fg_gen4_hw_init(struct fg_gen4_chip *chip)
 			ESR_PULL_DOWN_IVAL_MASK, val);
 	if (rc < 0) {
 		pr_err("Error in writing esr_meas_curr_ma, rc=%d\n", rc);
+		return rc;
+	}
+
+/* @bsp, 2018/07/13 Battery & Charging porting */
+	rc = fg_masked_write(fg,
+			BATT_INFO_ESR_PULL_DN_CFG(fg), 0xFF, 0);
+	if (rc < 0) {
+		pr_err("Error in writing ESR PULL DN, rc=%d\n", rc);
 		return rc;
 	}
 
@@ -4795,6 +4826,11 @@ static int fg_gen4_parse_dt(struct fg_gen4_chip *chip)
 	chip->dt.force_load_profile = of_property_read_bool(node,
 					"qcom,fg-force-load-profile");
 
+/* @bsp, 2018/07/13 Battery & Charging porting */
+	fg->use_external_fg =
+	of_property_read_bool(node, "oem,use_external_fg");
+	pr_info("use_external_fg=%d\n", fg->use_external_fg);
+
 	rc = of_property_read_u32(node, "qcom,cl-start-capacity", &temp);
 	if (rc < 0)
 		chip->cl->dt.max_start_soc = DEFAULT_CL_START_SOC;
@@ -4920,13 +4956,16 @@ static int fg_gen4_parse_dt(struct fg_gen4_chip *chip)
 					"qcom,five-pin-battery");
 	chip->dt.multi_profile_load = of_property_read_bool(node,
 					"qcom,multi-profile-load");
-	chip->dt.soc_hi_res = of_property_read_bool(node, "qcom,soc-hi-res");
 	return 0;
 }
 
 static void fg_gen4_cleanup(struct fg_gen4_chip *chip)
 {
 	struct fg_dev *fg = &chip->fg;
+
+/* @bsp, 20170314 Fix system crash */
+	if (fg->fg_psy)
+		power_supply_unregister(fg->fg_psy);
 
 	fg_unregister_interrupts(fg, chip, FG_GEN4_IRQ_MAX);
 
@@ -4954,6 +4993,33 @@ static void fg_gen4_cleanup(struct fg_gen4_chip *chip)
 		destroy_votable(chip->mem_attn_irq_en_votable);
 
 	dev_set_drvdata(fg->dev, NULL);
+}
+
+/* @bsp, 2018/07/13 Battery & Charging porting */
+static void oem_update_cc_cv_setpoint(
+				struct fg_dev *chip, int cv_float_point)
+{
+	/* TODO: write CC_CV_SETPOINT_REG */
+}
+
+static void oneplus_set_allow_read_iic(struct fg_dev *chip,
+				bool status)
+{
+	if (chip->use_external_fg && external_fg
+			&& external_fg->set_allow_reading)
+		external_fg->set_allow_reading(status);
+	else
+		pr_info("set allow read extern fg iic fail\n");
+}
+
+static void oneplus_set_lcd_off_status(struct fg_dev *chip,
+				bool status)
+{
+	if (chip->use_external_fg && external_fg
+			&& external_fg->set_lcd_off_status)
+		external_fg->set_lcd_off_status(status);
+	else
+		pr_info("set lcd off status fail\n");
 }
 
 static int fg_gen4_probe(struct platform_device *pdev)

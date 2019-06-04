@@ -743,7 +743,16 @@ config LEDS_QPNP_VIBRATOR_LDO
 	  peripheral found on Qualcomm Technologies, Inc. QPNP PMICs.
 	  The vibrator-ldo peripheral is capable of driving ERM vibrators.
 
+config AW8697_HAPTIC
+	tristate "Haptic driver for awinic aw8697 series"
+	depends on I2C
+	help
+	This option enables support for aw8697 series Haptic Driver.
+
 comment "LED Triggers"
 source "drivers/leds/trigger/Kconfig"
 
 endif # NEW_LEDS
+
+#step_motor
+source "drivers/leds/step_motor/Kconfig"

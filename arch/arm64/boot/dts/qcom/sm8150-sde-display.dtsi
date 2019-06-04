@@ -33,7 +33,14 @@
 #include "dsi-panel-sw43404-amoled-dsc-fhd-plus-cmd.dtsi"
 #include "dsi-panel-nt36850-truly-dualmipi-wqhd-cmd.dtsi"
 #include <dt-bindings/clock/mdss-10nm-pll-clk.h>
-
+#include "dsi-panel-samsung_sofef00_m_cmd.dtsi"
+#include "dsi-panel-samsung_s6e3fc2x01.dtsi"
+// Begin: Add by lauwo.zhong for booting up without panel on 2018/10/20
+#include "dsi-panel-samsung-sofef00_m-fhd-video.dtsi"
+// End:   Add by lauwo.zhong for booting up without panel on 2018/10/20
+#include "dsi-panel-samsung_oneplus_dsc.dtsi"
+#include "dsi-panel-samsung_s6e3fc2x01_ed173.dtsi"
+#include "dsi_samsung_oneplus_fhd_dsc.dtsi"
 &tlmm {
 	display_panel_avdd_eldo_default: display_panel_avdd_eldo_default {
 		mux {
@@ -57,13 +64,13 @@
 		qcom,panel-supply-entry@0 {
 			reg = <0>;
 			qcom,supply-name = "vddio";
-			qcom,supply-min-voltage = <1800000>;
-			qcom,supply-max-voltage = <1800000>;
+			qcom,supply-min-voltage = <1850000>;
+			qcom,supply-max-voltage = <1850000>;
 			qcom,supply-enable-load = <62000>;
 			qcom,supply-disable-load = <80>;
-			qcom,supply-post-on-sleep = <20>;
+			qcom,supply-post-on-sleep = <6>;
 		};
-
+      /*
 		qcom,panel-supply-entry@1 {
 			reg = <1>;
 			qcom,supply-name = "lab";
@@ -82,6 +89,7 @@
 			qcom,supply-disable-load = <100>;
 			qcom,supply-post-on-sleep = <20>;
 		};
+		*/
 	};
 
 	dsi_panel_pwr_supply_no_labibb: dsi_panel_pwr_supply_no_labibb {
@@ -413,6 +421,7 @@
 
 		qcom,platform-te-gpio = <&tlmm 8 0>;
 		qcom,panel-te-source = <0>;
+		enable1v8_gpio = <&tlmm 119 0x00>;
 
 		vddio-supply = <&pm8150_l14>;
 		lab-supply = <&lcdb_ldo_vreg>;

@@ -23,6 +23,10 @@
 #include <linux/huge_mm.h>
 
 #include <asm/pgtable.h>
+#ifdef CONFIG_MEMPLUS
+#include <linux/mm_inline.h>
+#endif
+
 
 /*
  * swapper_space is a fiction, retained to simplify the path through
@@ -204,15 +208,22 @@ void __delete_from_swap_cache(struct page *page)
  * Allocate swap space for the page and add the page to the
  * swap cache.  Caller needs to hold the page lock. 
  */
+#ifdef CONFIG_MEMPLUS
+int add_to_swap(struct page *page, unsigned long swap_bdv)
+#else
 int add_to_swap(struct page *page)
+#endif
 {
 	swp_entry_t entry;
 	int err;
 
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 	VM_BUG_ON_PAGE(!PageUptodate(page), page);
-
+#ifdef CONFIG_MEMPLUS
+	entry = get_swap_page(page, swap_bdv);
+#else
 	entry = get_swap_page(page);
+#endif
 	if (!entry.val)
 		return 0;
 
@@ -250,6 +261,9 @@ int add_to_swap(struct page *page)
 	 * the problem.
 	 */
 	set_page_dirty(page);
+#ifdef CONFIG_MEMPLUS
+	count_vm_event(PGADDTOSWAP);
+#endif
 
 	return 1;
 
@@ -446,6 +460,11 @@ struct page *__read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask,
 			/*
 			 * Initiate read into locked page and return.
 			 */
+#ifdef CONFIG_MEMPLUS
+			if (memplus_enabled())
+				lru_cache_add_active_anon(new_page);
+			else
+#endif
 			lru_cache_add_anon(new_page);
 			*new_page_allocated = true;
 			return new_page;

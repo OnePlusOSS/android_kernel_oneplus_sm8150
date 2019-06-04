@@ -18,9 +18,10 @@ enum qbt1000_commands {
 	QBT1000_UNLOAD_APP = 101,
 	QBT1000_SEND_TZCMD = 102,
 	QBT1000_SET_FINGER_DETECT_KEY = 103,
-	QBT1000_CONFIGURE_POWER_KEY = 104
+	QBT1000_CONFIGURE_POWER_KEY = 104,
+	QBT1000_ENABLE_GESTURES = 105,
+	QBT1000_SET_SENSOR_POSITION = 107
 };
-#define QBT1000_ENABLE_GESTURES 105
 
 /*
  * enum qbt1000_fw_event -
@@ -104,6 +105,21 @@ struct qbt1000_set_finger_detect_key {
  */
 struct qbt1000_configure_power_key {
 	unsigned int enable;
+};
+/*
+ * struct qbt1000_set_sensor_pos
+ * used to set the sensor position for under-display
+ * @top - upper limit position of the sensor (in pixels)
+ * @bottom - lower limit position of the sensor (in pixels)
+ * @left - left limit position of the sensor (in pixels)
+ * @right - right limit position of the sensor (in pixels)
+ */
+struct qbt1000_sensor_pos {
+	bool         enable;
+	unsigned int top;
+	unsigned int bottom;
+	unsigned int left;
+	unsigned int right;
 };
 
 #endif /* _UAPI_QBT1000_H_ */

@@ -21,6 +21,11 @@
 #include "sm8150-mtp.dtsi"
 #include "sm8150-mtp-audio-overlay.dtsi"
 
+#include "sm8150-oem.dtsi"
+#include "sm8150-oem-camera-v2.dtsi"
+#include "guacamole.dtsi"
+#include "guacamole_t0.dtsi"
+
 / {
 	model = "MTP";
 	compatible = "qcom,sm8150-mtp", "qcom,sm8150", "qcom,mtp";

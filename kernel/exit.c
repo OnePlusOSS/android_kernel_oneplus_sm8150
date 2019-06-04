@@ -61,6 +61,9 @@
 #include <linux/kcov.h>
 #include <linux/random.h>
 #include <linux/rcuwait.h>
+#ifdef CONFIG_ADJ_CHAIN
+#include <linux/adj_chain.h>
+#endif
 #include <linux/compat.h>
 
 #include <linux/uaccess.h>
@@ -76,6 +79,9 @@ static void __unhash_process(struct task_struct *p, bool group_dead)
 		detach_pid(p, PIDTYPE_PGID);
 		detach_pid(p, PIDTYPE_SID);
 
+#ifdef CONFIG_ADJ_CHAIN
+		adj_chain_detach(p);
+#endif
 		list_del_rcu(&p->tasks);
 		list_del_init(&p->sibling);
 		__this_cpu_dec(process_counts);

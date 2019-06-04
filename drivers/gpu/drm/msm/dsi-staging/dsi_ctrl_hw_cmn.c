@@ -23,6 +23,8 @@
 #include "dsi_panel.h"
 #include "dsi_catalog.h"
 #include "sde_dbg.h"
+#include "sde_trace.h"
+
 
 #define MMSS_MISC_CLAMP_REG_OFF           0x0014
 #define DSI_CTRL_DYNAMIC_FORCE_ON         (0x23F|BIT(8)|BIT(9)|BIT(11)|BIT(21))
@@ -1569,25 +1571,14 @@ int dsi_ctrl_hw_cmn_wait_for_cmd_mode_mdp_idle(struct dsi_ctrl_hw *ctrl)
 	u32 const sleep_us = 2 * 1000;
 	u32 const timeout_us = 200 * 1000;
 
+	SDE_ATRACE_BEGIN("readl_poll_timeout");
 	rc = readl_poll_timeout(ctrl->base + DSI_STATUS, val,
 			!(val & cmd_mode_mdp_busy_mask), sleep_us, timeout_us);
+	SDE_ATRACE_END("readl_poll_timeout");
 	if (rc)
 		pr_err("%s: timed out waiting for idle\n", __func__);
 
 	return rc;
-}
-
-void dsi_ctrl_hw_cmn_hs_req_sel(struct dsi_ctrl_hw *ctrl, bool sel_phy)
-{
-	u32 reg = 0;
-
-	reg = DSI_R32(ctrl, DSI_LANE_CTRL);
-	if (sel_phy)
-		reg &= ~BIT(24);
-	else
-		reg |= BIT(24);
-	DSI_W32(ctrl, DSI_LANE_CTRL, reg);
-	wmb(); /* make sure request is set */
 }
 
 void dsi_ctrl_hw_cmn_set_continuous_clk(struct dsi_ctrl_hw *ctrl, bool enable)

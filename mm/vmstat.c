@@ -1041,6 +1041,10 @@ const char * const vmstat_text[] = {
 	"nr_zone_active_anon",
 	"nr_zone_inactive_file",
 	"nr_zone_active_file",
+#ifdef CONFIG_MEMPLUS
+	"nr_zone_inactive_anon_swpcache",
+	"nr_zone_active_anon_swpcache",
+#endif
 	"nr_zone_unevictable",
 	"nr_zone_write_pending",
 	"nr_mlock",
@@ -1050,8 +1054,13 @@ const char * const vmstat_text[] = {
 #if IS_ENABLED(CONFIG_ZSMALLOC)
 	"nr_zspages",
 #endif
+#ifdef CONFIG_SMART_BOOST
+	"nr_uid_lru",
+#endif
 	"nr_free_cma",
-
+#ifdef CONFIG_DEFRAG_HELPER
+	"nr_free_defrag",
+#endif
 	/* enum numa_stat_item counters */
 #ifdef CONFIG_NUMA
 	"numa_hit",
@@ -1061,12 +1070,15 @@ const char * const vmstat_text[] = {
 	"numa_local",
 	"numa_other",
 #endif
-
 	/* Node-based counters */
 	"nr_inactive_anon",
 	"nr_active_anon",
 	"nr_inactive_file",
 	"nr_active_file",
+#ifdef CONFIG_MEMPLUS
+	"nr_inactive_anon_swpcache",
+	"nr_active_anon_swpcache",
+#endif
 	"nr_unevictable",
 	"nr_slab_reclaimable",
 	"nr_slab_unreclaimable",
@@ -1115,6 +1127,10 @@ const char * const vmstat_text[] = {
 
 	"pgfault",
 	"pgmajfault",
+#ifdef CONFIG_MEMPLUS
+	"pg_add_to_swap",
+	"pg_swap_write",
+#endif
 	"pglazyfreed",
 
 	"pgrefill",
@@ -1222,7 +1238,13 @@ const char * const vmstat_text[] = {
 	"swap_ra_hit",
 #endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-	"speculative_pgfault"
+	"speculative_pgfault",
+#endif
+#ifdef CONFIG_SMART_BOOST
+	TEXTS_FOR_ZONES("allocstall_pri1")
+	TEXTS_FOR_ZONES("allocstall_pri2")
+	TEXTS_FOR_ZONES("allocstall_pri3")
+	TEXTS_FOR_ZONES("allocstall_pri4")
 #endif
 #endif /* CONFIG_VM_EVENT_COUNTERS */
 };
@@ -1281,6 +1303,9 @@ static void walk_zones_in_node(struct seq_file *m, pg_data_t *pgdat,
 #endif
 
 #ifdef CONFIG_PROC_FS
+#ifdef CONFIG_DEFRAG_HELPER
+#include <../drivers/oneplus/coretech/defrag/defrag_helper.h>
+#endif
 static void frag_show_print(struct seq_file *m, pg_data_t *pgdat,
 						struct zone *zone)
 {
@@ -1299,6 +1324,9 @@ static int frag_show(struct seq_file *m, void *arg)
 {
 	pg_data_t *pgdat = (pg_data_t *)arg;
 	walk_zones_in_node(m, pgdat, true, false, frag_show_print);
+#ifdef CONFIG_DEFRAG_HELPER
+	print_fp_statistics(m);
+#endif
 	return 0;
 }
 
@@ -1308,6 +1336,11 @@ static void pagetypeinfo_showfree_print(struct seq_file *m,
 	int order, mtype;
 
 	for (mtype = 0; mtype < MIGRATE_TYPES; mtype++) {
+#ifdef CONFIG_DEFRAG_HELPER
+		if ((mtype == MIGRATE_UNMOVABLE_DEFRAG_POOL) &&
+					likely(!alloc_status))
+			continue;
+#endif
 		seq_printf(m, "Node %4d, zone %8s, type %12s ",
 					pgdat->node_id,
 					zone->name,
@@ -1376,7 +1409,16 @@ static void pagetypeinfo_showblockcount_print(struct seq_file *m,
 	/* Print counts */
 	seq_printf(m, "Node %d, zone %8s ", pgdat->node_id, zone->name);
 	for (mtype = 0; mtype < MIGRATE_TYPES; mtype++)
+#ifdef CONFIG_DEFRAG_HELPER
+	{
+		if ((mtype == MIGRATE_UNMOVABLE_DEFRAG_POOL) &&
+						likely(!alloc_status))
+			continue;
+#endif
 		seq_printf(m, "%12lu ", count[mtype]);
+#ifdef CONFIG_DEFRAG_HELPER
+	}
+#endif
 	seq_putc(m, '\n');
 }
 
@@ -1388,7 +1430,16 @@ static int pagetypeinfo_showblockcount(struct seq_file *m, void *arg)
 
 	seq_printf(m, "\n%-23s", "Number of blocks type ");
 	for (mtype = 0; mtype < MIGRATE_TYPES; mtype++)
+#ifdef CONFIG_DEFRAG_HELPER
+	{
+		if ((mtype == MIGRATE_UNMOVABLE_DEFRAG_POOL) &&
+						likely(!alloc_status))
+			continue;
+#endif
 		seq_printf(m, "%12s ", migratetype_names[mtype]);
+#ifdef CONFIG_DEFRAG_HELPER
+	}
+#endif
 	seq_putc(m, '\n');
 	walk_zones_in_node(m, pgdat, true, false,
 		pagetypeinfo_showblockcount_print);
@@ -1592,6 +1643,39 @@ static int zoneinfo_show(struct seq_file *m, void *arg)
 	return 0;
 }
 
+atomic64_t vm_high_priority_ns = ATOMIC64_INIT(0);
+atomic64_t vm_low_priority_ns = ATOMIC64_INIT(0);
+atomic64_t vm_all_priority_ns = ATOMIC64_INIT(0);
+atomic64_t vm_high_priority_count = ATOMIC64_INIT(0);
+atomic64_t vm_all_priority_count = ATOMIC64_INIT(0);
+
+atomic64_t vm_high_priority_ns_1ms = ATOMIC64_INIT(0);
+atomic64_t vm_low_priority_ns_1ms = ATOMIC64_INIT(0);
+atomic64_t vm_all_priority_ns_1ms = ATOMIC64_INIT(0);
+atomic64_t vm_high_priority_count_1ms = ATOMIC64_INIT(0);
+atomic64_t vm_all_priority_count_1ms = ATOMIC64_INIT(0);
+
+static int lr_stat_show(struct seq_file *m, void *arg)
+{
+	seq_printf(m, "alloc time stat\n");
+	seq_printf(m, "All: all %lu (cnt %lu) high %lu (cnt %lu) low %lu\n"
+			, atomic64_read(&vm_all_priority_ns)
+			, atomic64_read(&vm_all_priority_count)
+			, atomic64_read(&vm_high_priority_ns)
+			, atomic64_read(&vm_high_priority_count)
+			, atomic64_read(&vm_low_priority_ns)
+			);
+	seq_printf(m, ">1ms: all %lu (cnt %lu) high %lu (cnt %lu) low %lu\n"
+			, atomic64_read(&vm_all_priority_ns_1ms)
+			, atomic64_read(&vm_all_priority_count_1ms)
+			, atomic64_read(&vm_high_priority_ns_1ms)
+			, atomic64_read(&vm_high_priority_count_1ms)
+			, atomic64_read(&vm_low_priority_ns_1ms)
+			);
+	seq_putc(m, '\n');
+	return 0;
+}
+
 static const struct seq_operations zoneinfo_op = {
 	.start	= frag_start, /* iterate over all zones. The same as in
 			       * fragmentation. */
@@ -1599,10 +1683,21 @@ static const struct seq_operations zoneinfo_op = {
 	.stop	= frag_stop,
 	.show	= zoneinfo_show,
 };
+static const struct seq_operations lr_stat_op = {
+	.start	= frag_start, /* iterate over all zones. The same as in
+			       * fragmentation. */
+	.next	= frag_next,
+	.stop	= frag_stop,
+	.show	= lr_stat_show,
+};
 
 static int zoneinfo_open(struct inode *inode, struct file *file)
 {
 	return seq_open(file, &zoneinfo_op);
+}
+static int lr_stat_open(struct inode *inode, struct file *file)
+{
+	return seq_open(file, &lr_stat_op);
 }
 
 static const struct file_operations zoneinfo_file_operations = {
@@ -1611,7 +1706,87 @@ static const struct file_operations zoneinfo_file_operations = {
 	.llseek		= seq_lseek,
 	.release	= seq_release,
 };
+static const struct file_operations proc_lr_stat_file_operations = {
+	.open		= lr_stat_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
 
+#ifdef CONFIG_SMART_BOOST
+static void uid_lru_info_show_print(struct seq_file *m, pg_data_t *pgdat)
+{
+	int i;
+	struct uid_node **table;
+	struct list_head *pos;
+	unsigned long nr_pages;
+	struct mem_cgroup *memcg;
+
+	seq_printf(m, "Node %d\n", pgdat->node_id);
+	seq_puts(m, "uid_lru_list priority:\n");
+	print_prio_chain(m);
+	seq_puts(m, "uid\thot_count\tpages\n");
+
+	memcg = mem_cgroup_iter(NULL, NULL, NULL);
+	do {
+		struct lruvec *lruvec = mem_cgroup_lruvec(pgdat, memcg);
+		if (!lruvec)
+			goto next;
+		table = lruvec->uid_hash;
+		if (!table)
+			goto next;
+		for (i = 0; i < (1 << 5); i++) {
+
+			struct uid_node *node = rcu_dereference(table[i]);
+
+			if (!node)
+				continue;
+			do {
+				nr_pages = 0;
+				list_for_each(pos, &node->page_cache_list)
+					nr_pages++;
+				seq_printf(m, "%d\t%d\t%lu\n",
+					node->uid,
+					node->hot_count,
+					nr_pages);
+			} while ((node = rcu_dereference(node->next)) != NULL);
+		}
+next:
+		memcg = mem_cgroup_iter(NULL, memcg, NULL);
+	} while (memcg);
+	seq_putc(m, '\n');
+}
+/*
+ * Output information about zones in @pgdat.
+ */
+static int uid_lru_info_show(struct seq_file *m, void *arg)
+{
+	pg_data_t *pgdat = (pg_data_t *)arg;
+
+	uid_lru_info_show_print(m, pgdat);
+
+	return 0;
+}
+
+static const struct seq_operations uid_lru_info_op = {
+	.start	= frag_start,
+	.next	= frag_next,
+	.stop	= frag_stop,
+	.show	= uid_lru_info_show,
+};
+
+static int uid_lru_info_open(struct inode *inode, struct file *file)
+{
+	return seq_open(file, &uid_lru_info_op);
+}
+
+static const struct file_operations proc_uid_lru_info_file_operations = {
+	.open		= uid_lru_info_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
+#endif
 enum writeback_stat_item {
 	NR_DIRTY_THRESHOLD,
 	NR_DIRTY_BG_THRESHOLD,
@@ -1956,6 +2131,11 @@ void __init init_mm_internals(void)
 	proc_create("pagetypeinfo", 0444, NULL, &pagetypeinfo_file_operations);
 	proc_create("vmstat", 0444, NULL, &vmstat_file_operations);
 	proc_create("zoneinfo", 0444, NULL, &zoneinfo_file_operations);
+	proc_create("lr_stat", S_IRUGO, NULL, &proc_lr_stat_file_operations);
+#endif
+#ifdef CONFIG_SMART_BOOST
+	proc_create("uid_lru_info", 0444, NULL,
+			&proc_uid_lru_info_file_operations);
 #endif
 }
 

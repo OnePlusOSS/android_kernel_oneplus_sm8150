@@ -71,6 +71,12 @@ static inline bool rmnet_all_flows_enabled(void *port)
 	return true;
 }
 
+
+static inline bool rmnet_all_flows_enabled(void *port)
+{
+	return true;
+}
+
 static inline void rmnet_set_port_format(void *port)
 {
 }

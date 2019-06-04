@@ -1,0 +1,6 @@
+/*this is for one project different hw version */
+
+&motor_pl {
+	structure,id = <3>;//EVT2
+};
+

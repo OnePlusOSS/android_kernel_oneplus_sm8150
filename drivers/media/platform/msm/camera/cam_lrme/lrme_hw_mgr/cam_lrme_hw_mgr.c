@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -83,8 +83,7 @@ static int cam_lrme_mgr_util_get_device(struct cam_lrme_hw_mgr *hw_mgr,
 	return 0;
 }
 
-static int cam_lrme_mgr_util_packet_validate(struct cam_packet *packet,
-	size_t remain_len)
+static int cam_lrme_mgr_util_packet_validate(struct cam_packet *packet)
 {
 	struct cam_cmd_buf_desc *cmd_desc = NULL;
 	int i, rc;
@@ -106,7 +105,7 @@ static int cam_lrme_mgr_util_packet_validate(struct cam_packet *packet,
 		packet->patch_offset, packet->num_patches,
 		packet->kmd_cmd_buf_offset, packet->kmd_cmd_buf_index);
 
-	if (cam_packet_util_validate_packet(packet, remain_len)) {
+	if (cam_packet_util_validate_packet(packet)) {
 		CAM_ERR(CAM_LRME, "invalid packet:%d %d %d %d %d",
 			packet->kmd_cmd_buf_index,
 			packet->num_cmd_buf, packet->cmd_buf_offset,
@@ -167,6 +166,13 @@ static int cam_lrme_mgr_util_prepare_io_buffer(int32_t iommu_hdl,
 			io_cfg[i].resource_type,
 			io_cfg[i].fence, io_cfg[i].format);
 
+		if ((num_in_buf > io_buf_size) ||
+			(num_out_buf > io_buf_size)) {
+			CAM_ERR(CAM_LRME, "Invalid number of buffers %d %d %d",
+				num_in_buf, num_out_buf, io_buf_size);
+			return -EINVAL;
+		}
+
 		memset(io_addr, 0, sizeof(io_addr));
 		for (plane = 0; plane < CAM_PACKET_MAX_PLANES; plane++) {
 			if (!io_cfg[i].mem_handle[plane])
@@ -180,12 +186,6 @@ static int cam_lrme_mgr_util_prepare_io_buffer(int32_t iommu_hdl,
 				return -ENOMEM;
 			}
 
-			if ((size_t)io_cfg[i].offsets[plane] >= size) {
-				CAM_ERR(CAM_LRME, "Invalid plane offset: %zu",
-					(size_t)io_cfg[i].offsets[plane]);
-				return -EINVAL;
-			}
-
 			io_addr[plane] += io_cfg[i].offsets[plane];
 
 			CAM_DBG(CAM_LRME, "IO Address[%d][%d] : %llu",
@@ -194,12 +194,6 @@ static int cam_lrme_mgr_util_prepare_io_buffer(int32_t iommu_hdl,
 
 		switch (io_cfg[i].direction) {
 		case CAM_BUF_INPUT: {
-			if (num_in_buf >= io_buf_size) {
-				CAM_ERR(CAM_LRME,
-					"Invalid number of buffers %d %d %d",
-					num_in_buf, num_out_buf, io_buf_size);
-				return -EINVAL;
-			}
 			prepare->in_map_entries[num_in_buf].resource_handle =
 				io_cfg[i].resource_type;
 			prepare->in_map_entries[num_in_buf].sync_id =
@@ -215,12 +209,6 @@ static int cam_lrme_mgr_util_prepare_io_buffer(int32_t iommu_hdl,
 			break;
 		}
 		case CAM_BUF_OUTPUT: {
-			if (num_out_buf >= io_buf_size) {
-				CAM_ERR(CAM_LRME,
-					"Invalid number of buffers %d %d %d",
-					num_in_buf, num_out_buf, io_buf_size);
-				return -EINVAL;
-			}
 			prepare->out_map_entries[num_out_buf].resource_handle =
 				io_cfg[i].resource_type;
 			prepare->out_map_entries[num_out_buf].sync_id =
@@ -853,7 +841,7 @@ static int cam_lrme_mgr_hw_prepare_update(void *hw_mgr_priv,
 		goto error;
 	}
 
-	rc = cam_lrme_mgr_util_packet_validate(args->packet, args->remain_len);
+	rc = cam_lrme_mgr_util_packet_validate(args->packet);
 	if (rc) {
 		CAM_ERR(CAM_LRME, "Error in packet validation %d", rc);
 		goto error;
@@ -871,8 +859,7 @@ static int cam_lrme_mgr_hw_prepare_update(void *hw_mgr_priv,
 		kmd_buf.size, kmd_buf.used_bytes);
 
 	rc = cam_packet_util_process_patches(args->packet,
-		hw_mgr->device_iommu.non_secure,
-		hw_mgr->device_iommu.secure, 0);
+		hw_mgr->device_iommu.non_secure, hw_mgr->device_iommu.secure);
 	if (rc) {
 		CAM_ERR(CAM_LRME, "Patch packet failed, rc=%d", rc);
 		return rc;

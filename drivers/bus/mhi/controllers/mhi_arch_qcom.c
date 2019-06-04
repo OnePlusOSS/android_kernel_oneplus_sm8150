@@ -1,4 +1,4 @@
-/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -24,7 +24,6 @@
 #include <linux/msm_pcie.h>
 #include <linux/pm_runtime.h>
 #include <linux/slab.h>
-#include <linux/suspend.h>
 #include <linux/mhi.h>
 #include "mhi_qcom.h"
 
@@ -38,8 +37,6 @@ struct arch_info {
 	struct pci_saved_state *pcie_state;
 	struct pci_saved_state *ref_pcie_state;
 	struct dma_iommu_mapping *mapping;
-	struct notifier_block pm_notifier;
-	struct completion pm_completion;
 };
 
 struct mhi_bl_info {
@@ -63,24 +60,6 @@ enum MHI_DEBUG_LEVEL  mhi_ipc_log_lvl = MHI_MSG_LVL_VERBOSE;
 enum MHI_DEBUG_LEVEL  mhi_ipc_log_lvl = MHI_MSG_LVL_ERROR;
 
 #endif
-
-static int mhi_arch_pm_notifier(struct notifier_block *nb,
-				unsigned long event, void *unused)
-{
-	struct arch_info *arch_info =
-			container_of(nb, struct arch_info, pm_notifier);
-
-	switch (event) {
-	case PM_SUSPEND_PREPARE:
-		reinit_completion(&arch_info->pm_completion);
-		break;
-	case PM_POST_SUSPEND:
-		complete_all(&arch_info->pm_completion);
-		break;
-	}
-
-	return NOTIFY_DONE;
-}
 
 static int mhi_arch_set_bus_request(struct mhi_controller *mhi_cntrl, int index)
 {
@@ -159,22 +138,12 @@ void mhi_arch_esoc_ops_power_off(void *priv, bool mdm_state)
 {
 	struct mhi_controller *mhi_cntrl = priv;
 	struct mhi_dev *mhi_dev = mhi_controller_get_devdata(mhi_cntrl);
-	struct arch_info *arch_info = mhi_dev->arch_info;
 
 	MHI_LOG("Enter: mdm_crashed:%d\n", mdm_state);
-
-	mutex_lock(&mhi_cntrl->pm_mutex);
 	if (!mhi_dev->powered_on) {
 		MHI_LOG("Not in active state\n");
-		mutex_unlock(&mhi_cntrl->pm_mutex);
 		return;
 	}
-	mhi_dev->powered_on = false;
-	mutex_unlock(&mhi_cntrl->pm_mutex);
-
-	/* abort system suspend and wait for system resume to complete */
-	pm_stay_awake(&mhi_cntrl->mhi_dev->dev);
-	wait_for_completion(&arch_info->pm_completion);
 
 	MHI_LOG("Triggering shutdown process\n");
 	mhi_power_down(mhi_cntrl, !mdm_state);
@@ -184,8 +153,7 @@ void mhi_arch_esoc_ops_power_off(void *priv, bool mdm_state)
 	mhi_arch_link_off(mhi_cntrl, false);
 	mhi_arch_iommu_deinit(mhi_cntrl);
 	mhi_arch_pcie_deinit(mhi_cntrl);
-
-	pm_relax(&mhi_cntrl->mhi_dev->dev);
+	mhi_dev->powered_on = false;
 }
 
 static void mhi_bl_dl_cb(struct mhi_device *mhi_dev,
@@ -334,18 +302,6 @@ int mhi_arch_pcie_init(struct mhi_controller *mhi_cntrl)
 		if (ret)
 			MHI_LOG("Failed to reg. for link up notification\n");
 
-		init_completion(&arch_info->pm_completion);
-
-		/* register PM notifier to get post resume events */
-		arch_info->pm_notifier.notifier_call = mhi_arch_pm_notifier;
-		register_pm_notifier(&arch_info->pm_notifier);
-
-		/*
-		 * Mark as completed at initial boot-up to allow ESOC power off
-		 * callback to proceed if system has not gone to suspend
-		 */
-		complete_all(&arch_info->pm_completion);
-
 		arch_info->esoc_client = devm_register_esoc_client(
 						&mhi_dev->pci_dev->dev, "mdm");
 		if (IS_ERR_OR_NULL(arch_info->esoc_client)) {
@@ -371,6 +327,21 @@ int mhi_arch_pcie_init(struct mhi_controller *mhi_cntrl)
 		/* save reference state for pcie config space */
 		arch_info->ref_pcie_state = pci_store_saved_state(
 							mhi_dev->pci_dev);
+
+		/*
+		 * MHI host driver has full autonomy to manage power state.
+		 * Disable all automatic power collapse features
+		 */
+		msm_pcie_pm_control(MSM_PCIE_DISABLE_PC, mhi_cntrl->bus,
+				mhi_dev->pci_dev, NULL, 0);
+
+		/*
+		 * PCIe framework attempts to restore config space when link is
+		 * off. Bypass framework attempts which may cause unncessary
+		 * delays and instead have MHI controller restore config space
+		 * after PCIe link is accessible.
+		 */
+		mhi_dev->pci_dev->no_d3hot = true;
 
 		mhi_driver_register(&mhi_bl_driver);
 	}

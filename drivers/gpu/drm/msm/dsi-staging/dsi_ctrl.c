@@ -32,6 +32,7 @@
 #include "dsi_catalog.h"
 
 #include "sde_dbg.h"
+#include "sde_trace.h"
 
 #define DSI_CTRL_DEFAULT_LABEL "MDSS DSI CTRL"
 
@@ -40,6 +41,24 @@
 #define TO_ON_OFF(x) ((x) ? "ON" : "OFF")
 
 #define CEIL(x, y)              (((x) + ((y)-1)) / (y))
+
+#define TICKS_IN_MICRO_SECOND    1000000
+
+/**
+ * enum dsi_ctrl_driver_ops - controller driver ops
+ */
+enum dsi_ctrl_driver_ops {
+	DSI_CTRL_OP_POWER_STATE_CHANGE,
+	DSI_CTRL_OP_CMD_ENGINE,
+	DSI_CTRL_OP_VID_ENGINE,
+	DSI_CTRL_OP_HOST_ENGINE,
+	DSI_CTRL_OP_CMD_TX,
+	DSI_CTRL_OP_HOST_INIT,
+	DSI_CTRL_OP_TPG,
+	DSI_CTRL_OP_PHY_SW_RESET,
+	DSI_CTRL_OP_ASYNC_TIMING,
+	DSI_CTRL_OP_MAX
+};
 
 struct dsi_ctrl_list_item {
 	struct dsi_ctrl *ctrl;
@@ -815,7 +834,7 @@ static int dsi_ctrl_update_link_freqs(struct dsi_ctrl *dsi_ctrl,
 {
 	int rc = 0;
 	u32 num_of_lanes = 0;
-	u32 bpp;
+	u32 bpp, refresh_rate = TICKS_IN_MICRO_SECOND;
 	u64 h_period, v_period, bit_rate, pclk_rate, bit_rate_per_lane,
 	    byte_clk_rate;
 	struct dsi_host_common_cfg *host_cfg = &config->common_config;
@@ -840,7 +859,13 @@ static int dsi_ctrl_update_link_freqs(struct dsi_ctrl *dsi_ctrl,
 	if (config->bit_clk_rate_hz_override == 0) {
 		h_period = DSI_H_TOTAL_DSC(timing);
 		v_period = DSI_V_TOTAL(timing);
-		bit_rate = h_period * v_period * timing->refresh_rate * bpp;
+
+		if (config->panel_mode == DSI_OP_CMD_MODE)
+			do_div(refresh_rate, timing->mdp_transfer_time_us);
+		else
+			refresh_rate = timing->refresh_rate;
+
+		bit_rate = h_period * v_period * refresh_rate * bpp;
 	} else {
 		bit_rate = config->bit_clk_rate_hz_override * num_of_lanes;
 	}
@@ -1086,6 +1111,37 @@ int dsi_message_validate_tx_mode(struct dsi_ctrl *dsi_ctrl,
 
 	return rc;
 }
+#if 0
+static void print_cmd_desc(const struct mipi_dsi_msg *msg)
+{
+
+	char buf[1024];
+	int len = 0;
+	size_t i;
+
+	/* Packet Info */
+	len += snprintf(buf, sizeof(buf) - len,  "%02x ", msg->type);
+	len += snprintf(buf + len, sizeof(buf) - len, "%02x ",
+		(msg->flags & MIPI_DSI_MSG_LASTCOMMAND) ? 1 : 0); /* Last bit */
+	len += snprintf(buf + len, sizeof(buf) - len, "%02x ", msg->channel);
+	len += snprintf(buf + len, sizeof(buf) - len, "%02x ",
+						(unsigned int)msg->flags);
+	len += snprintf(buf + len, sizeof(buf) - len, "%02x ", 0); /* Delay */
+	len += snprintf(buf + len, sizeof(buf) - len, "%02x ",
+						(unsigned int)msg->tx_len);
+
+	/* Packet Payload */
+	for (i = 0 ; i < msg->tx_len ; i++) {
+		len += snprintf(buf + len, sizeof(buf) - len,
+						"%02x ", msg->tx_buf[i]);
+		/* Break to prevent show too long command */
+		if (i > 250)
+			break;
+	}
+
+	printk(KERN_ERR"(%02d) %s\n", (unsigned int)msg->tx_len, buf);
+}
+#endif
 
 static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl,
 			  const struct mipi_dsi_msg *msg,
@@ -1102,6 +1158,7 @@ static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl,
 	u8 *cmdbuf;
 	struct dsi_mode_info *timing;
 	struct dsi_ctrl_hw_ops dsi_hw_ops = dsi_ctrl->hw.ops;
+	//print_cmd_desc(msg);
 
 	/* Select the tx mode to transfer the command */
 	dsi_message_setup_tx_mode(dsi_ctrl, msg->tx_len, &flags);
@@ -2474,7 +2531,7 @@ static int _dsi_ctrl_setup_isr(struct dsi_ctrl *dsi_ctrl)
 		return -EINVAL;
 	if (dsi_ctrl->irq_info.irq_num != -1)
 		return 0;
-
+	SDE_ATRACE_BEGIN("_dsi_ctrl_setup_isr");
 	init_completion(&dsi_ctrl->irq_info.cmd_dma_done);
 	init_completion(&dsi_ctrl->irq_info.vid_frame_done);
 	init_completion(&dsi_ctrl->irq_info.cmd_frame_done);
@@ -2499,6 +2556,7 @@ static int _dsi_ctrl_setup_isr(struct dsi_ctrl *dsi_ctrl)
 					dsi_ctrl->cell_index, irq_num);
 		}
 	}
+	SDE_ATRACE_END("_dsi_ctrl_setup_isr");
 	return rc;
 }
 
@@ -2603,37 +2661,27 @@ int dsi_ctrl_host_timing_update(struct dsi_ctrl *dsi_ctrl)
 }
 
 /**
- * dsi_ctrl_update_host_state() - Update the host state.
+ * dsi_ctrl_update_host_init_state() - Update the host initialization state.
  * @dsi_ctrl:        DSI controller handle.
- * @op:            ctrl driver ops
  * @enable:        boolean signifying host state.
  *
- * Update the host status only while exiting from ulps during
+ * Update the host initialization status only while exiting from ulps during
  * suspend state.
  *
  * Return: error code.
  */
-int dsi_ctrl_update_host_state(struct dsi_ctrl *dsi_ctrl,
-			       enum dsi_ctrl_driver_ops op, bool enable)
+int dsi_ctrl_update_host_init_state(struct dsi_ctrl *dsi_ctrl, bool enable)
 {
 	int rc = 0;
 	u32 state = enable ? 0x1 : 0x0;
 
-	if (!dsi_ctrl)
-		return rc;
-
-	mutex_lock(&dsi_ctrl->ctrl_lock);
-	rc = dsi_ctrl_check_state(dsi_ctrl, op, state);
+	rc = dsi_ctrl_check_state(dsi_ctrl, DSI_CTRL_OP_HOST_INIT, state);
 	if (rc) {
 		pr_err("[DSI_%d] Controller state check failed, rc=%d\n",
 		       dsi_ctrl->cell_index, rc);
-		mutex_unlock(&dsi_ctrl->ctrl_lock);
 		return rc;
 	}
-
-	dsi_ctrl_update_state(dsi_ctrl, op, state);
-	mutex_unlock(&dsi_ctrl->ctrl_lock);
-
+	dsi_ctrl_update_state(dsi_ctrl, DSI_CTRL_OP_HOST_INIT, state);
 	return rc;
 }
 
@@ -2722,16 +2770,6 @@ void dsi_ctrl_isr_configure(struct dsi_ctrl *dsi_ctrl, bool enable)
 	else
 		_dsi_ctrl_destroy_isr(dsi_ctrl);
 
-	mutex_unlock(&dsi_ctrl->ctrl_lock);
-}
-
-void dsi_ctrl_hs_req_sel(struct dsi_ctrl *dsi_ctrl, bool sel_phy)
-{
-	if (!dsi_ctrl)
-		return;
-
-	mutex_lock(&dsi_ctrl->ctrl_lock);
-	dsi_ctrl->hw.ops.hs_req_sel(&dsi_ctrl->hw, sel_phy);
 	mutex_unlock(&dsi_ctrl->ctrl_lock);
 }
 

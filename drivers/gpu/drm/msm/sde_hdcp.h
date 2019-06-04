@@ -58,7 +58,6 @@ struct sde_hdcp_stream {
 	u8 stream_id;
 	u8 virtual_channel;
 	u32 stream_handle;
-	bool active;
 };
 
 struct sde_hdcp_init_data {

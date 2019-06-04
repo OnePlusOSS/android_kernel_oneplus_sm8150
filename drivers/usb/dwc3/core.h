@@ -857,7 +857,8 @@ struct dwc3_scratchpad_array {
 #define DWC3_GSI_EVT_BUF_CLEANUP		12
 #define DWC3_GSI_EVT_BUF_CLEAR			13
 #define DWC3_GSI_EVT_BUF_FREE			14
-#define DWC3_CONTROLLER_NOTIFY_CLEAR_DB		15
+#define DWC3_CONTROLLER_NOTIFY_CLEAR_DB	15
+
 
 #define MAX_INTR_STATS				10
 

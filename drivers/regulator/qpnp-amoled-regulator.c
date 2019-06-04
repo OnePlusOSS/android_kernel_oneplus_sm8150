@@ -35,23 +35,15 @@
 /* AB */
 #define AB_STATUS1(chip)		(chip->ab_base + 0x08)
 #define AB_LDO_SW_DBG_CTL(chip)		(chip->ab_base + 0x72)
-#define AB_LDO_PD_CTL(chip)		(chip->ab_base + 0x78)
-
-/* AB_STATUS1 */
-#define VREG_OK_BIT			BIT(6)
-#define VREG_OK_SHIFT			6
-
-/* AB_LDO_PD_CTL */
-#define PULLDN_EN_BIT			BIT(7)
 
 /* IBB */
-#define IBB_PD_CTL(chip)		(chip->ibb_base + 0x47)
 #define IBB_PS_CTL(chip)		(chip->ibb_base + 0x50)
 #define IBB_NLIMIT_DAC(chip)		(chip->ibb_base + 0x61)
 #define IBB_SMART_PS_CTL(chip)		(chip->ibb_base + 0x65)
 
-/* IBB_PD_CTL */
-#define ENABLE_PD_BIT			BIT(7)
+/* AB_STATUS1 */
+#define VREG_OK_BIT			BIT(6)
+#define VREG_OK_SHIFT			6
 
 struct amoled_regulator {
 	struct regulator_desc	rdesc;
@@ -73,7 +65,6 @@ struct ab_regulator {
 
 	/* DT params */
 	bool			swire_control;
-	bool			pd_control;
 };
 
 struct ibb_regulator {
@@ -81,7 +72,6 @@ struct ibb_regulator {
 
 	/* DT params */
 	bool			swire_control;
-	bool			pd_control;
 };
 
 struct qpnp_amoled {
@@ -130,7 +120,7 @@ static int qpnp_amoled_write(struct qpnp_amoled *chip,
 	return rc;
 }
 
-static int qpnp_amoled_masked_write(struct qpnp_amoled *chip,
+int qpnp_amoled_masked_write(struct qpnp_amoled *chip,
 				u16 addr, u8 mask, u8 value)
 {
 	int rc = 0;
@@ -218,28 +208,13 @@ static int qpnp_ab_ibb_regulator_get_voltage(struct regulator_dev *rdev)
 	return 0;
 }
 
-static int qpnp_ab_pd_control(struct qpnp_amoled *chip, bool en)
-{
-	u8 val = en ? PULLDN_EN_BIT : 0;
-
-	return qpnp_amoled_write(chip, AB_LDO_PD_CTL(chip), &val, 1);
-}
-
 #define AB_VREG_OK_POLL_TRIES		50
-#define AB_VREG_OK_POLL_TIME_US		2000
-#define AB_VREG_OK_POLL_HIGH_TRIES	8
-#define AB_VREG_OK_POLL_HIGH_TIME_US	10000
-#define AB_VREG_OK_POLL_AGAIN_TRIES	10
-
 static int qpnp_ab_poll_vreg_ok(struct qpnp_amoled *chip, bool status)
 {
-	u32 i = AB_VREG_OK_POLL_TRIES, poll_us = AB_VREG_OK_POLL_TIME_US;
-	bool swire_high = false, poll_again = false, monitor = false;
-	u32 wait_time_us = 0;
+	u32 i = AB_VREG_OK_POLL_TRIES, poll_us = 2000;
 	int rc;
 	u8 val;
 
-loop:
 	while (i--) {
 		/* Write a dummy value before reading AB_STATUS1 */
 		rc = qpnp_amoled_write(chip, AB_STATUS1(chip), &val, 1);
@@ -250,80 +225,17 @@ loop:
 		if (rc < 0)
 			return rc;
 
-		wait_time_us += poll_us;
 		if (((val & VREG_OK_BIT) >> VREG_OK_SHIFT) == status) {
-			pr_debug("Waited for %d us\n", wait_time_us);
-
-			/*
-			 * Return if we're polling for VREG_OK low. Else, poll
-			 * for VREG_OK high for at least 80 ms. IF VREG_OK stays
-			 * high, then consider it as a valid SWIRE pulse.
-			 */
-
-			if (status) {
-				swire_high = true;
-				if (!poll_again && !monitor) {
-					pr_debug("SWIRE is high, start monitoring\n");
-					i = AB_VREG_OK_POLL_HIGH_TRIES;
-					poll_us = AB_VREG_OK_POLL_HIGH_TIME_US;
-					wait_time_us = 0;
-					monitor = true;
-				}
-
-				if (poll_again)
-					poll_again = false;
-			} else {
-				return 0;
-			}
-		} else {
-			/*
-			 * If we're here when polling for VREG_OK high, then it
-			 * is possibly because of an intermittent SWIRE pulse.
-			 * Ignore it and poll for valid SWIRE pulse again.
-			 */
-			if (status && swire_high && monitor) {
-				pr_debug("SWIRE is low\n");
-				poll_again = true;
-				swire_high = false;
-				break;
-			}
-
-			if (poll_again)
-				poll_again = false;
+			pr_debug("Waited for %d us\n",
+				(AB_VREG_OK_POLL_TRIES - i) * poll_us);
+			return 0;
 		}
 
 		usleep_range(poll_us, poll_us + 1);
 	}
 
-	/*
-	 * If poll_again is set, then VREG_OK should be polled for another
-	 * 100 ms for valid SWIRE signal.
-	 */
-
-	if (poll_again) {
-		pr_debug("polling again for SWIRE\n");
-		i = AB_VREG_OK_POLL_AGAIN_TRIES;
-		poll_us = AB_VREG_OK_POLL_HIGH_TIME_US;
-		wait_time_us = 0;
-		goto loop;
-	}
-
-	/* If swire_high is set, then it's a valid SWIRE signal, return 0. */
-	if (swire_high) {
-		pr_debug("SWIRE is high\n");
-		return 0;
-	}
-
 	pr_err("AB_STATUS1: %x poll for VREG_OK %d timed out\n", val, status);
 	return -ETIMEDOUT;
-}
-
-static int qpnp_ibb_pd_control(struct qpnp_amoled *chip, bool en)
-{
-	u8 val = en ? ENABLE_PD_BIT : 0;
-
-	return qpnp_amoled_masked_write(chip, IBB_PD_CTL(chip), ENABLE_PD_BIT,
-					val);
 }
 
 static int qpnp_ibb_aod_config(struct qpnp_amoled *chip, bool aod)
@@ -388,35 +300,11 @@ static void qpnp_amoled_aod_work(struct work_struct *work)
 		rc = qpnp_ibb_aod_config(chip, false);
 		if (rc < 0)
 			goto error;
-
-		if (chip->ibb.pd_control) {
-			rc = qpnp_ibb_pd_control(chip, true);
-			if (rc < 0)
-				goto error;
-		}
-
-		if (chip->ab.pd_control) {
-			rc = qpnp_ab_pd_control(chip, true);
-			if (rc < 0)
-				goto error;
-		}
 	} else if (mode == REGULATOR_MODE_IDLE) {
 		/* poll for VREG_OK low */
 		rc = qpnp_ab_poll_vreg_ok(chip, false);
 		if (rc < 0)
 			goto error;
-
-		if (chip->ibb.pd_control) {
-			rc = qpnp_ibb_pd_control(chip, false);
-			if (rc < 0)
-				goto error;
-		}
-
-		if (chip->ab.pd_control) {
-			rc = qpnp_ab_pd_control(chip, false);
-			if (rc < 0)
-				goto error;
-		}
 
 		val = 0xF1;
 	} else if (mode == REGULATOR_MODE_STANDBY) {
@@ -424,18 +312,6 @@ static void qpnp_amoled_aod_work(struct work_struct *work)
 		rc = qpnp_ibb_aod_config(chip, false);
 		if (rc < 0)
 			goto error;
-
-		if (chip->ibb.pd_control) {
-			rc = qpnp_ibb_pd_control(chip, true);
-			if (rc < 0)
-				goto error;
-		}
-
-		if (chip->ab.pd_control) {
-			rc = qpnp_ab_pd_control(chip, true);
-			if (rc < 0)
-				goto error;
-		}
 	}
 
 	rc = qpnp_amoled_write(chip, AB_LDO_SW_DBG_CTL(chip), &val, 1);
@@ -681,6 +557,7 @@ static int qpnp_amoled_parse_dt(struct qpnp_amoled *chip)
 {
 	struct device_node *temp, *node = chip->dev->of_node;
 	const __be32 *prop_addr;
+	bool swire_control;
 	int rc = 0;
 	u32 base, val;
 
@@ -702,24 +579,23 @@ static int qpnp_amoled_parse_dt(struct qpnp_amoled *chip)
 		case OLEDB_PERIPH_TYPE:
 			chip->oledb_base = base;
 			chip->oledb.vreg.node = temp;
-			chip->oledb.swire_control = of_property_read_bool(temp,
-							"qcom,swire-control");
+			swire_control = of_property_read_bool(temp,
+						"qcom,swire-control");
+			chip->oledb.swire_control = swire_control;
 			break;
 		case AB_PERIPH_TYPE:
 			chip->ab_base = base;
 			chip->ab.vreg.node = temp;
-			chip->ab.swire_control = of_property_read_bool(temp,
-							"qcom,swire-control");
-			chip->ab.pd_control = of_property_read_bool(temp,
-							"qcom,aod-pd-control");
+			swire_control = of_property_read_bool(temp,
+						"qcom,swire-control");
+			chip->ab.swire_control = swire_control;
 			break;
 		case IBB_PERIPH_TYPE:
 			chip->ibb_base = base;
 			chip->ibb.vreg.node = temp;
-			chip->ibb.swire_control = of_property_read_bool(temp,
-							"qcom,swire-control");
-			chip->ibb.pd_control = of_property_read_bool(temp,
-							"qcom,aod-pd-control");
+			swire_control = of_property_read_bool(temp,
+						"qcom,swire-control");
+			chip->ibb.swire_control = swire_control;
 			break;
 		default:
 			pr_err("Unknown peripheral type 0x%x\n", val);
@@ -811,19 +687,7 @@ static struct platform_driver qpnp_amoled_regulator_driver = {
 	.probe		= qpnp_amoled_regulator_probe,
 	.remove		= qpnp_amoled_regulator_remove,
 };
-
-static int __init qpnp_amoled_regulator_init(void)
-{
-	return platform_driver_register(&qpnp_amoled_regulator_driver);
-}
-
-static void __exit qpnp_amoled_regulator_exit(void)
-{
-	platform_driver_unregister(&qpnp_amoled_regulator_driver);
-}
+module_platform_driver(qpnp_amoled_regulator_driver);
 
 MODULE_DESCRIPTION("QPNP AMOLED regulator driver");
 MODULE_LICENSE("GPL v2");
-
-arch_initcall(qpnp_amoled_regulator_init);
-module_exit(qpnp_amoled_regulator_exit);

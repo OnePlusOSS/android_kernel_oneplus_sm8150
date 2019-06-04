@@ -596,6 +596,15 @@ static struct ctl_table kern_table[] = {
 		.proc_handler	= proc_dostring,
 	},
 	{
+		.procname	= "sched_lib_mask_check",
+		.data		= &sched_lib_mask_check,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+		.extra1		= &zero,
+		.extra2		= &two_hundred_fifty_five,
+	},
+	{
 		.procname	= "sched_lib_mask_force",
 		.data		= &sched_lib_mask_force,
 		.maxlen		= sizeof(unsigned int),
@@ -943,7 +952,7 @@ static struct ctl_table kern_table[] = {
 		.data		= &console_loglevel,
 		.maxlen		= 4*sizeof(int),
 		.mode		= 0644,
-		.proc_handler	= proc_dointvec,
+		.proc_handler	= proc_dointvec_oem,
 	},
 	{
 		.procname	= "printk_ratelimit",
@@ -1405,6 +1414,24 @@ static struct ctl_table vm_table[] = {
 		.extra1		= &zero,
 		.extra2		= &two,
 	},
+#ifdef CONFIG_SMART_BOOST
+	{
+		.procname	= "page_cache_reside_switch",
+		.data		= &sysctl_page_cache_reside_switch,
+		.maxlen		= sizeof(sysctl_page_cache_reside_switch),
+		.mode		= 0666,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &zero,
+		.extra2		= &two,
+	},
+	{
+		.procname	= "page_cache_reside_max",
+		.data		= &sysctl_page_cache_reside_max,
+		.maxlen		= sizeof(sysctl_page_cache_reside_max),
+		.mode		= 0666,
+		.proc_handler	= proc_dointvec_minmax,
+	},
+#endif
 	{
 		.procname	= "oom_kill_allocating_task",
 		.data		= &sysctl_oom_kill_allocating_task,
@@ -1520,6 +1547,21 @@ static struct ctl_table vm_table[] = {
 		.extra2		= &one_hundred,
 	},
 	{
+		.procname	= "breath_period",
+		.data		= &vm_breath_period,
+		.maxlen		= sizeof(vm_breath_period),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &zero,
+	},
+	{
+		.procname	= "breath_priority",
+		.data		= &vm_breath_priority,
+		.maxlen		= sizeof(vm_breath_priority),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+	{
 		.procname       = "want_old_faultaround_pte",
 		.data           = &want_old_faultaround_pte,
 		.maxlen         = sizeof(want_old_faultaround_pte),
@@ -1528,6 +1570,26 @@ static struct ctl_table vm_table[] = {
 		.extra1         = &zero,
 		.extra2         = &one,
 	},
+#ifdef CONFIG_MEMPLUS
+	{
+		.procname	= "memory_plus_test_worstcase",
+		.data		= &vm_memory_plus_test_worstcase,
+		.maxlen 	= sizeof(vm_memory_plus),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1 	= &neg_one,
+		.extra2 	= &one_thousand,
+	},
+	{
+		.procname	= "memory_plus",
+		.data		= &vm_memory_plus,
+		.maxlen 	= sizeof(vm_memory_plus),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1 	= &neg_one,
+		.extra2 	= &one_thousand,
+	},
+#endif
 #ifdef CONFIG_HUGETLB_PAGE
 	{
 		.procname	= "nr_hugepages",
@@ -2641,6 +2703,24 @@ int proc_dointvec(struct ctl_table *table, int write,
 {
 	return do_proc_dointvec(table, write, buffer, lenp, ppos, NULL, NULL);
 }
+static unsigned int oem_en_chg_prk_lv = 1;
+module_param(oem_en_chg_prk_lv, uint, 0644);
+
+int proc_dointvec_oem(struct ctl_table *table, int write,
+		     void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+    if(oem_en_chg_prk_lv || !write )
+		return do_proc_dointvec(table, write, buffer, lenp, ppos, NULL, NULL);
+    else
+		return -ENOSYS;
+}
+static int __init oem_disable_chg_prk_lv(char *str)
+{
+	oem_en_chg_prk_lv = 0;
+	return 0;
+}
+early_param("debug", oem_disable_chg_prk_lv);
+
 
 /**
  * proc_douintvec - read a vector of unsigned integers

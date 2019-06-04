@@ -233,6 +233,34 @@ TRACE_EVENT(mm_page_alloc,
 		show_gfp_flags(__entry->gfp_flags))
 );
 
+TRACE_EVENT(mm_page_alloc_time,
+
+	TP_PROTO(u64 time, unsigned int order,
+			gfp_t gfp_flags, int migratetype),
+
+	TP_ARGS(time, order, gfp_flags, migratetype),
+
+	TP_STRUCT__entry(
+		__field(	u64,			time		)
+		__field(	unsigned int,	order		)
+		__field(	gfp_t,		gfp_flags	)
+		__field(	int,		migratetype	)
+	),
+
+	TP_fast_assign(
+		__entry->time			= time;
+		__entry->order		= order;
+		__entry->gfp_flags	= gfp_flags;
+		__entry->migratetype	= migratetype;
+	),
+
+	TP_printk("alloc_pages consumed %llu ms order=%d migratetype=%d gfp_flags=%s",
+		__entry->time,
+		__entry->order,
+		__entry->migratetype,
+		show_gfp_flags(__entry->gfp_flags))
+);
+
 DECLARE_EVENT_CLASS(mm_page,
 
 	TP_PROTO(struct page *page, unsigned int order, int migratetype),

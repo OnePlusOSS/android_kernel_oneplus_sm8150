@@ -94,6 +94,9 @@
 #include <linux/flex_array.h>
 #include <linux/posix-timers.h>
 #include <linux/cpufreq_times.h>
+#ifdef CONFIG_ADJ_CHAIN
+#include <linux/adj_chain.h>
+#endif
 #ifdef CONFIG_HARDWALL
 #include <asm/hardwall.h>
 #endif
@@ -102,7 +105,10 @@
 #include "fd.h"
 
 #include "../../lib/kstrtox.h"
-
+#ifdef CONFIG_SMART_BOOST
+#include <linux/hotcount.h>
+#include <linux/rmap.h>
+#endif
 /* NOTE:
  *	Implementing inode permission operations in /proc is almost
  *	certainly an error.  Permission checks need to happen during
@@ -997,13 +1003,23 @@ static ssize_t oom_adj_read(struct file *file, char __user *buf, size_t count,
 	len = snprintf(buffer, sizeof(buffer), "%d\n", oom_adj);
 	return simple_read_from_buffer(buf, count, ppos, buffer, len);
 }
-
+#ifdef CONFIG_MEMPLUS
+static int __set_oom_adj(struct file *file, int oom_adj, bool legacy, bool memplus_update)
+#else
 static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
+
+#endif
 {
 	static DEFINE_MUTEX(oom_adj_mutex);
 	struct mm_struct *mm = NULL;
 	struct task_struct *task;
 	int err = 0;
+#ifdef CONFIG_MEMPLUS
+	int prev_adj = -1;
+#endif
+#ifdef CONFIG_ADJ_CHAIN
+	int need_update_oom_score_adj = 0;
+#endif
 
 	task = get_proc_task(file_inode(file));
 	if (!task)
@@ -1048,7 +1064,13 @@ static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
 		}
 	}
 
+#ifdef CONFIG_MEMPLUS
+	prev_adj = task->signal->oom_score_adj;
+#endif
 	task->signal->oom_score_adj = oom_adj;
+#ifdef CONFIG_ADJ_CHAIN
+	adj_chain_update_oom_score_adj(task);
+#endif
 	if (!legacy && has_capability_noaudit(current, CAP_SYS_RESOURCE))
 		task->signal->oom_score_adj_min = (short)oom_adj;
 	trace_oom_score_adj_update(task);
@@ -1066,22 +1088,36 @@ static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
 				continue;
 
 			task_lock(p);
+#ifdef CONFIG_ADJ_CHAIN
+			need_update_oom_score_adj = 0;
+#endif
 			if (!p->vfork_done && process_shares_mm(p, mm)) {
 				pr_info("updating oom_score_adj for %d (%s) from %d to %d because it shares mm with %d (%s). Report if this is unexpected.\n",
 						task_pid_nr(p), p->comm,
 						p->signal->oom_score_adj, oom_adj,
 						task_pid_nr(task), task->comm);
 				p->signal->oom_score_adj = oom_adj;
+#ifdef CONFIG_ADJ_CHAIN
+				need_update_oom_score_adj = 1;
+#endif
 				if (!legacy && has_capability_noaudit(current, CAP_SYS_RESOURCE))
 					p->signal->oom_score_adj_min = (short)oom_adj;
 			}
 			task_unlock(p);
+#ifdef CONFIG_ADJ_CHAIN
+			if (need_update_oom_score_adj)
+				adj_chain_update_oom_score_adj(p);
+#endif
 		}
 		rcu_read_unlock();
 		mmdrop(mm);
 	}
 err_unlock:
 	mutex_unlock(&oom_adj_mutex);
+#ifdef CONFIG_MEMPLUS
+	if (memplus_update && oom_adj >= 800)
+		memplus_state_check(oom_adj, prev_adj, task);
+#endif
 	put_task_struct(task);
 	return err;
 }
@@ -1128,8 +1164,11 @@ static ssize_t oom_adj_write(struct file *file, const char __user *buf,
 		oom_adj = OOM_SCORE_ADJ_MAX;
 	else
 		oom_adj = (oom_adj * OOM_SCORE_ADJ_MAX) / -OOM_DISABLE;
-
+#ifdef CONFIG_MEMPLUS
+	err = __set_oom_adj(file, oom_adj, true, false);
+#else
 	err = __set_oom_adj(file, oom_adj, true);
+#endif
 out:
 	return err < 0 ? err : count;
 }
@@ -1179,8 +1218,11 @@ static ssize_t oom_score_adj_write(struct file *file, const char __user *buf,
 		err = -EINVAL;
 		goto out;
 	}
-
+#ifdef CONFIG_MEMPLUS
+	err = __set_oom_adj(file, oom_score_adj, false, true);
+#else
 	err = __set_oom_adj(file, oom_score_adj, false);
+#endif
 out:
 	return err < 0 ? err : count;
 }
@@ -1624,8 +1666,80 @@ static const struct file_operations proc_pid_sched_group_id_operations = {
 	.llseek		= seq_lseek,
 	.release	= single_release,
 };
-
 #endif	/* CONFIG_SCHED_WALT */
+
+#ifdef CONFIG_MEMPLUS
+static ssize_t
+memplus_type_write(struct file *file, const char __user *buf,
+	    size_t count, loff_t *offset)
+{
+	struct inode *inode = file_inode(file);
+	struct task_struct *p;
+	char buffer[PROC_NUMBUF];
+	int type_id, err;
+
+	memset(buffer, 0, sizeof(buffer));
+	if (count > sizeof(buffer) - 1)
+		count = sizeof(buffer) - 1;
+	if (copy_from_user(buffer, buf, count)) {
+		err = -EFAULT;
+		goto out;
+	}
+
+	err = kstrtoint(strstrip(buffer), 0, &type_id);
+	if (err)
+		goto out;
+
+	p = get_proc_task(inode);
+	if (!p)
+		return -ESRCH;
+
+	if (type_id >= TYPE_END || type_id < 0)
+		return -EINVAL;
+
+	/* don't have concurrent usage now, skip lock protect */
+	p->signal->memplus_type = type_id;
+
+	if (type_id == TYPE_WILL_NEED)
+		memplus_state_check(0, 0, p);
+	else if ((type_id & MEMPLUS_TYPE_MASK) < TYPE_SYS_IGNORE)
+		memplus_state_check(p->signal->oom_score_adj, 0, p);
+
+	put_task_struct(p);
+
+out:
+	return err < 0 ? err : count;
+}
+
+static int memplus_type_show(struct seq_file *m, void *v)
+{
+	struct inode *inode = m->private;
+	struct task_struct *p;
+
+	p = get_proc_task(inode);
+	if (!p)
+		return -ESRCH;
+
+	seq_printf(m, "%d\n", p->signal->memplus_type);
+
+	put_task_struct(p);
+
+	return 0;
+}
+
+static int memplus_type_open(struct inode *inode, struct file *filp)
+{
+	return single_open(filp, memplus_type_show, inode);
+}
+
+static const struct file_operations proc_pid_memplus_type_operations = {
+	.open		= memplus_type_open,
+	.read		= seq_read,
+	.write		= memplus_type_write,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+#endif
 
 #ifdef CONFIG_SCHED_AUTOGROUP
 /*
@@ -2600,6 +2714,107 @@ static const struct file_operations proc_pid_set_timerslack_ns_operations = {
 	.release	= single_release,
 };
 
+#ifdef CONFIG_SMART_BOOST
+static ssize_t page_hot_count_read(struct file *file, char __user *buf,
+				size_t count, loff_t *ppos)
+{
+	struct task_struct *task = get_proc_task(file_inode(file));
+	char buffer[PROC_NUMBUF];
+	size_t len;
+	int page_hot_count;
+
+	if (!task)
+		return -ESRCH;
+
+	page_hot_count = task->hot_count;
+
+	put_task_struct(task);
+
+	len = snprintf(buffer, sizeof(buffer), "%d\n", page_hot_count);
+	return simple_read_from_buffer(buf, count, ppos, buffer, len);
+}
+static struct cgroup_subsys_state *
+task_get_css_noretry(struct task_struct *task, int subsys_id)	
+{
+	struct cgroup_subsys_state *css;
+	
+	rcu_read_lock();	
+	css = task_css(task, subsys_id);
+
+	if (unlikely(!css_tryget_online(css))) {
+		rcu_read_unlock();
+		return NULL;
+	}
+	rcu_read_unlock();
+	return css;	
+}
+static ssize_t page_hot_count_write(struct file *file, const char __user *buf,
+				size_t count, loff_t *ppos)
+{
+	struct task_struct *task;
+	char buffer[PROC_NUMBUF];
+	int page_hot_count;
+	int err;
+	uid_t uid;
+
+	memset(buffer, 0, sizeof(buffer));
+
+	if (count > sizeof(buffer) - 1)
+		count = sizeof(buffer) - 1;
+	if (copy_from_user(buffer, buf, count)) {
+		err = -EFAULT;
+		goto out;
+	}
+
+	err = kstrtoint(strstrip(buffer), 0, &page_hot_count);
+	if (err)
+		goto out;
+
+	task = get_proc_task(file_inode(file));
+	if (!task) {
+		err = -ESRCH;
+		goto out;
+	}
+
+	task->hot_count = page_hot_count;
+	uid = __task_cred(task)->user->uid.val;
+
+	if (!page_hot_count) {
+		struct cgroup_subsys_state *pos;
+		struct css_task_iter it;
+		struct task_struct *tsk;
+		struct cgroup_subsys_state *parent;
+		struct cgroup_subsys_state * css;
+
+		css = task_get_css_noretry(task, cpuacct_cgrp_id);
+		if (css) {
+			parent = css->parent;
+			rcu_read_lock();
+			css_for_each_child(pos, parent) {
+				css_task_iter_start(&pos->cgroup->self, 0, &it);
+				while ((tsk = css_task_iter_next(&it)))
+					tsk->hot_count = 0;
+				css_task_iter_end(&it);
+			}
+			rcu_read_unlock();
+		}	
+		reclaim_pages_from_uid_list(uid);
+		delete_prio_node(uid);
+	} else {
+		insert_prio_node(page_hot_count, uid);
+	}
+
+	put_task_struct(task);
+
+out:
+	return err < 0 ? err : count;
+}
+
+static const struct file_operations proc_page_hot_count_operations = {
+	.read		= page_hot_count_read,
+	.write		= page_hot_count_write,
+};
+#endif
 static int proc_pident_instantiate(struct inode *dir,
 	struct dentry *dentry, struct task_struct *task, const void *ptr)
 {
@@ -3162,6 +3377,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("sched_init_task_load", 00644, proc_pid_sched_init_task_load_operations),
 	REG("sched_group_id", 00666, proc_pid_sched_group_id_operations),
 #endif
+#ifdef CONFIG_MEMPLUS
+	REG("memplus_type",      S_IRUGO|S_IWUGO, proc_pid_memplus_type_operations),
+#endif
 #ifdef CONFIG_SCHED_DEBUG
 	REG("sched",      S_IRUGO|S_IWUSR, proc_pid_sched_operations),
 #endif
@@ -3217,8 +3435,8 @@ static const struct pid_entry tgid_base_stuff[] = {
 	ONE("cgroup",  S_IRUGO, proc_cgroup_show),
 #endif
 	ONE("oom_score",  S_IRUGO, proc_oom_score),
-	REG("oom_adj",    S_IRUSR, proc_oom_adj_operations),
-	REG("oom_score_adj", S_IRUSR, proc_oom_score_adj_operations),
+	REG("oom_adj",    S_IRUGO|S_IWUSR, proc_oom_adj_operations),
+	REG("oom_score_adj", S_IRUGO|S_IWUSR, proc_oom_score_adj_operations),
 #ifdef CONFIG_AUDITSYSCALL
 	REG("loginuid",   S_IWUSR|S_IRUGO, proc_loginuid_operations),
 	REG("sessionid",  S_IRUGO, proc_sessionid_operations),
@@ -3250,6 +3468,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("timers",	  S_IRUGO, proc_timers_operations),
 #endif
 	REG("timerslack_ns", S_IRUGO|S_IWUGO, proc_pid_set_timerslack_ns_operations),
+#ifdef CONFIG_SMART_BOOST
+	REG("page_hot_count", 0666, proc_page_hot_count_operations),
+#endif
 #ifdef CONFIG_LIVEPATCH
 	ONE("patch_state",  S_IRUSR, proc_pid_patch_state),
 #endif

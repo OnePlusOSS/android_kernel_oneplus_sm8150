@@ -95,6 +95,7 @@ enum sel_inos {
 
 static unsigned long sel_last_ino = SEL_INO_NEXT - 1;
 
+
 #define SEL_INITCON_INO_OFFSET		0x01000000
 #define SEL_BOOL_INO_OFFSET		0x02000000
 #define SEL_CLASS_INO_OFFSET		0x04000000

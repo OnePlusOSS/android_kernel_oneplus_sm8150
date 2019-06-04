@@ -577,7 +577,7 @@ void qmi_rmnet_enable_all_flows(struct net_device *dev)
 {
 	struct qos_info *qos;
 	struct rmnet_bearer_map *bearer;
-	bool do_wake;
+	bool do_wake = false;
 
 	qos = (struct qos_info *)rmnet_get_qos_pt(dev);
 	if (!qos)
@@ -586,18 +586,20 @@ void qmi_rmnet_enable_all_flows(struct net_device *dev)
 	spin_lock_bh(&qos->qos_lock);
 
 	list_for_each_entry(bearer, &qos->bearer_head, list) {
-		if (bearer->tx_off)
-			continue;
-		do_wake = !bearer->grant_size;
+		if (!bearer->grant_size)
+			do_wake = true;
 		bearer->grant_size = DEFAULT_GRANT;
 		bearer->grant_thresh = DEFAULT_GRANT;
 		bearer->seq = 0;
 		bearer->ack_req = 0;
+		bearer->ancillary = 0;
 		bearer->tcp_bidir = false;
 		bearer->rat_switch = false;
+	}
 
-		if (do_wake)
-			dfc_bearer_flow_ctl(dev, bearer, qos);
+	if (do_wake) {
+		netif_tx_wake_all_queues(dev);
+		trace_dfc_qmi_tc(dev->name, 0xFF, 0, DEFAULT_GRANT, 0, 0, 1);
 	}
 
 	spin_unlock_bh(&qos->qos_lock);
@@ -628,6 +630,7 @@ bool qmi_rmnet_all_flows_enabled(struct net_device *dev)
 	return ret;
 }
 EXPORT_SYMBOL(qmi_rmnet_all_flows_enabled);
+
 
 #ifdef CONFIG_QCOM_QMI_DFC
 void qmi_rmnet_burst_fc_check(struct net_device *dev,
@@ -815,6 +818,11 @@ int qmi_rmnet_set_powersave_mode(void *port, uint8_t enable)
 		return rc;
 	}
 
+	if (enable)
+		dfc_qmi_wq_flush(qmi);
+	else
+		qmi_rmnet_query_flows(qmi);
+
 	return 0;
 }
 EXPORT_SYMBOL(qmi_rmnet_set_powersave_mode);
@@ -845,25 +853,20 @@ static void qmi_rmnet_check_stats(struct work_struct *work)
 		return;
 
 	if (qmi->ps_enabled) {
-
-		/* Ready to accept grant */
-		qmi->ps_ignore_grant = false;
-
 		/* Register to get QMI DFC and DL marker */
 		if (qmi_rmnet_set_powersave_mode(real_work->port, 0) < 0) {
 			/* If this failed need to retry quickly */
-			queue_delayed_work(rmnet_ps_wq,
+			if (rmnet_ps_wq)
+				queue_delayed_work(rmnet_ps_wq,
 					   &real_work->work, HZ / 50);
 			return;
 
 		}
 		qmi->ps_enabled = false;
 
-		/* Do a query when coming out of powersave */
-		qmi_rmnet_query_flows(qmi);
-
 		if (rmnet_get_powersave_notif(real_work->port))
 			qmi_rmnet_ps_off_notify(real_work->port);
+
 
 		goto end;
 	}
@@ -873,6 +876,8 @@ static void qmi_rmnet_check_stats(struct work_struct *work)
 	txd = tx - real_work->old_tx_pkts;
 	real_work->old_rx_pkts = rx;
 	real_work->old_tx_pkts = tx;
+	dl_msg_active = qmi->dl_msg_active;
+	qmi->dl_msg_active = false;
 
 	dl_msg_active = qmi->dl_msg_active;
 	qmi->dl_msg_active = false;
@@ -887,14 +892,12 @@ static void qmi_rmnet_check_stats(struct work_struct *work)
 
 		/* Deregister to suppress QMI DFC and DL marker */
 		if (qmi_rmnet_set_powersave_mode(real_work->port, 1) < 0) {
-			queue_delayed_work(rmnet_ps_wq,
+			if (rmnet_ps_wq)
+				queue_delayed_work(rmnet_ps_wq,
 					   &real_work->work, PS_INTERVAL);
 			return;
 		}
 		qmi->ps_enabled = true;
-
-		/* Ignore grant after going into powersave */
-		qmi->ps_ignore_grant = true;
 
 		/* Clear the bit before enabling flow so pending packets
 		 * can trigger the work again
@@ -908,7 +911,8 @@ static void qmi_rmnet_check_stats(struct work_struct *work)
 		return;
 	}
 end:
-	queue_delayed_work(rmnet_ps_wq, &real_work->work, PS_INTERVAL);
+	if (rmnet_ps_wq)
+		queue_delayed_work(rmnet_ps_wq, &real_work->work, PS_INTERVAL);
 }
 
 static void qmi_rmnet_work_set_active(void *port, int status)
@@ -992,17 +996,4 @@ void qmi_rmnet_flush_ps_wq(void)
 	if (rmnet_ps_wq)
 		flush_workqueue(rmnet_ps_wq);
 }
-
-bool qmi_rmnet_ignore_grant(void *port)
-{
-	struct qmi_info *qmi;
-
-	qmi = (struct qmi_info *)rmnet_get_qmi_pt(port);
-	if (unlikely(!qmi))
-		return false;
-
-	return qmi->ps_ignore_grant;
-}
-EXPORT_SYMBOL(qmi_rmnet_ignore_grant);
-
 #endif
