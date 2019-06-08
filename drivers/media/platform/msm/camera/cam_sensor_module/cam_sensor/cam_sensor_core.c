@@ -902,6 +902,9 @@ int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 	uint32_t id = 0;
 	uint32_t id_l = 0;
 	uint32_t id_h = 0;
+	uint32_t lens = 0;
+	uint32_t lens_l = 0;
+	uint32_t lens_h = 0;
 
 	slave_info = &(s_ctrl->sensordata->slave_info);
 
@@ -941,6 +944,18 @@ int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 	            &id_h, s_ctrl->sensordata->id_info.sensor_addr_type,
 	            s_ctrl->sensordata->id_info.sensor_data_type);
 
+	    if (0x586 == slave_info->sensor_id) {
+	        rc = camera_io_dev_read( &(s_ctrl->io_master_info),
+	                0x0008,
+	                &lens_l, s_ctrl->sensordata->id_info.sensor_addr_type,
+	                s_ctrl->sensordata->id_info.sensor_data_type);
+	        rc = camera_io_dev_read(&(s_ctrl->io_master_info),
+	                0x0009,
+	                &lens_h, s_ctrl->sensordata->id_info.sensor_addr_type,
+	                s_ctrl->sensordata->id_info.sensor_data_type);
+	        lens = (lens_h << 8) | lens_l;
+	    }
+
 	    s_ctrl->io_master_info.cci_client->sid = sensor_slave_addr;
 	    if (0x30d5 == slave_info->sensor_id) {//set the CCI master back to s5k3m5
 	    	s_ctrl->io_master_info.cci_client->cci_i2c_master = MASTER_0;
@@ -952,6 +967,13 @@ int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 	            slave_info->sensor_id, id, s_ctrl->sensordata->id_info.sensor_id);
 	        return -1;
 	    } else {
+	        if (0x586 == slave_info->sensor_id && 0x03 == id) {
+	            if (0xe2 == lens) {
+	                CAM_INFO(CAM_SENSOR, "sensor_id: 0x%x, id 0x%x, lens 0x%x, lens mismatch",
+	                    slave_info->sensor_id, id, lens);
+	                return -1;
+	            }
+	        }
 	        CAM_INFO(CAM_SENSOR, "sensor_id: 0x%x, vendor_id 0x%x matched", slave_info->sensor_id, id);
 	    }
 	}
