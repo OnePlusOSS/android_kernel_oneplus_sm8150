@@ -4346,7 +4346,7 @@ int dsi_panel_send_roi_dcs(struct dsi_panel *panel, int ctrl_idx,
 
 	return rc;
 }
-
+extern int op_resolution;
 int dsi_panel_switch(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -4365,7 +4365,12 @@ int dsi_panel_switch(struct dsi_panel *panel)
 		pr_err("[%s] Failed to send DSI_CMD_SET_TIMING_SWITCH cmds, rc=%d\n",
 		       panel->name, rc);
 	pr_err("Send DSI_CMD_SET_TIMING_SWITCH cmds\n");
-	pr_err("panel->cur_mode->timing->h_active = %d\n", panel->cur_mode->timing.h_active);
+	if(panel->cur_mode->timing.h_active == 1440){
+		op_resolution = 2;
+	}else if(panel->cur_mode->timing.h_active == 1080){
+		op_resolution = 1;
+	}
+	pr_err("panel->cur_mode->timing->h_active = %d op_resolution = %d\n", panel->cur_mode->timing.h_active,op_resolution);
 	if((strcmp(panel->name, "samsung dsc cmd mode oneplus dsi panel") == 0) && (gamma_read_flag == GAMMA_READ_SUCCESS)) {
 		if (mode_fps == 90) {
 			rc = dsi_panel_tx_gamma_cmd_set(panel, DSI_GAMMA_CMD_SET_SWITCH_90HZ);

@@ -8048,6 +8048,7 @@ int dsi_display_get_acl_mode(struct drm_connector *connector)
 	return dsi_display->panel->acl_mode;
 }
 
+int op_resolution = 0;
 int dsi_display_get_gamma_para(struct dsi_display *dsi_display, struct dsi_panel *panel)
 {
     int i = 0;
@@ -8252,7 +8253,12 @@ int dsi_display_get_gamma_para(struct dsi_display *dsi_display, struct dsi_panel
         pr_err("Failed to send DSI_CMD_SET_GAMMA_OTP_READ_C9_SMRPS command\n");
         goto error;
     }
-    pr_err("Read 90hz gamma done\n");
+    if(panel->cur_mode->timing.h_active == 1440){
+        op_resolution = 2;
+    }else if(panel->cur_mode->timing.h_active == 1080){
+        op_resolution = 1;
+    }
+    pr_err("Read 90hz gamma done op_resolution = %d\n",op_resolution);
 
 error:
     dsi_panel_release_panel_lock(panel);

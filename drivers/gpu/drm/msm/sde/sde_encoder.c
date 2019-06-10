@@ -4037,6 +4037,9 @@ void sde_encoder_trigger_kickoff_pending(struct drm_encoder *drm_enc)
 	sde_enc->idle_pc_restore = false;
 }
 
+extern int op_dither_enable;
+extern int op_dimlayer_bl_enable;
+extern int op_resolution;
 extern bool sde_crtc_get_dimlayer_mode(struct drm_crtc_state *crtc_state);
 static bool
 _sde_encoder_setup_dither_for_onscreenfingerprint(struct sde_encoder_phys *phys,struct sde_hw_pingpong *hw_pp,
@@ -4055,11 +4058,20 @@ _sde_encoder_setup_dither_for_onscreenfingerprint(struct sde_encoder_phys *phys,
  return -EINVAL;
 
  memcpy(&dither, dither_cfg, len);
- dither.c0_bitdepth = 8;
- dither.c1_bitdepth = 6;
- dither.c2_bitdepth = 8;
- dither.c3_bitdepth = 8;
- dither.temporal_en = 1;
+
+ if((!op_dither_enable && !op_dimlayer_bl_enable && op_resolution == 2 ) || op_resolution == 1){
+	dither.c0_bitdepth = 8;
+	dither.c1_bitdepth = 8;
+	dither.c2_bitdepth = 8;
+	dither.c3_bitdepth = 8;
+	dither.temporal_en = 1;
+ }else {
+	dither.c0_bitdepth = 6;
+	dither.c1_bitdepth = 6;
+	dither.c2_bitdepth = 6;
+	dither.c3_bitdepth = 6;
+	dither.temporal_en = 1;
+ }
 
  phys->hw_pp->ops.setup_dither(hw_pp, &dither, len);
 
