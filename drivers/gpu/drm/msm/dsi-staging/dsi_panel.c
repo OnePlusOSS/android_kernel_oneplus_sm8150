@@ -781,6 +781,9 @@ int dsi_panel_gamma_read_address_setting(struct dsi_panel *panel, u16 read_numbe
 	return rc;
 }
 
+extern int op_dimlayer_bl_alpha;
+extern int op_dimlayer_bl_enabled;
+extern int op_dimlayer_bl_enable_real;
 static int dsi_panel_update_backlight(struct dsi_panel *panel,
 	u32 bl_lvl)
 {
@@ -802,6 +805,18 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 		pr_err("HBM is enabled\n");
 		return 0;
 	}
+	if (op_dimlayer_bl_enabled != op_dimlayer_bl_enable_real) {
+		op_dimlayer_bl_enable_real = op_dimlayer_bl_enabled;
+		if (op_dimlayer_bl_enable_real) {
+		bl_lvl = op_dimlayer_bl_alpha;
+			pr_err("dc light enable\n");
+		} else {
+			pr_err("dc light disenable\n");
+		}
+	}
+	if (op_dimlayer_bl_enable_real) {
+		bl_lvl = op_dimlayer_bl_alpha;
+    }
 
 	if (panel->bl_config.bl_high2bit) {
 		if (HBM_flag == true)

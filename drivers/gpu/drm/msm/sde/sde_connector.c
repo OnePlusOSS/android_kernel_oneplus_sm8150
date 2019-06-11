@@ -623,6 +623,23 @@ extern int oneplus_dim_status;
 extern bool aod_real_flag;
 extern bool finger_type;
 
+extern int op_dimlayer_bl;
+extern int op_dimlayer_bl_enabled;
+
+int sde_connector_update_backlight(struct drm_connector *connector)
+{
+	if (op_dimlayer_bl != op_dimlayer_bl_enabled) {
+		struct sde_connector *c_conn = to_sde_connector(connector);
+		if (!c_conn) {
+			SDE_ERROR("Invalid params sde_connector null\n");
+			return -EINVAL;
+			}
+		op_dimlayer_bl_enabled = op_dimlayer_bl;
+		_sde_connector_update_bl_scale(c_conn);
+	}
+
+	return 0;
+}
 static int _sde_connector_update_hbm(struct sde_connector *c_conn)
 {
 	struct drm_connector *connector = &c_conn->base;

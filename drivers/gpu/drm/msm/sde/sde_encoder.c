@@ -4037,7 +4037,7 @@ void sde_encoder_trigger_kickoff_pending(struct drm_encoder *drm_enc)
 	sde_enc->idle_pc_restore = false;
 }
 
-extern bool sde_crtc_get_fingerprint_mode(struct drm_crtc_state *crtc_state);
+extern bool sde_crtc_get_dimlayer_mode(struct drm_crtc_state *crtc_state);
 static bool
 _sde_encoder_setup_dither_for_onscreenfingerprint(struct sde_encoder_phys *phys,struct sde_hw_pingpong *hw_pp,
  void *dither_cfg, int len)
@@ -4048,23 +4048,24 @@ _sde_encoder_setup_dither_for_onscreenfingerprint(struct sde_encoder_phys *phys,
  if (!drm_enc || !drm_enc->crtc)
  return -EFAULT;
 
- if (!sde_crtc_get_fingerprint_mode(drm_enc->crtc->state))
+ if (!sde_crtc_get_dimlayer_mode(drm_enc->crtc->state))
  return -EINVAL;
 
  if (len != sizeof(dither))
  return -EINVAL;
 
  memcpy(&dither, dither_cfg, len);
- dither.c0_bitdepth = 6;
+ dither.c0_bitdepth = 8;
  dither.c1_bitdepth = 6;
- dither.c2_bitdepth = 6;
- dither.c3_bitdepth = 6;
+ dither.c2_bitdepth = 8;
+ dither.c3_bitdepth = 8;
  dither.temporal_en = 1;
 
  phys->hw_pp->ops.setup_dither(hw_pp, &dither, len);
 
  return 0;
 }
+
 
 static void _sde_encoder_setup_dither(struct sde_encoder_phys *phys)
 {
@@ -4117,7 +4118,7 @@ static void _sde_encoder_setup_dither(struct sde_encoder_phys *phys)
 			}
 		}
 	} else {
-        /*kent.xie@MM.Display.LCD.Feature,2018-08-19 force enable dither on Fingerprint scene */
+
         if (_sde_encoder_setup_dither_for_onscreenfingerprint(phys,phys->hw_pp, dither_cfg, len))
 		phys->hw_pp->ops.setup_dither(phys->hw_pp, dither_cfg, len);
 	}
@@ -4463,6 +4464,7 @@ static void _helper_flush_dsc(struct sde_encoder_virt *sde_enc)
 	}
 }
 
+extern int sde_connector_update_backlight(struct drm_connector *conn);
 int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
 		struct sde_encoder_kickoff_params *params)
 {
@@ -4501,6 +4503,8 @@ int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
 		sde_connector_set_qsync_params(
 				sde_enc->cur_master->connector);
 
+	if (sde_enc->cur_master)
+		sde_connector_update_backlight(sde_enc->cur_master->connector);
 	/* prepare for next kickoff, may include waiting on previous kickoff */
 	SDE_ATRACE_BEGIN("sde_encoder_prepare_for_kickoff");
 	for (i = 0; i < sde_enc->num_phys_encs; i++) {
