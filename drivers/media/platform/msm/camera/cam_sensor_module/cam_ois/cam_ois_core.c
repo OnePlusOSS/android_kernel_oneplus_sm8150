@@ -1854,7 +1854,19 @@ void cam_ois_shutdown(struct cam_ois_ctrl_t *o_ctrl)
 		return;
 
 	if (o_ctrl->cam_ois_state >= CAM_OIS_CONFIG) {
+#ifdef ENABLE_OIS_DELAY_POWER_DOWN
+		mutex_lock(&(o_ctrl->ois_power_down_mutex));
+		if (o_ctrl->ois_power_state == CAM_OIS_POWER_ON && o_ctrl->ois_power_down_thread_state == CAM_OIS_POWER_DOWN_THREAD_STOPPED) {
+			o_ctrl->ois_power_down_thread_exit = false;
+			kthread_run(ois_power_down_thread, o_ctrl, "ois_power_down_thread");
+			CAM_ERR(CAM_OIS, "ois_power_down_thread created");
+		} else {
+			CAM_ERR(CAM_OIS, "no need to create ois_power_down_thread, ois_power_state %d, ois_power_down_thread_state %d", o_ctrl->ois_power_state, o_ctrl->ois_power_down_thread_state);
+		}
+		mutex_unlock(&(o_ctrl->ois_power_down_mutex));
+#else
 		rc = cam_ois_power_down(o_ctrl);
+#endif
 		if (rc < 0)
 			CAM_ERR(CAM_OIS, "OIS Power down failed");
 		o_ctrl->cam_ois_state = CAM_OIS_ACQUIRE;
