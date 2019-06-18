@@ -300,17 +300,23 @@
 &qupv3_se4_i2c {
 	//liuhaituo@MM.Audio add begain
 tfa98xx_right: tfa98xx_right@34 {
-				   compatible = "nxp,tfa98xx";
-				   reg = <0x34>;
-				   reset-gpio = <&tlmm 37 0>;
-				   status = "ok";
+				compatible = "nxp,tfa98xx";
+				reg = <0x34>;
+				reset-gpio = <&tlmm 37 0>;
+
+				tfa_ldo-supply = <&pm8150l_l10>;
+				tfa_bob-supply = <&pm8150l_bob>;
+				status = "ok";
 			   };
 
 tfa98xx_left: tfa98xx_left@35 {
-				  compatible = "nxp,tfa98xx";
-				  reg = <0x35>;
-				  reset-gpio = <&tlmm 37 0>;
-				  status = "ok";
+				compatible = "nxp,tfa98xx";
+				reg = <0x35>;
+				reset-gpio = <&tlmm 37 0>;
+
+				tfa_ldo-supply = <&pm8150l_l10>;
+				tfa_bob-supply = <&pm8150l_bob>;
+				status = "ok";
 			  };
 			  //liuhaituo@MM.Audio add end
 };
