@@ -6820,7 +6820,7 @@ int dsi_display_find_mode(struct dsi_display *display,
  *               is change in fps but vactive and hactive are same.
  * Return: error code.
  */
-u32 mode_fps = 90;
+u32 mode_fps = 60;
 EXPORT_SYMBOL(mode_fps);
 int dsi_display_validate_mode_change(struct dsi_display *display,
 			struct dsi_display_mode *cur_mode,
