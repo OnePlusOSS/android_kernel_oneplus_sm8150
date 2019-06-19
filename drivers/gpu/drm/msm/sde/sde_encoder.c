@@ -4059,17 +4059,17 @@ _sde_encoder_setup_dither_for_onscreenfingerprint(struct sde_encoder_phys *phys,
 
  memcpy(&dither, dither_cfg, len);
 
- if((!op_dither_enable && !op_dimlayer_bl_enable && op_resolution == 2 ) || op_resolution == 1){
-	dither.c0_bitdepth = 8;
-	dither.c1_bitdepth = 8;
-	dither.c2_bitdepth = 8;
-	dither.c3_bitdepth = 8;
-	dither.temporal_en = 1;
- }else {
+ if ((op_dither_enable && op_resolution == 2) || op_resolution == 0) {
 	dither.c0_bitdepth = 6;
 	dither.c1_bitdepth = 6;
 	dither.c2_bitdepth = 6;
 	dither.c3_bitdepth = 6;
+	dither.temporal_en = 1;
+ } else {
+	dither.c0_bitdepth = 8;
+	dither.c1_bitdepth = 8;
+	dither.c2_bitdepth = 8;
+	dither.c3_bitdepth = 8;
 	dither.temporal_en = 1;
  }
 
