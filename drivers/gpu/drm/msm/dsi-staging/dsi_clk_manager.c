@@ -1261,7 +1261,6 @@ int dsi_display_link_clk_force_update(void *client)
 	struct dsi_clk_client_info *c = client;
 	struct dsi_clk_mngr *mngr;
 	struct dsi_link_clks *l_clks;
-
 	mngr = c->mngr;
 	mutex_lock(&mngr->clk_mutex);
 
@@ -1277,25 +1276,15 @@ int dsi_display_link_clk_force_update(void *client)
 		rc = -EAGAIN;
 		goto error;
 	}
+	rc = dsi_clk_update_link_clk_state(mngr, l_clks, (DSI_LINK_LP_CLK | DSI_LINK_HS_CLK), DSI_CLK_OFF, false); 
+	if (rc)
+	goto error;
 
-	rc = dsi_display_link_clk_disable(l_clks,
-			(DSI_LINK_LP_CLK | DSI_LINK_HS_CLK),
-			mngr->dsi_ctrl_count, mngr->master_ndx);
-	if (rc) {
-		pr_err("%s, failed to stop link clk, rc = %d\n",
-			__func__, rc);
+	rc = dsi_clk_update_link_clk_state(mngr, l_clks, (DSI_LINK_LP_CLK | 
+	DSI_LINK_HS_CLK), DSI_CLK_ON, true); 
+	
+	if (rc)
 		goto error;
-	}
-
-	rc = dsi_display_link_clk_enable(l_clks,
-			(DSI_LINK_LP_CLK | DSI_LINK_HS_CLK),
-			mngr->dsi_ctrl_count, mngr->master_ndx);
-	if (rc) {
-		pr_err("%s, failed to start link clk rc= %d\n",
-			__func__, rc);
-		goto error;
-	}
-
 error:
 	mutex_unlock(&mngr->clk_mutex);
 	return rc;
