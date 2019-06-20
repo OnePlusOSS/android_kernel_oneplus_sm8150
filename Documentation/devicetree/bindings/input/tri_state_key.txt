@@ -1,7 +1,7 @@
 Tri-state key
 
 Required Properties:
-- compatible:			Must be "ompatible = "oneplus,tri-state-key".
+- compatible:			Must be "compatible = "oneplus,tri-state-key".
 
 
 Example:
