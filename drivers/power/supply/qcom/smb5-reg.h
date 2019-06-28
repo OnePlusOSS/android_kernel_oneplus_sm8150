@@ -154,6 +154,12 @@ enum {
 #define DCDC_OTG_CFG_REG			(DCDC_BASE + 0x53)
 #define OTG_EN_SRC_CFG_BIT			BIT(1)
 
+/*DCDC_VPH_TRACK_SEL*/
+#define DCDC_VPH_TRACK_SEL			(DCDC_BASE + 0x89)
+#define VPH_TRACK_SEL_MASK			GENMASK(1, 0)
+#define SEL_200MV				BIT(0)
+#define SEL_300MV				BIT(1)
+
 #define DCDC_CFG_REF_MAX_PSNS_REG		(DCDC_BASE + 0x8C)
 
 #define DCDC_ENG_SDCDC_CFG5_REG			(DCDC_BASE + 0xC4)

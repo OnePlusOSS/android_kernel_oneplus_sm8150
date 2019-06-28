@@ -514,6 +514,9 @@ static int smb5_parse_dt(struct smb5 *chip)
 					"op,vbus-ctrl-gpio", 0, &flags);
 	chg->plug_irq = of_get_named_gpio_flags(node,
 					"op,usb-check", 0, &flags);
+/* @bsp, 2019/06/28 vph sel set disable */
+	chg->vph_sel_disable = of_property_read_bool(node,
+						"vph-sel-disable");
 	/* read other settings */
 	OF_PROP_READ(node, "qcom,cutoff-voltage-with-charger",
 				smbchg_cutoff_volt_with_charger, rc, 1);
