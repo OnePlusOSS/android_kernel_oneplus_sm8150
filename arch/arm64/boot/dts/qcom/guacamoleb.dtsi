@@ -320,6 +320,7 @@
 	/* for external ship mode support */
 	op,stm-ctrl-gpio = <&tlmm 21 0x00>;
 	op,vbus-ctrl-gpio = <&pm8150_gpios 9 GPIO_ACTIVE_LOW>;
+	vph-sel-disable;
 };
 
 &mtp_batterydata {

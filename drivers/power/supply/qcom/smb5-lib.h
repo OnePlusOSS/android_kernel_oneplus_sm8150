@@ -616,6 +616,8 @@ struct smb_charger {
 	int			vbus_ctrl;
 	bool			low_voltage_charger;
 /* @bsp, 2018/07/26 add the external ship-mode and connecter temp detect end*/
+	bool			vph_sel_disable;
+	bool			vph_set_flag;
 	bool			uusb_apsd_rerun_done;
 	bool			typec_present;
 	int			fake_input_current_limited;
