@@ -221,102 +221,85 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 		rc = -EINVAL;
 		goto error;
 	}
-
-
 if (strcmp(dsi_display->panel->name, "samsung s6e3fc2x01 cmd mode dsi panel") == 0){
-
-		if (bl_lvl != 0 && panel->bl_config.bl_level == 0) {
+	if (bl_lvl != 0 && panel->bl_config.bl_level == 0){
 			if (panel->naive_display_p3_mode) {
 				mdelay(20);
 				pr_err("Send DSI_CMD_SET_NATIVE_DISPLAY_P3_ON cmds\n");
 				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NATIVE_DISPLAY_P3_ON);
 			}
-			if (panel->naive_display_wide_color_mode) {
+			if (panel->naive_display_wide_color_mode){
 				mdelay(20);
 				pr_err("Send DSI_CMD_SET_NATIVE_DISPLAY_WIDE_COLOR_ON cmds\n");
 				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NATIVE_DISPLAY_WIDE_COLOR_ON);
 			}
-			if (panel->naive_display_srgb_color_mode) {
+			if (panel->naive_display_srgb_color_mode){
 				mdelay(20);
 				pr_err("Send DSI_CMD_SET_NATIVE_DISPLAY_SRGB_COLOR_ON cmds\n");
 				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NATIVE_DISPLAY_SRGB_COLOR_ON);
 			}
-			if (panel->naive_display_loading_effect_mode) {
-				pr_err("Send DSI_CMD_LOADING_EFFECT_ON cmds\n");
-				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_EFFECT_ON);
-			}
-			else {
-				pr_err("Send DSI_CMD_LOADING_EFFECT_OFF cmds\n");
-				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_EFFECT_OFF);
-			}
-
-			if (panel->naive_display_customer_srgb_mode) {
+			if (panel->naive_display_customer_srgb_mode){
+				mdelay(20);
 				pr_err("Send DSI_CMD_LOADING_CUSTOMER_RGB_ON cmds\n");
 				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_RGB_ON);
-			}
-			else {
+			}else{
 				pr_err("Send DSI_CMD_LOADING_CUSTOMER_RGB_OFF cmds\n");
 				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_RGB_OFF);
 			}
-
-			if (panel->naive_display_customer_p3_mode) {
-					pr_err("Send DSI_CMD_LOADING_CUSTOMER_P3_ON cmds\n");
-					rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_P3_ON);
+			if (panel->naive_display_customer_p3_mode){
+				mdelay(20);
+				pr_err("Send DSI_CMD_LOADING_CUSTOMER_P3_ON cmds\n");
+				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_P3_ON);
+			}else {
+				pr_err("Send DSI_CMD_LOADING_CUSTOMER_P3_OFF cmds\n");
+				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_P3_OFF);
+				}
 			}
-			else {
-					pr_err("Send DSI_CMD_LOADING_CUSTOMER_P3_OFF cmds\n");
-					rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_P3_OFF);
-			}
-
-		}
 
 }
 
 	if (strcmp(dsi_display->panel->name, "samsung dsc cmd mode oneplus dsi panel") == 0) {
-		if (bl_lvl != 0 && panel->bl_config.bl_level == 0) {
+		if (bl_lvl != 0 && panel->bl_config.bl_level == 0){
 			if (panel->naive_display_p3_mode) {
 				mdelay(20);
 				pr_err("Send DSI_CMD_SET_NATIVE_DISPLAY_P3_ON cmds\n");
 				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NATIVE_DISPLAY_P3_ON);
 			}
-			if (panel->naive_display_wide_color_mode) {
+			if (panel->naive_display_wide_color_mode){
 				mdelay(20);
 				pr_err("Send DSI_CMD_SET_NATIVE_DISPLAY_WIDE_COLOR_ON cmds\n");
 				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NATIVE_DISPLAY_WIDE_COLOR_ON);
 			}
-			if (panel->naive_display_srgb_color_mode) {
+			if (panel->naive_display_srgb_color_mode){
 				mdelay(20);
 				pr_err("Send DSI_CMD_SET_NATIVE_DISPLAY_SRGB_COLOR_ON cmds\n");
 				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NATIVE_DISPLAY_SRGB_COLOR_ON);
 			}
-			if (panel->naive_display_loading_effect_mode) {
+			if (panel->naive_display_loading_effect_mode){
 				pr_err("Send DSI_CMD_LOADING_EFFECT_ON cmds\n");
 				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_EFFECT_ON);
-			}
-			else {
+			}else {
 				pr_err("Send DSI_CMD_LOADING_EFFECT_OFF cmds\n");
 				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_EFFECT_OFF);
 			}
-
-			if (panel->naive_display_customer_srgb_mode) {
+			if (panel->naive_display_customer_srgb_mode){
+				mdelay(20);
 				pr_err("Send DSI_CMD_LOADING_CUSTOMER_RGB_ON cmds\n");
 				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_RGB_ON);
-			}
-			else {
+			}else {
 				pr_err("Send DSI_CMD_LOADING_CUSTOMER_RGB_OFF cmds\n");
 				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_RGB_OFF);
 			}
-
-			if (panel->naive_display_customer_p3_mode) {
-					pr_err("Send DSI_CMD_LOADING_CUSTOMER_P3_ON cmds\n");
-					rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_P3_ON);
-			}
+			if (panel->naive_display_customer_p3_mode){
+				mdelay(20);
+				pr_err("Send DSI_CMD_LOADING_CUSTOMER_P3_ON cmds\n");
+				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_P3_ON);
+				}
 			else {
-					pr_err("Send DSI_CMD_LOADING_CUSTOMER_P3_OFF cmds\n");
-					rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_P3_OFF);
+				pr_err("Send DSI_CMD_LOADING_CUSTOMER_P3_OFF cmds\n");
+				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_P3_OFF);
+				}
 			}
-
-		}
 	}
 
 	panel->bl_config.bl_level = bl_lvl;
