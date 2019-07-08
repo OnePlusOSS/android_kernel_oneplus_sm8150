@@ -1465,7 +1465,7 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
 	            spi_type = 0;
 	            RamRead32A(o_ctrl, 0xf112, & spi_type );
 	            CAM_INFO(CAM_OIS, "spi_type:0x%x", spi_type);
-	            imx586_ois_initialized = true;
+	            //imx586_ois_initialized = true;
 	        } else {
 	            switch (rc) {
 	                case 0x01:
