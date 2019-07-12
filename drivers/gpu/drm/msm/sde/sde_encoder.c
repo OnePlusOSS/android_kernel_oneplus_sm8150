@@ -2679,8 +2679,8 @@ static void sde_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 	struct sde_kms *sde_kms;
 	struct list_head *connector_list;
 	struct drm_connector *conn = NULL, *conn_iter;
-	struct sde_connector_state *sde_conn_state = NULL;
-	struct sde_connector *sde_conn = NULL;
+//	struct sde_connector_state *sde_conn_state = NULL;
+//	struct sde_connector *sde_conn = NULL;
 	struct sde_rm_hw_iter dsc_iter, pp_iter;
 	struct sde_rm_hw_request request_hw;
 	int i = 0, ret;
@@ -2725,7 +2725,7 @@ static void sde_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 		SDE_ERROR_ENC(sde_enc, "invalid connector state\n");
 		return;
 	}
-
+/*
 	sde_conn = to_sde_connector(conn);
 	sde_conn_state = to_sde_connector_state(conn->state);
 	if (sde_conn && sde_conn_state) {
@@ -2739,7 +2739,7 @@ static void sde_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 			return;
 		}
 	}
-
+*/
 	/* release resources before seamless mode change */
 	if (msm_is_mode_seamless_dms(adj_mode) ||
 			msm_is_mode_seamless_dyn_clk(adj_mode)) {
