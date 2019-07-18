@@ -3,6 +3,11 @@ status of OnePlus 7 Pro TMO
 --------------------------------------
 
 =======================
+Oxygen OS 9.5.9.GM31CB
+=======================
+- Kernel has no update -
+
+=======================
 Oxygen OS 9.5.8.GM31CB
 =======================
 - Kernel has no update -
