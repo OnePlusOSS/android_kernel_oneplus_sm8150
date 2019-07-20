@@ -4515,8 +4515,9 @@ int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
 		sde_connector_set_qsync_params(
 				sde_enc->cur_master->connector);
 
-	if (sde_enc->cur_master)
+	if (sde_enc->cur_master &&(!strcmp(sde_enc->cur_master->connector->name, "DSI-1")))
 		sde_connector_update_backlight(sde_enc->cur_master->connector);
+
 	/* prepare for next kickoff, may include waiting on previous kickoff */
 	SDE_ATRACE_BEGIN("sde_encoder_prepare_for_kickoff");
 	for (i = 0; i < sde_enc->num_phys_encs; i++) {
