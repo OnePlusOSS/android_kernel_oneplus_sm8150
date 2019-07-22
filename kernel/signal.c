@@ -1191,9 +1191,9 @@ int do_send_sig_info(int sig, struct siginfo *info, struct task_struct *p,
 		struct task_struct *child = p;
 		rcu_read_lock();
 		do {
-			child = next_thread(child);
 			child->kill_flag = 1;
 			__thaw_task(child);
+			child = next_thread(child);
 		} while(child !=p);
 		rcu_read_unlock();
 		}
