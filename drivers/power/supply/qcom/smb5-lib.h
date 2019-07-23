@@ -351,6 +351,8 @@ struct smb_charger {
 	int			*pd_disabled;
 	int			*lpd_enable;
 	int			*lpd_result;
+	int			*usb_connector_temp;
+	int			*disable_connector_protect;
 	enum smb_mode		mode;
 	struct smb_chg_freq	chg_freq;
 	int			smb_version;
