@@ -99,9 +99,8 @@ out:
 	if (stop_size == 0)
 		schedule_delayed_work(&wb_workq, HZ/10);
 	else {
-		cancel_delayed_work_sync(&wb_workq);
-		pr_info
-			("[Op_kernel_log]Stop write back from work queue\n");
+		cancel_delayed_work(&wb_workq);
+		pr_info("[Op_kernel_log] Stop write back from work queue\n");
 	}
 }
 
