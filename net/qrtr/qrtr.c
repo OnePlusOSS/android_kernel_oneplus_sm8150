@@ -45,6 +45,9 @@
 
 #define AID_VENDOR_QRTR	KGIDT_INIT(2906)
 
+#define GPS_QRTR_SERVICE_ID 0x10
+#define INVALID_PORT 0xff
+
 /**
  * struct qrtr_hdr_v1 - (I|R)PCrouter packet header version 1
  * @version: protocol version
@@ -685,6 +688,8 @@ int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len)
 	unsigned int size;
 	unsigned int ver;
 	size_t hdrlen;
+	struct qrtr_ctrl_pkt *pkt;
+	static __le32 src_port = INVALID_PORT;
 
 	if (len & 3)
 		return -EINVAL;
@@ -745,9 +750,30 @@ int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len)
 	    cb->type != QRTR_TYPE_RESUME_TX)
 		goto err;
 
-	__pm_wakeup_event(node->ws, 0);
-
 	skb_put_data(skb, data + hdrlen, size);
+
+	if (node->ws && node->nid == 0)
+		switch (cb->type) {
+		case QRTR_TYPE_DATA:
+			if (cb->src_port == src_port)
+				__pm_wakeup_event(node->ws, 0);
+			break;
+		case QRTR_TYPE_NEW_SERVER:
+			pkt = (void *)skb->data;
+			//Location service of id is 0x10
+			if (le32_to_cpu(pkt->server.service) ==
+			   GPS_QRTR_SERVICE_ID) {
+				src_port = le32_to_cpu(pkt->server.port);
+				__pm_wakeup_event(node->ws, 0);
+			}
+			break;
+		case QRTR_TYPE_DEL_SERVER:
+			pkt = (void *)skb->data;
+			if (le32_to_cpu(pkt->server.service) ==
+			   GPS_QRTR_SERVICE_ID)
+				src_port = INVALID_PORT;
+			break;
+		}
 	qrtr_log_rx_msg(node, skb);
 
 	skb_queue_tail(&node->rx_queue, skb);
