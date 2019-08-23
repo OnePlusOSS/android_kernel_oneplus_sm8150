@@ -208,6 +208,7 @@ struct subsys_device {
 	int id;
 	int restart_level;
 	int crash_count;
+	char crash_reason[256];
 	struct subsys_soc_restart_order *restart_order;
 	bool do_ramdump_on_put;
 	struct cdev char_dev;
@@ -266,6 +267,13 @@ static ssize_t crash_count_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", to_subsys(dev)->crash_count);
 }
 static DEVICE_ATTR_RO(crash_count);
+
+static ssize_t crash_reason_show(struct device *dev, struct device_attribute *attr,
+		char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%s\n", to_subsys(dev)->crash_reason);
+}
+static DEVICE_ATTR_RO(crash_reason);
 
 static ssize_t
 restart_level_show(struct device *dev, struct device_attribute *attr, char *buf)
@@ -391,10 +399,45 @@ void subsys_default_online(struct subsys_device *dev)
 }
 EXPORT_SYMBOL(subsys_default_online);
 
+
+static void subsys_send_uevent_notify(struct subsys_desc *desc,	int crash_count)
+{
+	char *envp[4];
+	struct subsys_device *dev;
+
+	if (!desc)
+		return;
+
+	dev = find_subsys_device(desc->name);
+	if (!dev)
+		return;
+
+	envp[0] = kasprintf(GFP_KERNEL, "SUBSYSTEM=%s", desc->name);
+	envp[1] = kasprintf(GFP_KERNEL, "CRASHCOUNT=%d", crash_count);
+	envp[2] = kasprintf(GFP_KERNEL, "CRASHREASON=%s", dev->crash_reason);
+	envp[3] = NULL;
+	kobject_uevent_env(&desc->dev->kobj, KOBJ_CHANGE, envp);
+	pr_err("%s %s %s\n", envp[0], envp[1], envp[2]);
+	kfree(envp[2]);
+	kfree(envp[1]);
+	kfree(envp[0]);
+}
+
+void subsys_store_crash_reason(struct subsys_device *dev, char *reason)
+{
+	if (dev == NULL)
+		return;
+
+	if (reason != NULL)
+		strlcpy(dev->crash_reason, reason, sizeof(dev->crash_reason));
+}
+EXPORT_SYMBOL(subsys_store_crash_reason);
+
 static struct attribute *subsys_attrs[] = {
 	&dev_attr_name.attr,
 	&dev_attr_state.attr,
 	&dev_attr_crash_count.attr,
+	&dev_attr_crash_reason.attr,
 	&dev_attr_restart_level.attr,
 	&dev_attr_firmware_name.attr,
 	&dev_attr_system_debug.attr,
@@ -761,6 +804,8 @@ static int subsystem_shutdown(struct subsys_device *dev, void *data)
 	dev->crash_count++;
 	subsys_set_state(dev, SUBSYS_OFFLINE);
 	disable_all_irqs(dev);
+
+	subsys_send_uevent_notify(dev->desc, dev->crash_count);
 
 	return 0;
 }
