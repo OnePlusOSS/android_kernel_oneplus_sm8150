@@ -29,12 +29,13 @@ struct cpufreq_stats {
 
 static int cpufreq_stats_update(struct cpufreq_stats *stats)
 {
+	unsigned long flags;
 	unsigned long long cur_time = get_jiffies_64();
 
-	spin_lock(&cpufreq_stats_lock);
+	spin_lock_irqsave(&cpufreq_stats_lock, flags);
 	stats->time_in_state[stats->last_index] += cur_time - stats->last_time;
 	stats->last_time = cur_time;
-	spin_unlock(&cpufreq_stats_lock);
+	spin_unlock_irqrestore(&cpufreq_stats_lock, flags);
 	return 0;
 }
 
@@ -59,8 +60,6 @@ static ssize_t show_time_in_state(struct cpufreq_policy *policy, char *buf)
 	ssize_t len = 0;
 	int i;
 
-	if (policy->fast_switch_enabled)
-		return 0;
 
 	cpufreq_stats_update(stats);
 	for (i = 0; i < stats->state_num; i++) {
@@ -85,8 +84,6 @@ static ssize_t show_trans_table(struct cpufreq_policy *policy, char *buf)
 	ssize_t len = 0;
 	int i, j;
 
-	if (policy->fast_switch_enabled)
-		return 0;
 
 	len += snprintf(buf + len, PAGE_SIZE - len, "   From  :    To\n");
 	len += snprintf(buf + len, PAGE_SIZE - len, "         : ");
@@ -235,7 +232,7 @@ void cpufreq_stats_record_transition(struct cpufreq_policy *policy,
 	new_index = freq_table_get_index(stats, new_freq);
 
 	/* We can't do stats->time_in_state[-1]= .. */
-	if (old_index == -1 || new_index == -1 || old_index == new_index)
+	if (new_index == -1)
 		return;
 
 	cpufreq_stats_update(stats);

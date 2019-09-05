@@ -773,6 +773,7 @@ static inline void mhi_timesync_log(struct mhi_controller *mhi_cntrl)
 				     readq_no_log(mhi_tsync->time_reg));
 }
 
+
 /* memory allocation methods */
 static inline void *mhi_alloc_coherent(struct mhi_controller *mhi_cntrl,
 				       size_t size,

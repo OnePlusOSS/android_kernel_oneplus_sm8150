@@ -30,15 +30,6 @@ struct ipa_eth_pci_driver {
 	const struct dev_pm_ops *pm_ops_real;
 };
 
-struct ipa_eth_pci_device {
-	struct ipa_eth_device *eth_dev;
-	struct ipa_eth_pci_driver *epci_drv;
-	struct msm_pcie_register_event pcie_event;
-};
-
-#define eth_dev_pm_ops(edev) \
-	(((struct ipa_eth_pci_device *)edev->bus_priv)->epci_drv->pm_ops_real)
-
 static LIST_HEAD(pci_drivers);
 static DEFINE_MUTEX(pci_drivers_mutex);
 
@@ -71,8 +62,7 @@ static int ipa_eth_pci_debugfs_init(struct dentry *dbgfs_root)
 	return 0;
 }
 
-static struct ipa_eth_pci_driver *__lookup_epci_driver(
-					struct pci_driver *pci_drv)
+static struct ipa_eth_pci_driver *__lookup_driver(struct pci_driver *pci_drv)
 {
 	struct ipa_eth_pci_driver *epci_drv;
 
@@ -89,7 +79,7 @@ static struct ipa_eth_pci_driver *lookup_epci_driver(struct pci_driver *pci_drv)
 	struct ipa_eth_pci_driver *epci_drv;
 
 	mutex_lock(&pci_drivers_mutex);
-	epci_drv = __lookup_epci_driver(pci_drv);
+	epci_drv = __lookup_driver(pci_drv);
 	mutex_unlock(&pci_drivers_mutex);
 
 	return epci_drv;
@@ -119,39 +109,12 @@ static struct ipa_eth_device *lookup_eth_dev(struct pci_dev *pdev)
 	return eth_dev;
 }
 
-static void ipa_eth_pcie_event_cb(struct msm_pcie_notify *notify)
-{
-	struct pci_dev *pdev = notify->user;
-	struct ipa_eth_device *eth_dev;
-
-	eth_dev = __lookup_eth_dev(pdev);
-	if (!eth_dev) {
-		ipa_eth_bug("Failed to lookup eth device");
-		return;
-	}
-
-	ipa_eth_dev_log(eth_dev, "Received PCIe event %d", notify->event);
-
-	switch (notify->event) {
-	case MSM_PCIE_EVENT_WAKEUP:
-		/* Just set the flag here. ipa_eth_pm_notifier_cb() will later
-		 * schedule global refresh.
-		 */
-		if (eth_dev->start_on_wakeup)
-			eth_dev->start = true;
-		break;
-	default:
-		break;
-	}
-}
-
 static int ipa_eth_pci_probe_handler(struct pci_dev *pdev,
 				     const struct pci_device_id *id)
 {
 	int rc = 0;
 	struct device *dev = &pdev->dev;
 	struct ipa_eth_device *eth_dev;
-	struct ipa_eth_pci_device *epci_dev;
 	struct ipa_eth_pci_driver *epci_drv;
 
 	ipa_eth_dbg("PCI probe called for %s driver with devfn %u",
@@ -164,10 +127,6 @@ static int ipa_eth_pci_probe_handler(struct pci_dev *pdev,
 	}
 
 	epci_drv = lookup_epci_driver(pdev->driver);
-	if (!epci_drv) {
-		ipa_eth_bug("Failed to lookup epci driver");
-		return -EFAULT;
-	}
 
 	rc = epci_drv->probe_real(pdev, id);
 	if (rc) {
@@ -178,33 +137,12 @@ static int ipa_eth_pci_probe_handler(struct pci_dev *pdev,
 	eth_dev = devm_kzalloc(dev, sizeof(*eth_dev), GFP_KERNEL);
 	if (!eth_dev) {
 		rc = -ENOMEM;
-		goto err_alloc_edev;
+		goto err_alloc;
 	}
 
 	eth_dev->dev = dev;
 	eth_dev->nd = epci_drv->nd;
-
-	epci_dev = devm_kzalloc(dev, sizeof(*epci_dev), GFP_KERNEL);
-	if (!epci_dev) {
-		rc = -ENOMEM;
-		goto err_alloc_epdev;
-	}
-
-	eth_dev->bus_priv = epci_dev;
-
-	epci_dev->eth_dev = eth_dev;
-	epci_dev->epci_drv = epci_drv;
-
-	epci_dev->pcie_event.events = MSM_PCIE_EVENT_WAKEUP;
-	epci_dev->pcie_event.user = pdev;
-	epci_dev->pcie_event.mode = MSM_PCIE_TRIGGER_CALLBACK;
-	epci_dev->pcie_event.callback = ipa_eth_pcie_event_cb;
-
-	rc = msm_pcie_register_event(&epci_dev->pcie_event);
-	if (rc) {
-		ipa_eth_dev_err(eth_dev, "Failed to register for PCIe event");
-		goto err_register_pcie;
-	}
+	eth_dev->bus_priv = epci_drv;
 
 	rc = ipa_eth_register_device(eth_dev);
 	if (rc) {
@@ -219,12 +157,9 @@ static int ipa_eth_pci_probe_handler(struct pci_dev *pdev,
 	return 0;
 
 err_register:
-	msm_pcie_deregister_event(&epci_dev->pcie_event);
-err_register_pcie:
-	devm_kfree(dev, epci_dev);
-err_alloc_epdev:
+	memset(eth_dev, 0, sizeof(*eth_dev));
 	devm_kfree(dev, eth_dev);
-err_alloc_edev:
+err_alloc:
 	epci_drv->remove_real(pdev);
 err_probe:
 	return rc;
@@ -234,7 +169,7 @@ static void ipa_eth_pci_remove_handler(struct pci_dev *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct ipa_eth_device *eth_dev = NULL;
-	struct ipa_eth_pci_device *epci_dev = NULL;
+	struct ipa_eth_pci_driver *epci_drv = NULL;
 
 	ipa_eth_dbg("PCI remove called for %s driver with devfn %u",
 		    pdev->driver->name, pdev->devfn);
@@ -249,15 +184,10 @@ static void ipa_eth_pci_remove_handler(struct pci_dev *pdev)
 	list_del(&eth_dev->bus_device_list);
 	mutex_unlock(&pci_devices_mutex);
 
-	epci_dev = eth_dev->bus_priv;
-
 	ipa_eth_unregister_device(eth_dev);
-	msm_pcie_deregister_event(&epci_dev->pcie_event);
 
-	epci_dev->epci_drv->remove_real(pdev);
-
-	memset(epci_dev, 0, sizeof(*epci_dev));
-	devm_kfree(dev, epci_dev);
+	epci_drv = eth_dev->bus_priv;
+	epci_drv->remove_real(pdev);
 
 	memset(eth_dev, 0, sizeof(*eth_dev));
 	devm_kfree(dev, eth_dev);
@@ -267,6 +197,7 @@ static int ipa_eth_pci_suspend_handler(struct device *dev)
 {
 	int rc = 0;
 	struct ipa_eth_device *eth_dev;
+	const struct dev_pm_ops *pm_ops_real;
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 
 	eth_dev = lookup_eth_dev(pci_dev);
@@ -275,8 +206,8 @@ static int ipa_eth_pci_suspend_handler(struct device *dev)
 		return -EFAULT;
 	}
 
-	if (work_pending(&eth_dev->refresh))
-		return -EAGAIN;
+	pm_ops_real =
+		((struct ipa_eth_pci_driver *)eth_dev->bus_priv)->pm_ops_real;
 
 	/* When offload is started, PCI power collapse is already disabled by
 	 * the ipa_eth_pci_disable_pc() api. Nonetheless, we still need to do
@@ -290,7 +221,7 @@ static int ipa_eth_pci_suspend_handler(struct device *dev)
 	} else {
 		ipa_eth_dev_log(eth_dev,
 			"Device suspend delegated to net driver");
-		rc = eth_dev_pm_ops(eth_dev)->suspend(dev);
+		rc = pm_ops_real->suspend(dev);
 	}
 
 	if (rc)
@@ -305,6 +236,7 @@ static int ipa_eth_pci_resume_handler(struct device *dev)
 {
 	int rc = 0;
 	struct ipa_eth_device *eth_dev;
+	const struct dev_pm_ops *pm_ops_real;
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 
 	eth_dev = lookup_eth_dev(pci_dev);
@@ -313,11 +245,8 @@ static int ipa_eth_pci_resume_handler(struct device *dev)
 		return -EFAULT;
 	}
 
-	/* Just set the flag here. ipa_eth_pm_notifier_cb() will later schedule
-	 * global refresh.
-	 */
-	if (eth_dev->start_on_resume)
-		eth_dev->start = true;
+	pm_ops_real =
+		((struct ipa_eth_pci_driver *)eth_dev->bus_priv)->pm_ops_real;
 
 	/* During suspend, RC power collapse would not have happened if offload
 	 * was started. Ignore resume callback since the device does not need
@@ -330,7 +259,7 @@ static int ipa_eth_pci_resume_handler(struct device *dev)
 	} else {
 		ipa_eth_dev_log(eth_dev,
 			"Device resume delegated to net driver");
-		rc = eth_dev_pm_ops(eth_dev)->resume(dev);
+		rc = pm_ops_real->resume(dev);
 	}
 
 	if (rc)
@@ -342,7 +271,7 @@ static int ipa_eth_pci_resume_handler(struct device *dev)
 }
 
 /* MSM PCIe driver invokes only suspend and resume callbacks, other operations
- * can be ignored unless we see a client requiring the feature.
+ * can be ignored.
  */
 static const struct dev_pm_ops ipa_eth_pci_pm_ops = {
 	.suspend = ipa_eth_pci_suspend_handler,
@@ -401,11 +330,6 @@ static void ipa_eth_pci_unregister_net_driver(struct ipa_eth_net_driver *nd)
 {
 	struct pci_driver *pci_drv = to_pci_driver(nd->driver);
 	struct ipa_eth_pci_driver *epci_drv = lookup_epci_driver(pci_drv);
-
-	if (!epci_drv) {
-		ipa_eth_bug("Failed to lookup epci driver");
-		return;
-	}
 
 	mutex_lock(&pci_drivers_mutex);
 	list_del(&epci_drv->driver_list);

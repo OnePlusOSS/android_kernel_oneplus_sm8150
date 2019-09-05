@@ -60,8 +60,7 @@ int msm_camera_fill_vreg_params(struct cam_hw_soc_info *soc_info,
 	uint16_t power_setting_size);
 
 int32_t cam_sensor_update_power_settings(void *cmd_buf,
-	uint32_t cmd_length, struct cam_sensor_power_ctrl_t *power_info,
-	size_t cmd_buf_len);
+	int cmd_length, struct cam_sensor_power_ctrl_t *power_info);
 
 int cam_sensor_bob_pwm_mode_switch(struct cam_hw_soc_info *soc_info,
 	int bob_reg_idx, bool flag);

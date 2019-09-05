@@ -236,6 +236,8 @@ enum req_flag_bits {
 	__REQ_INTEGRITY,	/* I/O includes block integrity payload */
 	__REQ_FUA,		/* forced unit access */
 	__REQ_PREFLUSH,		/* request for cache flush */
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+	__REQ_FG,		/* foreground activity */
 	__REQ_RAHEAD,		/* read ahead, can fail anytime */
 	__REQ_BACKGROUND,	/* background IO */
 
@@ -267,6 +269,8 @@ enum req_flag_bits {
 #define REQ_INTEGRITY		(1ULL << __REQ_INTEGRITY)
 #define REQ_FUA			(1ULL << __REQ_FUA)
 #define REQ_PREFLUSH		(1ULL << __REQ_PREFLUSH)
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+#define REQ_FG			(1ULL << __REQ_FG)
 #define REQ_RAHEAD		(1ULL << __REQ_RAHEAD)
 #define REQ_BACKGROUND		(1ULL << __REQ_BACKGROUND)
 #define REQ_NOENCRYPT		(1ULL << __REQ_NOENCRYPT)

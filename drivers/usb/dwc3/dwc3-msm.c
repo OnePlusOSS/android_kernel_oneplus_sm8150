@@ -55,6 +55,17 @@
 #include "debug.h"
 #include "xhci.h"
 
+/* add to track DP and USB3.1 test fail issue */
+#undef dev_dbg
+#undef dev_vdbg
+#undef pr_debug
+#undef pr_info
+#define dev_dbg dev_err
+#define dev_vdbg dev_err
+#define pr_debug pr_err
+#define pr_info pr_err
+#define DBG dev_err
+
 #define SDP_CONNETION_CHECK_TIME 10000 /* in ms */
 
 /* time out to wait for USB cable status notification (in ms)*/
@@ -79,6 +90,8 @@
 #define CGCTL_REG		(QSCRATCH_REG_OFFSET + 0x28)
 #define PWR_EVNT_IRQ_STAT_REG    (QSCRATCH_REG_OFFSET + 0x58)
 #define PWR_EVNT_IRQ_MASK_REG    (QSCRATCH_REG_OFFSET + 0x5C)
+/* @bsp, 2019/04/27 usb & PD porting */
+#define QSCRATCH_USB30_STS_REG	(QSCRATCH_REG_OFFSET + 0xF8)
 
 #define PWR_EVNT_POWERDOWN_IN_P3_MASK		BIT(2)
 #define PWR_EVNT_POWERDOWN_OUT_P3_MASK		BIT(3)
@@ -2233,6 +2246,7 @@ static void dwc3_msm_power_collapse_por(struct dwc3_msm *mdwc)
 
 static int dwc3_msm_prepare_suspend(struct dwc3_msm *mdwc, bool ignore_p3_state)
 {
+	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
 	unsigned long timeout;
 	u32 reg = 0;
 
@@ -2260,8 +2274,19 @@ static int dwc3_msm_prepare_suspend(struct dwc3_msm *mdwc, bool ignore_p3_state)
 		if (reg & PWR_EVNT_LPM_IN_L2_MASK)
 			break;
 	}
-	if (!(reg & PWR_EVNT_LPM_IN_L2_MASK))
-		dev_err(mdwc->dev, "could not transition HS PHY to L2\n");
+	if (!(reg & PWR_EVNT_LPM_IN_L2_MASK)) {
+		dbg_event(0xFF, "PWR_EVNT_LPM",
+			dwc3_msm_read_reg(mdwc->base, PWR_EVNT_IRQ_STAT_REG));
+		dbg_event(0xFF, "QUSB_STS",
+			dwc3_msm_read_reg(mdwc->base, QSCRATCH_USB30_STS_REG));
+		/* Mark fatal error for host mode or USB bus suspend case */
+		if (mdwc->in_host_mode || (mdwc->vbus_active
+			&& mdwc->drd_state == DRD_STATE_PERIPHERAL_SUSPEND)) {
+			queue_work(mdwc->dwc3_wq, &mdwc->resume_work);
+			dev_err(mdwc->dev, "could not transition HS PHY to L2\n");
+			return -EBUSY;
+		}
+	}
 
 	/* Clear L2 event bit */
 	dwc3_msm_write_reg(mdwc->base, PWR_EVNT_IRQ_STAT_REG,
@@ -2879,7 +2904,7 @@ static void dwc3_resume_work(struct work_struct *w)
 			dwc->maximum_speed = USB_SPEED_HIGH;
 
 		if (mdwc->override_usb_speed &&
-			mdwc->override_usb_speed <= dwc->maximum_speed) {
+				mdwc->override_usb_speed < dwc->maximum_speed) {
 			dwc->maximum_speed = mdwc->override_usb_speed;
 			dwc->gadget.max_speed = dwc->maximum_speed;
 			dbg_event(0xFF, "override_speed",
@@ -4510,6 +4535,8 @@ set_prop:
 	return 0;
 }
 
+#define DWC3_DCTL 0xc704
+#define DWC3_DCTL_RUN_STOP BIT(31)
 
 /**
  * dwc3_otg_sm_work - workqueue function.
@@ -4526,6 +4553,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 	int ret = 0;
 	unsigned long delay = 0;
 	const char *state;
+	u32 reg;
 
 	if (mdwc->dwc3)
 		dwc = platform_get_drvdata(mdwc->dwc3);
@@ -4595,9 +4623,19 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 				atomic_read(&mdwc->dev->power.usage_count));
 			dwc3_otg_start_peripheral(mdwc, 1);
 			mdwc->drd_state = DRD_STATE_PERIPHERAL;
+
+			if (!dwc->softconnect && get_psy_type(mdwc) == POWER_SUPPLY_TYPE_USB_CDP) {
+				dbg_event(0xFF, "cdp pullup dp", 0);
+
+				reg = dwc3_readl(dwc->regs, DWC3_DCTL);
+				reg |= DWC3_DCTL_RUN_STOP;
+				dwc3_writel(dwc->regs, DWC3_DCTL, reg);
+				break;
+			}
+
 			work = 1;
 		} else {
-			dwc3_msm_gadget_vbus_draw(mdwc, 0);
+			//dwc3_msm_gadget_vbus_draw(mdwc, 0);
 			dev_dbg(mdwc->dev, "Cable disconnected\n");
 		}
 		break;

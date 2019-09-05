@@ -172,7 +172,6 @@ int cam_context_handle_crm_apply_req(struct cam_context *ctx,
 		return -EINVAL;
 	}
 
-	mutex_lock(&ctx->ctx_mutex);
 	if (ctx->state_machine[ctx->state].crm_ops.apply_req) {
 		rc = ctx->state_machine[ctx->state].crm_ops.apply_req(ctx,
 			apply);
@@ -181,7 +180,6 @@ int cam_context_handle_crm_apply_req(struct cam_context *ctx,
 			ctx->dev_hdl, ctx->state);
 		rc = -EPROTO;
 	}
-	mutex_unlock(&ctx->ctx_mutex);
 
 	return rc;
 }
@@ -249,7 +247,7 @@ int cam_context_dump_pf_info(struct cam_context *ctx, unsigned long iova,
 		rc = ctx->state_machine[ctx->state].pagefault_ops(ctx, iova,
 			buf_info);
 	} else {
-		CAM_INFO(CAM_CORE, "No dump ctx in dev %d, state %d",
+		CAM_WARN(CAM_CORE, "No dump ctx in dev %d, state %d",
 			ctx->dev_hdl, ctx->state);
 	}
 	mutex_unlock(&ctx->ctx_mutex);
@@ -528,7 +526,7 @@ int cam_context_init(struct cam_context *ctx,
 	mutex_init(&ctx->sync_mutex);
 	spin_lock_init(&ctx->lock);
 
-	strlcpy(ctx->dev_name, dev_name, CAM_CTX_DEV_NAME_MAX_LENGTH);
+	ctx->dev_name = dev_name;
 	ctx->dev_id = dev_id;
 	ctx->ctx_id = ctx_id;
 	ctx->last_flush_req = 0;

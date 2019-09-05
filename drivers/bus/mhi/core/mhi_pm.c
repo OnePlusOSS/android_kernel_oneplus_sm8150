@@ -499,6 +499,8 @@ static int mhi_pm_mission_mode_transition(struct mhi_controller *mhi_cntrl)
 
 	/* add supported devices */
 	mhi_create_devices(mhi_cntrl);
+	/* setup sysfs nodes for userspace votes */
+	mhi_create_vote_sysfs(mhi_cntrl);
 
 	/* setup sysfs nodes for userspace votes */
 	mhi_create_vote_sysfs(mhi_cntrl);
@@ -913,9 +915,6 @@ void mhi_control_error(struct mhi_controller *mhi_cntrl)
 		goto exit_control_error;
 	}
 
-	/* notify waiters to bail out early since MHI has entered ERROR state */
-	wake_up_all(&mhi_cntrl->state_event);
-
 	/* start notifying all clients who request early notification */
 	device_for_each_child(mhi_cntrl->dev, NULL, mhi_early_notify_device);
 
@@ -1329,7 +1328,6 @@ int mhi_pm_fast_resume(struct mhi_controller *mhi_cntrl, bool notify_client)
 
 	return 0;
 }
-EXPORT_SYMBOL(mhi_pm_resume);
 
 int __mhi_device_get_sync(struct mhi_controller *mhi_cntrl)
 {

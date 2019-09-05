@@ -1287,5 +1287,4 @@ config TOUCHSCREEN_SYNAPTICS_TCM
 	  If unsure, say N.
 
 source "drivers/input/touchscreen/synaptics_tcm/Kconfig"
-
 endif

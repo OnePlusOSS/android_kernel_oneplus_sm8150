@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017,2019 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -567,9 +567,9 @@ static void a5xx_preemption_iommu_close(struct adreno_device *adreno_dev)
 }
 #endif
 
-static void _preemption_close(struct adreno_device *adreno_dev)
+static void a5xx_preemption_close(struct kgsl_device *device)
 {
-	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
+	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	struct adreno_preemption *preempt = &adreno_dev->preempt;
 	struct adreno_ringbuffer *rb;
 	unsigned int i;
@@ -582,15 +582,6 @@ static void _preemption_close(struct adreno_device *adreno_dev)
 		kgsl_free_global(device, &rb->preemption_desc);
 	}
 }
-
-void a5xx_preemption_close(struct adreno_device *adreno_dev)
-{
-	if (!test_bit(ADRENO_DEVICE_PREEMPTION, &adreno_dev->priv))
-		return;
-
-	_preemption_close(adreno_dev);
-}
-
 
 int a5xx_preemption_init(struct adreno_device *adreno_dev)
 {
@@ -633,7 +624,7 @@ int a5xx_preemption_init(struct adreno_device *adreno_dev)
 
 err:
 	if (ret)
-		_preemption_close(adreno_dev);
+		a5xx_preemption_close(device);
 
 	return ret;
 }

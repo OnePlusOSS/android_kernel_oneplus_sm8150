@@ -149,6 +149,12 @@ static inline void blk_clear_rq_complete(struct request *rq)
 
 void blk_insert_flush(struct request *rq);
 
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+extern int fg_count;
+extern int both_count;
+extern bool fg_debug;
+extern unsigned int sysctl_fg_io_opt;
+
 static inline struct request *__elv_next_request(struct request_queue *q)
 {
 	struct request *rq;
@@ -158,7 +164,32 @@ static inline struct request *__elv_next_request(struct request_queue *q)
 
 	while (1) {
 		if (!list_empty(&q->queue_head)) {
-			rq = list_entry_rq(q->queue_head.next);
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+			if (unlikely(!sysctl_fg_io_opt))
+				rq = list_entry_rq(q->queue_head.next);
+			else {
+#ifdef CONFIG_PM
+				if (!list_empty(&q->fg_head) &&
+					q->fg_count > 0 &&
+					(q->rpm_status == RPM_ACTIVE)) {
+#else
+				if (!list_empty(&q->fg_head) &&
+					q->fg_count > 0) {
+#endif
+					rq = list_entry(
+						q->fg_head.next,
+						struct request,
+						fg_list);
+					q->fg_count--;
+				} else if (q->both_count > 0) {
+					rq = list_entry_rq(q->queue_head.next);
+					q->both_count--;
+				} else {
+					q->fg_count = q->fg_count_max;
+					q->both_count = q->both_count_max;
+					rq = list_entry_rq(q->queue_head.next);
+				}
+			}
 			return rq;
 		}
 

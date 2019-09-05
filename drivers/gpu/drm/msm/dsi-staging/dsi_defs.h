@@ -288,6 +288,72 @@ enum dsi_cmd_set_type {
 	DSI_CMD_SET_POST_TIMING_SWITCH,
 	DSI_CMD_SET_QSYNC_ON,
 	DSI_CMD_SET_QSYNC_OFF,
+	DSI_CMD_SET_HBM_BRIGHTNESS_ON,
+	DSI_CMD_SET_HBM_BRIGHTNESS_OFF,
+	DSI_CMD_SET_HBM_ON_1,
+	DSI_CMD_SET_HBM_ON_2,
+	DSI_CMD_SET_HBM_ON_3,
+	DSI_CMD_SET_HBM_ON_4,
+	DSI_CMD_SET_HBM_ON_5,
+	DSI_CMD_SET_HBM_OFF,
+	DSI_CMD_SET_PANEL_SERIAL_NUMBER,
+	DSI_CMD_SET_AOD_ON_1,
+	DSI_CMD_SET_AOD_ON_2,
+	DSI_CMD_SET_AOD_OFF,
+	DSI_CMD_AOD_OFF_HBM_ON_SETTING,
+	DSI_CMD_SET_AOD_OFF_NEW,
+	DSI_CMD_HBM_OFF_AOD_ON_SETTING,
+	DSI_CMD_SET_AOD_OFF_SAMSUNG,
+//	DSI_CMD_SET_SRGB_ON,
+//	DSI_CMD_SET_SRGB_OFF,
+	DSI_CMD_SET_DCI_P3_ON,
+	DSI_CMD_SET_DCI_P3_OFF,
+	DSI_CMD_SET_NIGHT_ON,
+	DSI_CMD_SET_NIGHT_OFF,
+	DSI_CMD_SET_PANEL_ID,
+	DSI_CMD_READ_SAMSUNG_PANEL_REGISTER_ON,
+	DSI_CMD_SET_PANEL_ID1,
+	DSI_CMD_SET_PANEL_ID2,
+	DSI_CMD_SET_PANEL_ID3,
+	DSI_CMD_SET_PANEL_ID4,
+	DSI_CMD_SET_PANEL_ID5,
+	DSI_CMD_SET_PANEL_ID6,
+	DSI_CMD_SET_PANEL_ID7,
+	DSI_CMD_READ_SAMSUNG_PANEL_REGISTER_OFF,
+	DSI_CMD_SET_ACL_MODE,
+	DSI_CMD_SET_LCDINFO_PRE,
+	DSI_CMD_SET_LCDINFO_POST,
+	DSI_CMD_SET_CODE_INFO,
+	DSI_CMD_SET_STAGE_INFO,
+	DSI_CMD_SET_PRODUCTION_INFO,
+	DSI_CMD_SET_ESD_LOGREAD_PREREAD,
+	DSI_CMD_SET_GAMMA_FLASH_PRE_READ_1,
+	DSI_CMD_SET_GAMMA_FLASH_PRE_READ_2,
+	DSI_CMD_SET_GAMMA_FLASH_READ_FB,
+	DSI_CMD_SET_LEVEL2_KEY_ENABLE,
+	DSI_CMD_SET_GAMMA_OTP_READ_C8_SMRPS,
+	DSI_CMD_SET_GAMMA_OTP_READ_C8,
+	DSI_CMD_SET_GAMMA_OTP_READ_C9_SMRPS,
+	DSI_CMD_SET_GAMMA_OTP_READ_C9,
+	DSI_CMD_SET_GAMMA_OTP_READ_B3_SMRPS,
+	DSI_CMD_SET_GAMMA_OTP_READ_B3,
+	DSI_CMD_SET_LEVEL2_KEY_DISABLE,
+	DSI_CMD_SET_NATIVE_DISPLAY_P3_ON,
+	DSI_CMD_SET_NATIVE_DISPLAY_P3_OFF,
+	DSI_CMD_SET_NATIVE_DISPLAY_WIDE_COLOR_ON,
+	DSI_CMD_SET_NATIVE_DISPLAY_WIDE_COLOR_OFF,
+	DSI_CMD_SET_NATIVE_DISPLAY_SRGB_COLOR_ON,
+	DSI_CMD_SET_NATIVE_DISPLAY_SRGB_COLOR_OFF,
+	DSI_CMD_SET_113MHZ_OSC_ON,
+	DSI_CMD_POST_ON_BACKLIGHT,
+	DSI_CMD_LOADING_EFFECT_ON,
+	DSI_CMD_LOADING_EFFECT_OFF,
+	DSI_CMD_LOADING_CUSTOMER_RGB_ON,
+	DSI_CMD_LOADING_CUSTOMER_RGB_OFF,
+	DSI_CMD_LOADING_CUSTOMER_P3_ON,
+	DSI_CMD_LOADING_CUSTOMER_P3_OFF,
+	DSI_CMD_SET_PANEL_COMMAND,
+	DSI_CMD_SET_SEED_COMMAND,
 	DSI_CMD_SET_MAX
 };
 
@@ -392,7 +458,6 @@ struct dsi_panel_cmd_set {
  * @clk_rate_hz:      DSI bit clock rate per lane in Hz.
  * @mdp_transfer_time_us:   Specifies the mdp transfer time for command mode
  *                    panels in microseconds.
- * @overlap_pixels:   overlap pixels for certain panels.
  * @dsc_enabled:      DSC compression enabled.
  * @dsc:              DSC compression configuration.
  * @roi_caps:         Panel ROI capabilities.
@@ -414,7 +479,6 @@ struct dsi_mode_info {
 	u32 refresh_rate;
 	u64 clk_rate_hz;
 	u32 mdp_transfer_time_us;
-	u32 overlap_pixels;
 	bool dsc_enabled;
 	struct msm_display_dsc_info *dsc;
 	struct msm_roi_caps roi_caps;
@@ -568,7 +632,6 @@ struct dsi_host_config {
  * @mdp_transfer_time_us:   Specifies the mdp transfer time for command mode
  *                          panels in microseconds.
  * @clk_rate_hz:          DSI bit clock per lane in hz.
- * @overlap_pixels:       overlap pixels for certain panels.
  * @topology:             Topology selected for the panel
  * @dsc:                  DSC compression info
  * @dsc_enabled:          DSC compression enabled
@@ -585,7 +648,6 @@ struct dsi_display_mode_priv_info {
 	u32 panel_prefill_lines;
 	u32 mdp_transfer_time_us;
 	u64 clk_rate_hz;
-	u32 overlap_pixels;
 
 	struct msm_display_topology topology;
 	struct msm_display_dsc_info dsc;

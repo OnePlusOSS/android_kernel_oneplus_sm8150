@@ -432,7 +432,7 @@ int dp_connector_get_info(struct drm_connector *connector,
 
 	return 0;
 }
-
+extern int op_dp_enable;
 enum drm_connector_status dp_connector_detect(struct drm_connector *conn,
 		bool force,
 		void *display)
@@ -461,6 +461,12 @@ enum drm_connector_status dp_connector_detect(struct drm_connector *conn,
 	conn->display_info.width_mm = info.width_mm;
 	conn->display_info.height_mm = info.height_mm;
 
+	if (status == 1)
+		op_dp_enable = 1;
+	else
+		op_dp_enable = 0;
+
+	pr_err("%s:op_dp_enable=%d\n", __func__, op_dp_enable);
 	return status;
 }
 

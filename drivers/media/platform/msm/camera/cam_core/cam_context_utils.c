@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -262,7 +262,6 @@ int32_t cam_context_release_dev_to_hw(struct cam_context *ctx,
 	ctx->session_hdl = -1;
 	ctx->dev_hdl = -1;
 	ctx->link_hdl = -1;
-	ctx->last_flush_req = 0;
 
 	return 0;
 }
@@ -304,12 +303,6 @@ int32_t cam_context_config_dev_to_hw(
 		return rc;
 	}
 
-	if ((len < sizeof(struct cam_packet)) ||
-		(cmd->offset >= (len - sizeof(struct cam_packet)))) {
-		CAM_ERR(CAM_CTXT, "Not enough buf");
-		return -EINVAL;
-
-	}
 	packet = (struct cam_packet *) ((uint8_t *)packet_addr +
 		(uint32_t)cmd->offset);
 
@@ -340,7 +333,6 @@ int32_t cam_context_prepare_dev_to_hw(struct cam_context *ctx,
 	uintptr_t packet_addr;
 	struct cam_packet *packet;
 	size_t len = 0;
-	size_t remain_len = 0;
 	int32_t i = 0, j = 0;
 
 	if (!ctx || !cmd) {
@@ -386,20 +378,11 @@ int32_t cam_context_prepare_dev_to_hw(struct cam_context *ctx,
 		goto free_req;
 	}
 
-	remain_len = len;
-	if ((len < sizeof(struct cam_packet)) ||
-		((size_t)cmd->offset >= len - sizeof(struct cam_packet))) {
-		CAM_ERR(CAM_CTXT, "invalid buff length: %zu or offset", len);
-		rc = -EINVAL;
-		goto free_cpu_buf;
-	}
-
-	remain_len -= (size_t)cmd->offset;
 	packet = (struct cam_packet *) ((uint8_t *)packet_addr +
 		(uint32_t)cmd->offset);
 
 	if (packet->header.request_id <= ctx->last_flush_req) {
-		CAM_ERR(CAM_CORE,
+		CAM_DBG(CAM_CORE,
 			"request %lld has been flushed, reject packet",
 			packet->header.request_id);
 		rc = -EINVAL;
@@ -412,7 +395,6 @@ int32_t cam_context_prepare_dev_to_hw(struct cam_context *ctx,
 	/* preprocess the configuration */
 	memset(&cfg, 0, sizeof(cfg));
 	cfg.packet = packet;
-	cfg.remain_len = remain_len;
 	cfg.ctxt_to_hw_map = ctx->ctxt_to_hw_map;
 	cfg.max_hw_update_entries = CAM_CTX_CFG_MAX;
 	cfg.num_hw_update_entries = req->num_hw_update_entries;
@@ -589,7 +571,7 @@ int32_t cam_context_acquire_dev_to_hw(struct cam_context *ctx,
 	req_hdl_param.media_entity_flag = 0;
 	req_hdl_param.priv = ctx;
 	req_hdl_param.ops = ctx->crm_ctx_intf;
-	req_hdl_param.dev_id = ctx->dev_id;
+
 	ctx->dev_hdl = cam_create_device_hdl(&req_hdl_param);
 	if (ctx->dev_hdl <= 0) {
 		rc = -EFAULT;
@@ -1033,7 +1015,6 @@ int32_t cam_context_dump_pf_info_to_hw(struct cam_context *ctx,
 		cmd_args.ctxt_to_hw_map = ctx->ctxt_to_hw_map;
 		cmd_args.cmd_type = CAM_HW_MGR_CMD_DUMP_PF_INFO;
 		cmd_args.u.pf_args.pf_data.packet = packet;
-		cmd_args.u.pf_args.pf_data.ctx_id = ctx->ctx_id;
 		cmd_args.u.pf_args.iova = iova;
 		cmd_args.u.pf_args.buf_info = buf_info;
 		cmd_args.u.pf_args.mem_found = mem_found;

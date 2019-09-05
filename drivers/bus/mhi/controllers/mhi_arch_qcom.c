@@ -202,6 +202,7 @@ static void mhi_arch_esoc_ops_power_off(void *priv, unsigned int flags)
 	struct arch_info *arch_info = mhi_dev->arch_info;
 	struct pci_dev *pci_dev = mhi_dev->pci_dev;
 
+
 	MHI_LOG("Enter: mdm_crashed:%d\n", mdm_state);
 
 	/*

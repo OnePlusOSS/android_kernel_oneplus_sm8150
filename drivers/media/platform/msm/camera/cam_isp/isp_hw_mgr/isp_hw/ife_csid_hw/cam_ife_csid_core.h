@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -16,7 +16,6 @@
 #include "cam_hw.h"
 #include "cam_ife_csid_hw_intf.h"
 #include "cam_ife_csid_soc.h"
-#include "cam_csid_ppi_core.h"
 
 #define CAM_IFE_CSID_HW_RES_MAX      4
 #define CAM_IFE_CSID_CID_RES_MAX     4
@@ -420,9 +419,6 @@ struct cam_ife_csid_cid_data {
  * @master_idx:     For Slave reservation, Give master IFE instance Index.
  *                  Slave will synchronize with master Start and stop operations
  * @clk_rate        Clock rate
- * @usage_type      Usage type ie dual or single ife usecase
- * @init_frame_drop init frame drop value. In dual ife case rdi need to drop one
- *                  more frame than pix.
  *
  */
 struct cam_ife_csid_path_cfg {
@@ -441,8 +437,6 @@ struct cam_ife_csid_path_cfg {
 	enum cam_isp_hw_sync_mode       sync_mode;
 	uint32_t                        master_idx;
 	uint64_t                        clk_rate;
-	uint32_t                        usage_type;
-	uint32_t                        init_frame_drop;
 };
 
 /**
@@ -474,17 +468,7 @@ struct cam_ife_csid_path_cfg {
  * @irq_debug_cnt:            Counter to track sof irq's when above flag is set.
  * @error_irq_count           Error IRQ count, if continuous error irq comes
  *                            need to stop the CSID and mask interrupts.
- * @device_enabled            Device enabled will set once CSID powered on and
- *                            initial configuration are done.
- * @lock_state                csid spin lock
- * @dual_usage                usage type, dual ife or single ife
- * @init_frame_drop           Initial frame drop number
- * @res_sof_cnt               path resource sof count value. it used for initial
- *                            frame drop
- * @first_sof_ts              flag to mark the first sof has been registered
- * @ppi_hw_intf               interface to ppi hardware
- * @ppi_enabled               flag to specify if the hardware has ppi bridge
- *                            or not
+ *
  */
 struct cam_ife_csid_hw {
 	struct cam_hw_intf              *hw_intf;
@@ -512,12 +496,6 @@ struct cam_ife_csid_hw {
 	uint32_t                         error_irq_count;
 	uint32_t                         device_enabled;
 	spinlock_t                       lock_state;
-	uint32_t                         dual_usage;
-	uint32_t                         init_frame_drop;
-	uint32_t                         res_sof_cnt[CAM_IFE_PIX_PATH_RES_MAX];
-	uint32_t                         first_sof_ts;
-	struct cam_hw_intf              *ppi_hw_intf[CAM_CSID_PPI_HW_MAX];
-	bool                             ppi_enable;
 };
 
 int cam_ife_csid_hw_probe_init(struct cam_hw_intf  *csid_hw_intf,

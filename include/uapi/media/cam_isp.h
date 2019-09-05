@@ -90,7 +90,8 @@
 #define CAM_ISP_GENERIC_BLOB_TYPE_UBWC_CONFIG         3
 #define CAM_ISP_GENERIC_BLOB_TYPE_CSID_CLOCK_CONFIG   4
 #define CAM_ISP_GENERIC_BLOB_TYPE_FE_CONFIG           5
-#define CAM_ISP_GENERIC_BLOB_TYPE_BW_CONFIG_V2        6
+#define CAM_ISP_GENERIC_BLOB_TYPE_FPS_CONFIG          6
+#define CAM_ISP_GENERIC_BLOB_TYPE_BW_CONFIG_V2        7
 #define CAM_ISP_GENERIC_BLOB_TYPE_INIT_FRAME_DROP     10
 
 /* Per Path Usage Data */
@@ -488,6 +489,15 @@ struct cam_isp_acquire_hw_info {
 	uint32_t                input_info_offset;
 	uint64_t                data;
 };
+
+/**
+ * struct cam_fps_config - EPOCH configuration
+ *
+ * @fps	:               PS value
+ */
+struct cam_fps_config {
+	uint32_t        fps;
+} __attribute__((packed));
 
 #define CAM_ISP_ACQUIRE_COMMON_VER0         0x1000
 
