@@ -622,8 +622,7 @@ static void msm_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 	unsigned i;
 	seq_puts(s, " name     dir f val drv pull \n");
 	for (i = 0; i < chip->ngpio; i++, gpio++) {
-		if(gpio == 0 || gpio == 1 || gpio == 2 || gpio == 3 ||
-			gpio == 4 || gpio == 5 || gpio == 83 || gpio == 84 ||
+		if (gpio == 4 || gpio == 5 || gpio == 83 || gpio == 84 ||
 			gpio == 126 || gpio == 127 || gpio == 128 || gpio == 129)
 			continue;
 		msm_gpio_dbg_show_one(s, NULL, chip, i, gpio);
