@@ -551,6 +551,7 @@ static void mtp_complete_intr(struct usb_ep *ep, struct usb_request *req)
 	if (req->status != 0 && dev->state != STATE_OFFLINE)
 		dev->state = STATE_ERROR;
 
+	mtp_log("sent event, put back request\n");
 	mtp_req_put(dev, &dev->intr_idle, req);
 
 	wake_up(&dev->intr_wq);
@@ -1181,7 +1182,7 @@ static int mtp_send_event(struct mtp_dev *dev, struct mtp_event *event)
 	int ret;
 	int length = event->length;
 
-	mtp_log("(%zu)\n", event->length);
+	mtp_log("enter: (%zu)\n", event->length);
 
 	if (length < 0 || length > INTR_BUFFER_SIZE)
 		return -EINVAL;
@@ -1190,19 +1191,24 @@ static int mtp_send_event(struct mtp_dev *dev, struct mtp_event *event)
 
 	ret = wait_event_interruptible_timeout(dev->intr_wq,
 			(req = mtp_req_get(dev, &dev->intr_idle)),
-			msecs_to_jiffies(1000));
-	if (!req)
+			msecs_to_jiffies(32));
+	mtp_log("wait_event_interruptible_timeout ret:%d\n", ret);
+	if (!req) {
+		mtp_log("timedout, no req available\n");
 		return -ETIME;
+	}
 
 	if (copy_from_user(req->buf, (void __user *)event->data, length)) {
 		mtp_req_put(dev, &dev->intr_idle, req);
 		return -EFAULT;
 	}
 	req->length = length;
+	mtp_log("got request queueing on intr_ep:\n");
 	ret = usb_ep_queue(dev->ep_intr, req, GFP_KERNEL);
 	if (ret)
 		mtp_req_put(dev, &dev->intr_idle, req);
 
+	mtp_log("exit: (%d)\n", ret);
 	return ret;
 }
 
@@ -1214,6 +1220,7 @@ static long mtp_send_receive_ioctl(struct file *fp, unsigned int code,
 	struct work_struct *work;
 	int ret = -EINVAL;
 
+	mtp_log("entering ioctl with state: %d\n", dev->state);
 	if (mtp_lock(&dev->ioctl_excl)) {
 		mtp_log("ioctl returning EBUSY state:%d\n", dev->state);
 		return -EBUSY;

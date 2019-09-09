@@ -55,17 +55,6 @@
 #include "debug.h"
 #include "xhci.h"
 
-/* add to track DP and USB3.1 test fail issue */
-#undef dev_dbg
-#undef dev_vdbg
-#undef pr_debug
-#undef pr_info
-#define dev_dbg dev_err
-#define dev_vdbg dev_err
-#define pr_debug pr_err
-#define pr_info pr_err
-#define DBG dev_err
-
 #define SDP_CONNETION_CHECK_TIME 10000 /* in ms */
 
 /* time out to wait for USB cable status notification (in ms)*/
