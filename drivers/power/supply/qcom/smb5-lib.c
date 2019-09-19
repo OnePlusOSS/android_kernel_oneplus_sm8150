@@ -7212,6 +7212,22 @@ static int op_set_collapse_fet(struct smb_charger *chg, bool on)
 	return rc;
 }
 
+pm_schg_dcdc_configure_vsysmin(struct smb_charger *chg, int val)
+{
+
+	int vsys_min_mask = 0x07; // BIT<2:0>
+	int rc = 0;
+
+	rc = smblib_masked_write(chg, SCHG_P_DCDC_VSYSMIN_CFG,
+				vsys_min_mask, val);
+	if (rc < 0) {
+		smblib_err(chg, "Couldn't override SCHG_P_DCDC_VSYSMIN_CFG rc=%d\n", rc);
+		return rc;
+	}
+
+	return 0;
+}
+
 int op_handle_switcher_power_ok(void)
 {
 	int rc;
@@ -10563,7 +10579,8 @@ int smblib_init(struct smb_charger *chg)
 	INIT_DELAYED_WORK(&chg->icl_change_work, smblib_icl_change_work);
 	INIT_DELAYED_WORK(&chg->pl_enable_work, smblib_pl_enable_work);
 /* @bsp, 2019/04/17 Battery & Charging porting */
-		op_set_collapse_fet(chg, false);
+	op_set_collapse_fet(chg, false);
+	pm_schg_dcdc_configure_vsysmin(chg, VSYS_MIN_3P2V);
 
 	INIT_DELAYED_WORK(&chg->uusb_otg_work, smblib_uusb_otg_work);
 	INIT_DELAYED_WORK(&chg->bb_removal_work, smblib_bb_removal_work);
