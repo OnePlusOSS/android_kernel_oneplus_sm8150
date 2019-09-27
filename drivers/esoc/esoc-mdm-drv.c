@@ -18,6 +18,7 @@
 #include "esoc.h"
 #include "esoc-mdm.h"
 #include "mdm-dbg.h"
+#include <linux/oneplus/boot_mode.h>
 
 /* Default number of powerup trial requests per session */
 #define ESOC_DEF_PON_REQ	3
@@ -25,6 +26,8 @@
 #define ESOC_MAX_PON_TRIES	5
 
 #define BOOT_FAIL_ACTION_DEF BOOT_FAIL_ACTION_PANIC
+
+bool modem_5G_panic;
 
 enum esoc_pon_state {
 	PON_INIT,
@@ -184,6 +187,7 @@ static void mdm_handle_clink_evt(enum esoc_evt evt,
 			esoc_mdm_log("Modem not up. Ignoring.\n");
 		if (mdm_drv->mode == CRASH || mdm_drv->mode != RUN)
 			return;
+		mdm_drv->mode = CRASH;
 		queue_work(mdm_drv->mdm_queue, &mdm_drv->ssr_work);
 		break;
 	case ESOC_REQ_ENG_ON:
@@ -205,9 +209,7 @@ static void mdm_ssr_fn(struct work_struct *work)
 
 	mdm_wait_for_status_low(mdm, false);
 
-	esoc_mdm_log("Starting SSR work and setting crash state\n");
-	mdm_drv->mode = CRASH;
-
+	esoc_mdm_log("Starting SSR work\n");
 	/*
 	 * If restarting esoc fails, the SSR framework triggers a kernel panic
 	 */
@@ -284,7 +286,7 @@ static void mdm_crash_shutdown(const struct subsys_desc *mdm_subsys)
 static int mdm_subsys_shutdown(const struct subsys_desc *crashed_subsys,
 							bool force_stop)
 {
-	int ret = 0;
+	int ret;
 	struct esoc_clink *esoc_clink =
 	 container_of(crashed_subsys, struct esoc_clink, subsys);
 	struct mdm_drv *mdm_drv = esoc_get_drv_data(esoc_clink);
@@ -292,16 +294,14 @@ static int mdm_subsys_shutdown(const struct subsys_desc *crashed_subsys,
 
 	esoc_mdm_log("Shutdown request from SSR\n");
 
-	mutex_lock(&mdm_drv->poff_lock);
 	if (mdm_drv->mode == CRASH || mdm_drv->mode == PEER_CRASH) {
 		esoc_mdm_log("Shutdown in crash mode\n");
-		if (mdm_dbg_stall_cmd(ESOC_PREPARE_DEBUG)) {
+		if (mdm_dbg_stall_cmd(ESOC_PREPARE_DEBUG))
 			/* We want to mask debug command.
 			 * In this case return success
 			 * to move to next stage
 			 */
-			goto unlock;
-		}
+			return 0;
 
 		esoc_clink_queue_request(ESOC_REQ_CRASH_SHUTDOWN, esoc_clink);
 		esoc_client_link_power_off(esoc_clink, ESOC_HOOK_MDM_CRASH);
@@ -312,14 +312,16 @@ static int mdm_subsys_shutdown(const struct subsys_desc *crashed_subsys,
 		if (ret) {
 			esoc_mdm_log("ESOC_PREPARE_DEBUG command failed\n");
 			dev_err(&esoc_clink->dev, "failed to enter debug\n");
-			goto unlock;
+			return ret;
 		}
 		mdm_drv->mode = IN_DEBUG;
 	} else if (!force_stop) {
 		esoc_mdm_log("Graceful shutdown mode\n");
+		mutex_lock(&mdm_drv->poff_lock);
 		if (mdm_drv->mode == PWR_OFF) {
+			mutex_unlock(&mdm_drv->poff_lock);
 			esoc_mdm_log("mdm already powered-off\n");
-			goto unlock;
+			return 0;
 		}
 		if (esoc_clink->subsys.sysmon_shutdown_ret) {
 			esoc_mdm_log(
@@ -332,7 +334,8 @@ static int mdm_subsys_shutdown(const struct subsys_desc *crashed_subsys,
 				 * we return success, and leave the state
 				 * of the command engine as is.
 				 */
-				goto unlock;
+				mutex_unlock(&mdm_drv->poff_lock);
+				return 0;
 			}
 			dev_dbg(&esoc_clink->dev, "Sending sysmon-shutdown\n");
 			esoc_mdm_log("Executing the ESOC_PWR_OFF command\n");
@@ -342,18 +345,17 @@ static int mdm_subsys_shutdown(const struct subsys_desc *crashed_subsys,
 			esoc_mdm_log(
 			"Executing the ESOC_PWR_OFF command failed\n");
 			dev_err(&esoc_clink->dev, "failed to exe power off\n");
-			goto unlock;
+			mutex_unlock(&mdm_drv->poff_lock);
+			return ret;
 		}
 		esoc_client_link_power_off(esoc_clink, ESOC_HOOK_MDM_DOWN);
 		/* Pull the reset line low to turn off the device */
 		clink_ops->cmd_exe(ESOC_FORCE_PWR_OFF, esoc_clink);
 		mdm_drv->mode = PWR_OFF;
+		mutex_unlock(&mdm_drv->poff_lock);
 	}
 	esoc_mdm_log("Shutdown completed\n");
-
-unlock:
-	mutex_unlock(&mdm_drv->poff_lock);
-	return ret;
+	return 0;
 }
 
 static void mdm_subsys_retry_powerup_cleanup(struct esoc_clink *esoc_clink,
@@ -411,7 +413,10 @@ static int mdm_handle_boot_fail(struct esoc_clink *esoc_clink, u8 *pon_trial)
 		break;
 	case BOOT_FAIL_ACTION_PANIC:
 		esoc_mdm_log("Calling panic!!\n");
-		panic("Panic requested on external modem boot failure\n");
+		if (get_second_board_absent() == 0 && oem_get_download_mode())
+		  panic("Panic requested on external modem boot failure\n");
+		else
+		  pr_err("Panic requested on external modem boot failure\n");
 		break;
 	case BOOT_FAIL_ACTION_NOP:
 		esoc_mdm_log("Leaving the modem in its curent state\n");
@@ -436,8 +441,11 @@ static int mdm_subsys_powerup(const struct subsys_desc *crashed_subsys)
 								subsys);
 	struct mdm_drv *mdm_drv = esoc_get_drv_data(esoc_clink);
 	const struct esoc_clink_ops * const clink_ops = esoc_clink->clink_ops;
+	struct mdm_ctrl *mdm = get_esoc_clink_data(mdm_drv->esoc_clink);
 	int timeout = INT_MAX;
+
 	u8 pon_trial = 0;
+	modem_5G_panic = false;
 
 	esoc_mdm_log("Powerup request from SSR\n");
 
@@ -508,10 +516,32 @@ static int mdm_subsys_powerup(const struct subsys_desc *crashed_subsys)
 			"Boot failed. Doing cleanup and attempting to retry\n");
 			pon_trial++;
 			mdm_subsys_retry_powerup_cleanup(esoc_clink, 0);
+
+			/* PON_RETRY : SDX5X jump to normal mode from dump mode */
+			if (!oem_get_download_mode()) {
+				pr_err("[MDM] DumpMode is disabled. Skip trigger 5G dump\n");
+			} else if (is_oem_esoc_ssr() == 1 || get_ssr_reason_state() == 1) {
+				pr_err("[MDM] Skip trigger during the oem esoc SSR\n");
+			} else {
+				pr_err("[MDM] Trigger kernel panic to get SDX5X dump\n");
+				modem_5G_panic = true;
+			}
 		} else if (mdm_drv->pon_state == PON_SUCCESS) {
 			break;
 		}
 	} while (pon_trial <= atomic_read(&mdm_drv->n_pon_tries));
+
+	//because two times powerup flow, make sure SDX50 is ready
+	pr_err("[MDM] Roland: check 5G dump gpio\n");
+	if (gpio_get_value(MDM_GPIO(mdm, MDM2AP_STATUS)) == 1) {
+		pr_err("[MDM] gpio check pass, 5g flag [%d]\n", modem_5G_panic);
+		if (modem_5G_panic == true) {
+			pr_err("[MDM] Power done SDX50 and wait 5s\n");
+			msleep(5000);
+			mdm_power_down(mdm);
+			panic("get the SDX50 dump"); // warm reset device
+		}
+	}
 
 	return 0;
 }
@@ -557,6 +587,12 @@ int esoc_ssr_probe(struct esoc_clink *esoc_clink, struct esoc_drv *drv)
 	struct mdm_drv *mdm_drv;
 	struct esoc_eng *esoc_eng;
 
+	if (get_second_board_absent() == 1) {
+		pr_err("%s second board absent, don't probe esoc-mdm-drv",
+		__func__);
+		ret = -1;
+		return ret;
+	}
 	mdm_drv = devm_kzalloc(&esoc_clink->dev, sizeof(*mdm_drv), GFP_KERNEL);
 	if (IS_ERR_OR_NULL(mdm_drv))
 		return PTR_ERR(mdm_drv);
@@ -633,6 +669,11 @@ static struct esoc_drv esoc_ssr_drv = {
 
 int __init esoc_ssr_init(void)
 {
+	if (get_second_board_absent() == 1) {
+		pr_err("%s second board absent, don't probe esoc-mdm-drv",
+		__func__);
+		return false;
+	}
 	return esoc_drv_register(&esoc_ssr_drv);
 }
 module_init(esoc_ssr_init);

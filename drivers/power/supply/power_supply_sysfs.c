@@ -45,9 +45,15 @@ static const char * const power_supply_type_text[] = {
 	"USB_DCP", "USB_CDP", "USB_ACA", "USB_C",
 	"USB_PD", "USB_PD_DRP", "BrickID",
 	"USB_HVDCP", "USB_HVDCP_3", "Wireless", "USB_FLOAT",
-	"BMS", "Parallel", "Main", "Wipower", "USB_C_UFP", "USB_C_DFP",
-	"Charge_Pump",
+	"BMS", "Parallel", "Main", "Wipower",
+/* @bsp, 2019/04/17 Battery & Charging porting */
+	"USB_C_UFP", "USB_C_DFP",
+	"Charge_Pump", "DASH",
 };
+/* @bsp, 2019/04/17 Battery & Charging porting */
+	static const char *const cc_orientation_text[] = {
+		"Unknown", "cc1", "cc2"
+	};
 
 static const char * const power_supply_status_text[] = {
 	"Unknown", "Charging", "Discharging", "Not charging", "Full"
@@ -146,6 +152,11 @@ static ssize_t power_supply_show_property(struct device *dev,
 	else if (off == POWER_SUPPLY_PROP_TYPEC_POWER_ROLE)
 		return scnprintf(buf, PAGE_SIZE, "%s\n",
 			       power_supply_usbc_pr_text[value.intval]);
+/* @bsp, 2019/04/17 Battery & Charging porting */
+	else if (off == POWER_SUPPLY_PROP_OEM_TYPEC_CC_ORIENTATION)
+		return snprintf(
+		buf, 255, "%s\n",
+		cc_orientation_text[value.intval]);
 	else if (off == POWER_SUPPLY_PROP_TYPEC_SRC_RP)
 		return scnprintf(buf, PAGE_SIZE, "%s\n",
 			       power_supply_typec_src_rp_text[value.intval]);
@@ -153,9 +164,6 @@ static ssize_t power_supply_show_property(struct device *dev,
 		return scnprintf(buf, PAGE_SIZE, "%s\n",
 			       power_supply_health_text[value.intval]);
 	else if (off == POWER_SUPPLY_PROP_CONNECTOR_HEALTH)
-		return scnprintf(buf, PAGE_SIZE, "%s\n",
-			       power_supply_health_text[value.intval]);
-	else if (off == POWER_SUPPLY_PROP_SKIN_HEALTH)
 		return scnprintf(buf, PAGE_SIZE, "%s\n",
 			       power_supply_health_text[value.intval]);
 	else if (off >= POWER_SUPPLY_PROP_MODEL_NAME)
@@ -226,6 +234,28 @@ static ssize_t power_supply_store_property(struct device *dev,
 static struct device_attribute power_supply_attrs[] = {
 	/* Properties of type `int' */
 	POWER_SUPPLY_ATTR(status),
+/* @bsp, 2019/04/17 Battery & Charging porting */
+	POWER_SUPPLY_ATTR(set_allow_read_extern_fg_iic),
+	POWER_SUPPLY_ATTR(cc_to_cv_point),
+	POWER_SUPPLY_ATTR(chg_protect_status),
+	POWER_SUPPLY_ATTR(fastchg_status_is_ok),
+	POWER_SUPPLY_ATTR(fastchg_status),
+	POWER_SUPPLY_ATTR(fastchg_starting),
+	POWER_SUPPLY_ATTR(cutoff_volt_with_charger),
+	POWER_SUPPLY_ATTR(update_lcd_is_off),
+	POWER_SUPPLY_ATTR(check_usb_unplug),
+	POWER_SUPPLY_ATTR(otg_switch),
+	POWER_SUPPLY_ATTR(hw_detect),
+	POWER_SUPPLY_ATTR(switch_dash),
+	POWER_SUPPLY_ATTR(notify_charger_set_parameter),
+	POWER_SUPPLY_ATTR(fg_capacity),
+	POWER_SUPPLY_ATTR(fg_current_now),
+	POWER_SUPPLY_ATTR(fg_voltage_now),
+	POWER_SUPPLY_ATTR(is_aging_test),
+	POWER_SUPPLY_ATTR(connecter_temp),
+	POWER_SUPPLY_ATTR(connect_disable),
+	POWER_SUPPLY_ATTR(bq_soc),
+	POWER_SUPPLY_ATTR(oem_cc_orientation),
 	POWER_SUPPLY_ATTR(charge_type),
 	POWER_SUPPLY_ATTR(health),
 	POWER_SUPPLY_ATTR(present),
@@ -406,7 +436,6 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(force_main_fcc),
 	POWER_SUPPLY_ATTR(comp_clamp_level),
 	POWER_SUPPLY_ATTR(adapter_cc_mode),
-	POWER_SUPPLY_ATTR(skin_health),
 	/* Charge pump properties */
 	POWER_SUPPLY_ATTR(cp_status1),
 	POWER_SUPPLY_ATTR(cp_status2),

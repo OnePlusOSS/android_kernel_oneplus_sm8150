@@ -42,8 +42,7 @@
 		};
 
 		mhi_chan@25 {
-			mhi,num-elements = <32>;
-			mhi,event-ring = <1>;
+			status = "disabled";
 		};
 
 		mhi_chan@80 {
@@ -91,6 +90,7 @@
 
 	mhi_devices {
 		mhi_qrtr {
+			mhi,chan = "IPCR";
 			qcom,net-id = <3>;
 		};
 	};
@@ -204,6 +204,16 @@
 
 &wil6210 {
 	status = "disabled";
+};
+
+
+&icnss {
+	esoc-names = "mdm";
+	esoc-0 = <&mdm3>;
+};
+
+&icnss {
+	qcom,clk-monitor-enable;
 };
 
 &soc {

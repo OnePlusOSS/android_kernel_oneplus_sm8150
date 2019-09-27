@@ -175,8 +175,7 @@ static void gsi_channel_state_change_wait(unsigned long chan_hdl,
 		}
 
 		if (op == GSI_CH_START) {
-			if (curr_state == GSI_CHAN_STATE_STARTED ||
-				curr_state == GSI_CHAN_STATE_FLOW_CONTROL) {
+			if (curr_state == GSI_CHAN_STATE_STARTED) {
 				ctx->state = curr_state;
 				return;
 			}
@@ -2781,8 +2780,7 @@ int gsi_start_channel(unsigned long chan_hdl)
 		ctx,
 		GSI_START_CMD_TIMEOUT_MS, op);
 
-	if (ctx->state != GSI_CHAN_STATE_STARTED &&
-		ctx->state != GSI_CHAN_STATE_FLOW_CONTROL) {
+	if (ctx->state != GSI_CHAN_STATE_STARTED) {
 		/*
 		* Hardware returned unexpected status, unexpected
 		* hardware state.
@@ -3112,7 +3110,7 @@ int gsi_dealloc_channel(unsigned long chan_hdl)
 	}
 	devm_kfree(gsi_ctx->dev, ctx->user_data);
 	ctx->allocated = false;
-	if (ctx->evtr && (ctx->props.prot != GSI_CHAN_PROT_GCI))
+	if (ctx->evtr)
 		atomic_dec(&ctx->evtr->chan_ref_cnt);
 	atomic_dec(&gsi_ctx->num_chan);
 
@@ -3341,8 +3339,8 @@ int __gsi_get_gci_cookie(struct gsi_chan_ctx *ctx, uint16_t idx)
 	 * idx is not completed yet and it is getting reused by a new TRE.
 	 */
 	ctx->stats.userdata_in_use++;
-	end = ctx->ring.max_num_elem + 1;
 	for (i = 0; i < GSI_VEID_MAX; i++) {
+		end = ctx->ring.max_num_elem + 1;
 		if (!ctx->user_data[end + i].valid) {
 			ctx->user_data[end + i].valid = true;
 			return end + i;
@@ -3351,7 +3349,7 @@ int __gsi_get_gci_cookie(struct gsi_chan_ctx *ctx, uint16_t idx)
 
 	/* TODO: Increase escape buffer size if we hit this */
 	GSIERR("user_data is full\n");
-	return 0xFFFF;
+	return -EPERM;
 }
 
 int __gsi_populate_gci_tre(struct gsi_chan_ctx *ctx,
@@ -3382,7 +3380,7 @@ int __gsi_populate_gci_tre(struct gsi_chan_ctx *ctx,
 	gci_tre.buf_len = xfer->len;
 	gci_tre.re_type = GSI_RE_COAL;
 	gci_tre.cookie = __gsi_get_gci_cookie(ctx, idx);
-	if (gci_tre.cookie > (ctx->ring.max_num_elem + GSI_VEID_MAX))
+	if (gci_tre.cookie < 0)
 		return -EPERM;
 
 	/* write the TRE to ring */

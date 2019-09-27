@@ -16,6 +16,7 @@
 #include <linux/wait.h>
 #include <linux/esoc_client.h>
 #include "esoc.h"
+#include <linux/oneplus/boot_mode.h>
 
 /**
  * struct esoc_udev: Userspace char interface
@@ -469,6 +470,12 @@ int __init esoc_dev_init(void)
 {
 	int ret = 0;
 
+	if (get_second_board_absent() == 1) {
+		pr_err("%s second board absent,don't probe esoc_dev",
+		__func__);
+		ret = -1;
+		return ret;
+	}
 	esoc_class = class_create(THIS_MODULE, "esoc-dev");
 	if (IS_ERR_OR_NULL(esoc_class)) {
 		pr_err("coudn't create class");

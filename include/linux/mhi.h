@@ -518,7 +518,6 @@ void mhi_device_get(struct mhi_device *mhi_dev, int vote);
  * @vote: requested vote (bus, device or both)
  */
 int mhi_device_get_sync(struct mhi_device *mhi_dev, int vote);
-
 /**
  * mhi_device_put - re-enable low power modes
  * @mhi_dev: Device associated with the channels

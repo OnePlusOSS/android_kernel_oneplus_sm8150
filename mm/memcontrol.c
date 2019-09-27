@@ -105,6 +105,10 @@ static const char *const mem_cgroup_lru_names[] = {
 	"active_anon",
 	"inactive_file",
 	"active_file",
+#ifdef CONFIG_MEMPLUS
+	"inactive_anon_swpcache",
+	"active_anon_swpcache",
+#endif
 	"unevictable",
 };
 

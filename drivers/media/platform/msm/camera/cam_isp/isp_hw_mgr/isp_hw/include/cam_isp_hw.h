@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -197,20 +197,6 @@ struct cam_isp_hw_get_wm_update {
 };
 
 /*
- * struct cam_isp_hw_rup_data:
- *
- * @Brief:         RUP for required resources.
- *
- * @is_fe_enable   if fetch engine enabled
- * @res_bitmap     resource bitmap for set resources
- *
- */
-struct cam_isp_hw_rup_data {
-	bool                            is_fe_enable;
-	unsigned long                   res_bitmap;
-};
-
-/*
  * struct cam_isp_hw_get_cmd_update:
  *
  * @Brief:         Get cmd buffer update for different CMD types
@@ -233,7 +219,6 @@ struct cam_isp_hw_get_cmd_update {
 		struct cam_isp_bw_config             *bw_update;
 		struct cam_ubwc_plane_cfg_v1         *ubwc_update;
 		struct cam_fe_config                 *fe_update;
-		struct cam_isp_hw_rup_data           *rup_data;
 	};
 };
 

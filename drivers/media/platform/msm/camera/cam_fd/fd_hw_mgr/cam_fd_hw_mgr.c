@@ -30,8 +30,7 @@
 
 static struct cam_fd_hw_mgr g_fd_hw_mgr;
 
-static int cam_fd_mgr_util_packet_validate(struct cam_packet *packet,
-	size_t remain_len)
+static int cam_fd_mgr_util_packet_validate(struct cam_packet *packet)
 {
 	struct cam_cmd_buf_desc *cmd_desc = NULL;
 	int i, rc;
@@ -51,7 +50,7 @@ static int cam_fd_mgr_util_packet_validate(struct cam_packet *packet,
 		packet->patch_offset, packet->num_patches,
 		packet->kmd_cmd_buf_offset, packet->kmd_cmd_buf_index);
 
-	if (cam_packet_util_validate_packet(packet, remain_len)) {
+	if (cam_packet_util_validate_packet(packet)) {
 		CAM_ERR(CAM_FD, "invalid packet:%d %d %d %d %d",
 			packet->kmd_cmd_buf_index,
 			packet->num_cmd_buf, packet->cmd_buf_offset,
@@ -596,15 +595,6 @@ static int cam_fd_mgr_util_prepare_io_buf_info(int32_t iommu_hdl,
 					return -ENOMEM;
 				}
 
-				if (io_cfg[i].offsets[plane] >= size) {
-					CAM_ERR(CAM_FD,
-						"Invalid cpu buf %d %d %d",
-						io_cfg[i].direction,
-						io_cfg[i].resource_type, plane);
-					rc = -EINVAL;
-					goto rel_cpu_buf;
-				}
-
 				io_addr[plane] += io_cfg[i].offsets[plane];
 			}
 
@@ -621,14 +611,7 @@ static int cam_fd_mgr_util_prepare_io_buf_info(int32_t iommu_hdl,
 						rc);
 					goto rel_cpu_buf;
 				}
-				if (io_cfg[i].offsets[plane] >= size) {
-					CAM_ERR(CAM_FD,
-						"Invalid cpu buf %d %d %d",
-						io_cfg[i].direction,
-						io_cfg[i].resource_type, plane);
-					rc = -EINVAL;
-					goto rel_cpu_buf;
-				}
+
 				cpu_addr[plane] += io_cfg[i].offsets[plane];
 			}
 
@@ -1609,8 +1592,7 @@ static int cam_fd_mgr_hw_prepare_update(void *hw_mgr_priv,
 		goto error;
 	}
 
-	rc = cam_fd_mgr_util_packet_validate(prepare->packet,
-		prepare->remain_len);
+	rc = cam_fd_mgr_util_packet_validate(prepare->packet);
 	if (rc) {
 		CAM_ERR(CAM_FD, "Error in packet validation %d", rc);
 		goto error;
@@ -1629,7 +1611,7 @@ static int cam_fd_mgr_hw_prepare_update(void *hw_mgr_priv,
 
 	/* We do not expect any patching, but just do it anyway */
 	rc = cam_packet_util_process_patches(prepare->packet,
-		hw_mgr->device_iommu.non_secure, -1, 0);
+		hw_mgr->device_iommu.non_secure, -1);
 	if (rc) {
 		CAM_ERR(CAM_FD, "Patch FD packet failed, rc=%d", rc);
 		return rc;

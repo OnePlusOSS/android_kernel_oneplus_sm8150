@@ -89,6 +89,10 @@
 
 #define USB_HSPHY_VDD_HPM_LOAD			30000	/* uA */
 
+unsigned int USB2_phy_tune1;
+module_param(USB2_phy_tune1, uint, 0644);
+MODULE_PARM_DESC(USB2_phy_tune1, "QUSB PHY v2 TUNE1");
+
 struct msm_hsphy {
 	struct usb_phy		phy;
 	void __iomem		*base;
@@ -431,6 +435,18 @@ static int msm_hsphy_init(struct usb_phy *uphy)
 			TXVREFTUNE0_MASK, val);
 	}
 
+	/* add to tune USB 2.0 eye diagram */
+	if (USB2_phy_tune1) {
+		pr_err("%s(): (modparam) USB2_phy_tune1 val:0x%02x\n",
+						__func__, USB2_phy_tune1);
+		writel_relaxed(USB2_phy_tune1,
+			phy->base + USB2PHY_USB_PHY_PARAMETER_OVERRIDE_X1);
+	}
+
+	pr_err("USB2_tune1_register_val:0x%02x\n",
+		readl_relaxed(phy->base +
+			USB2PHY_USB_PHY_PARAMETER_OVERRIDE_X1));
+
 	if (phy->param_ovrd0) {
 		msm_usb_write_readback(phy->base,
 			USB2PHY_USB_PHY_PARAMETER_OVERRIDE_X0,
@@ -510,17 +526,16 @@ static int msm_hsphy_set_suspend(struct usb_phy *uphy, int suspend)
 	}
 
 	if (suspend) { /* Bus suspend */
-		if (phy->cable_connected) {
+		if (phy->cable_connected ||
+			(phy->phy.flags & PHY_HOST_MODE)) {
 			/* Enable auto-resume functionality by pulsing signal */
-			if (phy->phy.flags & PHY_HOST_MODE) {
-				msm_usb_write_readback(phy->base,
-					USB2_PHY_USB_PHY_HS_PHY_CTRL2,
-					USB2_AUTO_RESUME, USB2_AUTO_RESUME);
-				usleep_range(500, 1000);
-				msm_usb_write_readback(phy->base,
-					USB2_PHY_USB_PHY_HS_PHY_CTRL2,
-					USB2_AUTO_RESUME, 0);
-			}
+			msm_usb_write_readback(phy->base,
+				USB2_PHY_USB_PHY_HS_PHY_CTRL2,
+				USB2_AUTO_RESUME, USB2_AUTO_RESUME);
+			usleep_range(500, 1000);
+			msm_usb_write_readback(phy->base,
+				USB2_PHY_USB_PHY_HS_PHY_CTRL2,
+				USB2_AUTO_RESUME, 0);
 
 			msm_hsphy_enable_clocks(phy, false);
 		} else {/* Cable disconnect */
@@ -594,7 +609,6 @@ static int msm_hsphy_dpdm_regulator_enable(struct regulator_dev *rdev)
 					UTMI_PHY_DATAPATH_CTRL_OVERRIDE_EN,
 					UTMI_PHY_DATAPATH_CTRL_OVERRIDE_EN);
 
-		msm_hsphy_enable_clocks(phy, false);
 		phy->dpdm_enable = true;
 	}
 	mutex_unlock(&phy->phy_lock);
@@ -613,6 +627,7 @@ static int msm_hsphy_dpdm_regulator_disable(struct regulator_dev *rdev)
 	mutex_lock(&phy->phy_lock);
 	if (phy->dpdm_enable) {
 		if (!phy->cable_connected) {
+			msm_hsphy_enable_clocks(phy, false);
 			ret = msm_hsphy_enable_power(phy, false);
 			if (ret < 0) {
 				mutex_unlock(&phy->phy_lock);

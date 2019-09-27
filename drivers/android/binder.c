@@ -3324,8 +3324,13 @@ static void binder_transaction(struct binder_proc *proc,
 	sg_buf_offset = ALIGN(off_end_offset, sizeof(void *));
 	sg_buf_end_offset = sg_buf_offset + extra_buffers_size;
 	off_min = 0;
+
+	binder_alloc_pass_binder_buffer(&target_proc->alloc,
+					t->buffer, tr->data_size);
+
 	for (buffer_offset = off_start_offset; buffer_offset < off_end_offset;
 	     buffer_offset += sizeof(binder_size_t)) {
+
 		struct binder_object_header *hdr;
 		size_t object_size;
 		struct binder_object object;

@@ -96,14 +96,15 @@
 					<0x0 0xc2 0 IRQ_TYPE_NONE>,
 					<0x0 0xc3 0 IRQ_TYPE_NONE>,
 					<0x0 0xc5 0 IRQ_TYPE_NONE>,
+					<0x0 0xc6 0 IRQ_TYPE_NONE>,
 					<0x0 0xc8 0 IRQ_TYPE_NONE>,
 					<0x0 0xc9 0 IRQ_TYPE_NONE>;
 			interrupt-names = "pm8150_gpio1", "pm8150_gpio3",
 					"pm8150_gpio4", "pm8150_gpio6",
-					"pm8150_gpio9", "pm8150_gpio10";
+					"pm8150_gpio7","pm8150_gpio9", "pm8150_gpio10";
 			gpio-controller;
 			#gpio-cells = <2>;
-			qcom,gpios-disallowed = <2 5 7 8>;
+			qcom,gpios-disallowed = <2 5 8>;
 		};
 
 		pm8150_sdam_2: sdam@b100 {

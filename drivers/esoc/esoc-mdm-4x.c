@@ -16,6 +16,8 @@
 #include <linux/sched/clock.h>
 #include <soc/qcom/sysmon.h>
 #include "esoc-mdm.h"
+#include <linux/project_info.h>
+#include <linux/oneplus/boot_mode.h>
 
 enum gpio_update_config {
 	GPIO_UPDATE_BOOTING_CONFIG = 1,
@@ -264,12 +266,20 @@ static int mdm_cmd_exe(enum esoc_cmd cmd, struct esoc_clink *esoc)
 		if (esoc->statusline_not_a_powersource == false) {
 			esoc_mdm_log(
 			"ESOC_FORCE_PWR_OFF: setting AP2MDM_STATUS = 0\n");
-			gpio_set_value(MDM_GPIO(mdm, AP2MDM_STATUS), 0);
+			dev_err(mdm->dev,
+			"ESOC_FORCE_PWR_OFF: setting AP2MDM_STATUS = 0\n");
+			//gpio_set_value(MDM_GPIO(mdm, AP2MDM_STATUS), 0);
 		}
 		esoc_mdm_log(
 		"ESOC_FORCE_PWR_OFF: Queueing request: ESOC_REQ_SHUTDOWN\n");
+		dev_err(mdm->dev,
+		"ESOC_FORCE_PWR_OFF: Queueing request: ESOC_REQ_SHUTDOWN\n");
 		esoc_clink_queue_request(ESOC_REQ_SHUTDOWN, esoc);
+		dev_err(mdm->dev,
+			"ESOC_FORCE_PWR_OFF: mdm_power_down start!\n");
 		mdm_power_down(mdm);
+		dev_err(mdm->dev,
+		"ESOC_FORCE_PWR_OFF: mdm_power_down end!\n");
 		mdm_update_gpio_configs(mdm, GPIO_UPDATE_BOOTING_CONFIG);
 		break;
 	case ESOC_RESET:
@@ -394,6 +404,26 @@ static void mdm_get_restart_reason(struct work_struct *work)
 						__func__, ret);
 	}
 	mdm->get_restart_reason = false;
+
+	if (is_oem_esoc_ssr() == 1) {
+		oem_set_esoc_ssr(0);
+	}
+
+	if (oem_get_download_mode()) {
+		char detial_buf[] = "\nSDX5x esoc0 modem crash";
+
+		oem_set_esoc_ssr(0);
+		if ((strlen(sfr_buf)+sizeof(detial_buf)) < RD_BUF_SIZE)
+			strncat(sfr_buf, detial_buf, strlen(detial_buf));
+
+		esoc_mdm_log(
+		"[OEM_MDM] Trigger panic by OEM to get SDX5x dump!\n");
+		dev_err(dev,
+		"[OEM_MDM] Trigger panic by OEM to get SDX5x dump!\n");
+		msleep(5000);
+		mdm_power_down(mdm);
+		panic(sfr_buf);
+	}
 }
 
 void mdm_wait_for_status_low(struct mdm_ctrl *mdm, bool atomic)
@@ -846,6 +876,23 @@ static void mdm_free_irq(struct mdm_ctrl *mdm)
 	free_irq(mdm->status_irq, mdm);
 }
 
+static int esoc_ssr_reason_feature_enable =0;
+int get_ssr_reason_state(void)
+{
+	return esoc_ssr_reason_feature_enable;
+}
+
+static int esoc_ssr_occur =0;
+int oem_set_esoc_ssr(int enable)
+{
+	esoc_ssr_occur = enable;
+	return 0;
+}
+int is_oem_esoc_ssr(void)
+{
+	return esoc_ssr_occur;
+}
+
 static int mdm9x55_setup_hw(struct mdm_ctrl *mdm,
 					const struct mdm_ops *ops,
 					struct platform_device *pdev)
@@ -1014,6 +1061,10 @@ static int sdx50m_setup_hw(struct mdm_ctrl *mdm,
 	mdm->skip_restart_for_mdm_crash = of_property_read_bool(node,
 				"qcom,esoc-skip-restart-for-mdm-crash");
 
+	esoc_ssr_reason_feature_enable = of_property_read_bool(node,
+				"oem,esoc_ssr_reason_feature_enable");
+
+
 	esoc->clink_ops = clink_ops;
 	esoc->parent = mdm->dev;
 	esoc->owner = THIS_MODULE;
@@ -1115,6 +1166,12 @@ static int mdm_probe(struct platform_device *pdev)
 	struct mdm_ctrl *mdm;
 	int ret;
 
+	if (get_second_board_absent() == 1) {
+		pr_err("%s second board absent, don't probe esoc-mdm-4x",
+		__func__);
+		ret = -1;
+		return ret;
+	}
 	match = of_match_node(mdm_dt_match, node);
 	if (IS_ERR_OR_NULL(match))
 		return PTR_ERR(match);
@@ -1145,6 +1202,12 @@ static struct platform_driver mdm_driver = {
 
 static int __init mdm_register(void)
 {
+	if (get_second_board_absent() == 1) {
+		pr_err("%s second board absent, don't probe esoc-mdm-4x",
+		__func__);
+		return false;
+	}
+
 	return platform_driver_register(&mdm_driver);
 }
 module_init(mdm_register);

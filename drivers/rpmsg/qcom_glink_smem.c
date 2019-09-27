@@ -231,7 +231,6 @@ struct qcom_glink *qcom_glink_smem_register(struct device *parent,
 	ret = device_register(dev);
 	if (ret) {
 		pr_err("failed to register glink edge\n");
-		kfree(dev);
 		return ERR_PTR(ret);
 	}
 
@@ -239,21 +238,21 @@ struct qcom_glink *qcom_glink_smem_register(struct device *parent,
 				   &remote_pid);
 	if (ret) {
 		dev_err(dev, "failed to parse qcom,remote-pid\n");
-		goto unregister;
+		goto err_put_dev;
 	}
 
 	rx_pipe = devm_kzalloc(dev, sizeof(*rx_pipe), GFP_KERNEL);
 	tx_pipe = devm_kzalloc(dev, sizeof(*tx_pipe), GFP_KERNEL);
 	if (!rx_pipe || !tx_pipe) {
 		ret = -ENOMEM;
-		goto unregister;
+		goto err_put_dev;
 	}
 
 	ret = qcom_smem_alloc(remote_pid,
 			      SMEM_GLINK_NATIVE_XPRT_DESCRIPTOR, 32);
 	if (ret && ret != -EEXIST) {
 		dev_err(dev, "failed to allocate glink descriptors\n");
-		goto unregister;
+		goto err_put_dev;
 	}
 
 	descs = qcom_smem_get(remote_pid,
@@ -261,13 +260,13 @@ struct qcom_glink *qcom_glink_smem_register(struct device *parent,
 	if (IS_ERR(descs)) {
 		dev_err(dev, "failed to acquire xprt descriptor\n");
 		ret = PTR_ERR(descs);
-		goto unregister;
+		goto err_put_dev;
 	}
 
 	if (size != 32) {
 		dev_err(dev, "glink descriptor of invalid size\n");
 		ret = -EINVAL;
-		goto unregister;
+		goto err_put_dev;
 	}
 
 	tx_pipe->tail = &descs[0];
@@ -279,7 +278,7 @@ struct qcom_glink *qcom_glink_smem_register(struct device *parent,
 			      SZ_16K);
 	if (ret && ret != -EEXIST) {
 		dev_err(dev, "failed to allocate TX fifo\n");
-		goto unregister;
+		goto err_put_dev;
 	}
 
 	tx_pipe->fifo = qcom_smem_get(remote_pid, SMEM_GLINK_NATIVE_XPRT_FIFO_0,
@@ -287,7 +286,7 @@ struct qcom_glink *qcom_glink_smem_register(struct device *parent,
 	if (IS_ERR(tx_pipe->fifo)) {
 		dev_err(dev, "failed to acquire TX fifo\n");
 		ret = PTR_ERR(tx_pipe->fifo);
-		goto unregister;
+		goto err_put_dev;
 	}
 
 	rx_pipe->native.avail = glink_smem_rx_avail;
@@ -308,13 +307,13 @@ struct qcom_glink *qcom_glink_smem_register(struct device *parent,
 					false);
 	if (IS_ERR(glink)) {
 		ret = PTR_ERR(glink);
-		goto unregister;
+		goto err_put_dev;
 	}
 
 	return glink;
 
-unregister:
-	device_unregister(dev);
+err_put_dev:
+	put_device(dev);
 
 	return ERR_PTR(ret);
 }

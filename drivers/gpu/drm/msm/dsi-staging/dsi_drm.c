@@ -21,6 +21,8 @@
 #include "sde_connector.h"
 #include "dsi_drm.h"
 #include "sde_trace.h"
+#include "sde_dbg.h"
+
 
 #define to_dsi_bridge(x)     container_of((x), struct dsi_bridge, base)
 #define to_dsi_state(x)      container_of((x), struct dsi_connector_state, base)
@@ -186,15 +188,14 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 		return;
 	}
 
-	SDE_ATRACE_BEGIN("dsi_display_prepare");
+	SDE_ATRACE_BEGIN("dsi_bridge_pre_enable");
 	rc = dsi_display_prepare(c_bridge->display);
 	if (rc) {
 		pr_err("[%d] DSI display prepare failed, rc=%d\n",
 		       c_bridge->id, rc);
-		SDE_ATRACE_END("dsi_display_prepare");
+		SDE_ATRACE_END("dsi_bridge_pre_enable");
 		return;
 	}
-	SDE_ATRACE_END("dsi_display_prepare");
 
 	SDE_ATRACE_BEGIN("dsi_display_enable");
 	rc = dsi_display_enable(c_bridge->display);
@@ -204,6 +205,7 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 		(void)dsi_display_unprepare(c_bridge->display);
 	}
 	SDE_ATRACE_END("dsi_display_enable");
+	SDE_ATRACE_END("dsi_bridge_pre_enable");
 
 	rc = dsi_display_splash_res_cleanup(c_bridge->display);
 	if (rc)
@@ -384,7 +386,7 @@ static bool dsi_bridge_mode_fixup(struct drm_bridge *bridge,
 		if (rc) {
 			pr_err("[%s] seamless mode mismatch failure rc=%d\n",
 				c_bridge->display->name, rc);
-			return false;
+//			return false;
 		}
 
 		cur_mode = crtc_state->crtc->mode;
@@ -446,7 +448,7 @@ int dsi_conn_get_mode_info(struct drm_connector *connector,
 
 	if (!dsi_mode.priv_info)
 		return -EINVAL;
-
+	SDE_EVT32(mode_info,  ((unsigned long long)mode_info) >> 32, connector, ((unsigned long long)connector) >> 32, 0x9999);
 	memset(mode_info, 0, sizeof(*mode_info));
 
 	timing = &dsi_mode.timing;
@@ -458,7 +460,6 @@ int dsi_conn_get_mode_info(struct drm_connector *connector,
 	mode_info->clk_rate = dsi_drm_find_bit_clk_rate(display, drm_mode);
 	mode_info->mdp_transfer_time_us =
 		dsi_mode.priv_info->mdp_transfer_time_us;
-	mode_info->overlap_pixels = dsi_mode.priv_info->overlap_pixels;
 
 	memcpy(&mode_info->topology, &dsi_mode.priv_info->topology,
 			sizeof(struct msm_display_topology));
@@ -476,7 +477,7 @@ int dsi_conn_get_mode_info(struct drm_connector *connector,
 		memcpy(&mode_info->roi_caps, &dsi_mode.priv_info->roi_caps,
 			sizeof(dsi_mode.priv_info->roi_caps));
 	}
-
+	SDE_EVT32(dsi_mode.priv_info->dsc_enabled, mode_info->clk_rate, mode_info->frame_rate, 0x9999);
 	return 0;
 }
 

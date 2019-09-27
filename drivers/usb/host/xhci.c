@@ -150,7 +150,10 @@ int xhci_halt(struct xhci_hcd *xhci)
 	ret = xhci_handshake(&xhci->op_regs->status,
 			STS_HALT, STS_HALT, XHCI_MAX_HALT_USEC);
 	if (ret) {
-		xhci_warn(xhci, "Host halt failed, %d\n", ret);
+/* @bsp, 2019/04/27 usb & PD porting */
+		xhci_warn(xhci,
+			"Host not halted after %u ms. ret=%d\n",
+			XHCI_MAX_HALT_USEC, ret);
 		return ret;
 	}
 	xhci->xhc_state |= XHCI_STATE_HALTED;
@@ -993,6 +996,19 @@ int xhci_suspend(struct xhci_hcd *xhci, bool do_wakeup)
 		xhci_hc_died(xhci);
 		spin_unlock_irq(&xhci->lock);
 		return -ETIMEDOUT;
+	}
+	if ((readl_relaxed(&xhci->op_regs->status) & STS_EINT) ||
+			(readl_relaxed(&xhci->op_regs->status) & STS_PORT)) {
+		xhci_warn(xhci, "WARN: xHC EINT/PCD set status:%x\n",
+			readl_relaxed(&xhci->op_regs->status));
+		set_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
+		set_bit(HCD_FLAG_HW_ACCESSIBLE, &xhci->shared_hcd->flags);
+		/* step 4: set Run/Stop bit */
+		command = readl_relaxed(&xhci->op_regs->command);
+		command |= CMD_RUN;
+		writel_relaxed(command, &xhci->op_regs->command);
+		spin_unlock_irq(&xhci->lock);
+		return -EBUSY;
 	}
 	xhci_clear_command_ring(xhci);
 

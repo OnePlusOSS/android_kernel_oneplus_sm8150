@@ -26,7 +26,6 @@
 #include <linux/power_supply.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
-#include <linux/timekeeping.h>
 #include <linux/uaccess.h>
 #include <linux/pmic-voter.h>
 #include <linux/iio/consumer.h>
@@ -56,8 +55,6 @@ static int qg_esr_count = 3;
 module_param_named(
 	esr_count, qg_esr_count, int, 0600
 );
-
-static int qg_process_rt_fifo(struct qpnp_qg *chip);
 
 static bool is_battery_present(struct qpnp_qg *chip)
 {
@@ -149,7 +146,7 @@ static int qg_update_fifo_length(struct qpnp_qg *chip, u8 length)
 		pr_err("Failed to write S2 FIFO length, rc=%d\n", rc);
 
 	/* update the S3 FIFO length, when S2 length is updated */
-	if (length > 3 && !chip->dt.qg_sleep_config)
+	if (length > 3)
 		s3_entry_fifo_length = (chip->dt.s3_entry_fifo_length > 0) ?
 			chip->dt.s3_entry_fifo_length : DEFAULT_S3_FIFO_LENGTH;
 	else	/* Use S3 length as 1 for any S2 length <= 3 */
@@ -278,111 +275,6 @@ static int qg_store_soc_params(struct qpnp_qg *chip)
 	return rc;
 }
 
-static int qg_config_s2_state(struct qpnp_qg *chip,
-		enum s2_state requested_state, bool state_enable,
-		bool process_fifo)
-{
-	int rc, acc_interval, acc_length;
-	u8 fifo_length, reg = 0, state = S2_DEFAULT;
-
-	if ((chip->s2_state_mask & requested_state) && (state_enable == true))
-		return 0; /* No change in state */
-
-	if (!(chip->s2_state_mask & requested_state) && (state_enable == false))
-		return 0; /* No change in state */
-
-	if (state_enable)
-		chip->s2_state_mask |= requested_state;
-	else
-		chip->s2_state_mask &= ~requested_state;
-
-	/* define the priority of the states */
-	if (chip->s2_state_mask & S2_FAST_CHARGING)
-		state = S2_FAST_CHARGING;
-	else if (chip->s2_state_mask & S2_LOW_VBAT)
-		state = S2_LOW_VBAT;
-	else if (chip->s2_state_mask & S2_SLEEP)
-		state = S2_SLEEP;
-	else
-		state = S2_DEFAULT;
-
-	if (state == chip->s2_state)
-		return 0;
-
-	switch (state) {
-	case S2_FAST_CHARGING:
-		fifo_length = chip->dt.fast_chg_s2_fifo_length;
-		acc_interval = chip->dt.s2_acc_intvl_ms;
-		acc_length = chip->dt.s2_acc_length;
-		break;
-	case S2_LOW_VBAT:
-		fifo_length = chip->dt.s2_vbat_low_fifo_length;
-		acc_interval = chip->dt.s2_acc_intvl_ms;
-		acc_length = chip->dt.s2_acc_length;
-		break;
-	case S2_SLEEP:
-		fifo_length = chip->dt.sleep_s2_fifo_length;
-		acc_interval = chip->dt.sleep_s2_acc_intvl_ms;
-		acc_length = chip->dt.sleep_s2_acc_length;
-		break;
-	case S2_DEFAULT:
-		fifo_length = chip->dt.s2_fifo_length;
-		acc_interval = chip->dt.s2_acc_intvl_ms;
-		acc_length = chip->dt.s2_acc_length;
-		break;
-	default:
-		pr_err("Invalid S2 state %d\n", state);
-		return -EINVAL;
-	}
-
-	rc = qg_master_hold(chip, true);
-	if (rc < 0) {
-		pr_err("Failed to hold master, rc=%d\n", rc);
-		return rc;
-	}
-
-	if (process_fifo) {
-		rc = qg_process_rt_fifo(chip);
-		if (rc < 0) {
-			pr_err("Failed to process FIFO real-time, rc=%d\n", rc);
-			goto done;
-		}
-	}
-
-	rc = qg_update_fifo_length(chip, fifo_length);
-	if (rc < 0) {
-		pr_err("Failed to update S2 fifo-length, rc=%d\n", rc);
-		goto done;
-	}
-
-	reg = acc_interval / 10;
-	rc = qg_write(chip, chip->qg_base + QG_S2_NORMAL_MEAS_CTL3_REG,
-					&reg, 1);
-	if (rc < 0) {
-		pr_err("Failed to update S2 acc intrvl, rc=%d\n", rc);
-		goto done;
-	}
-
-	reg = ilog2(acc_length) - 1;
-	rc = qg_masked_write(chip, chip->qg_base + QG_S2_NORMAL_MEAS_CTL2_REG,
-					NUM_OF_ACCUM_MASK, reg);
-	if (rc < 0) {
-		pr_err("Failed to update S2 ACC length, rc=%d\n", rc);
-		goto done;
-	}
-
-	chip->s2_state = state;
-
-	qg_dbg(chip, QG_DEBUG_STATUS, "S2 New state=%x  fifo_length=%d interval=%d acc_length=%d\n",
-				state, fifo_length, acc_interval, acc_length);
-
-done:
-	qg_master_hold(chip, false);
-	/* FIFO restarted */
-	chip->last_fifo_update_time = ktime_get_boottime();
-	return rc;
-}
-
 static int qg_process_fifo(struct qpnp_qg *chip, u32 fifo_length)
 {
 	int rc = 0, i, j = 0, temp;
@@ -460,9 +352,6 @@ static int qg_process_fifo(struct qpnp_qg *chip, u32 fifo_length)
 		chip->kdata.fifo[j].interval = sample_interval;
 		chip->kdata.fifo[j].count = sample_count;
 
-		chip->last_fifo_v_uv = chip->kdata.fifo[j].v;
-		chip->last_fifo_i_ua = chip->kdata.fifo[j].i;
-
 		qg_dbg(chip, QG_DEBUG_FIFO, "FIFO %d raw_v=%d uV=%d raw_i=%d uA=%d interval=%d count=%d\n",
 					j, fifo_v,
 					chip->kdata.fifo[j].v,
@@ -527,9 +416,6 @@ static int qg_process_accumulator(struct qpnp_qg *chip)
 	if (chip->kdata.fifo_length == MAX_FIFO_LENGTH)
 		chip->kdata.fifo_length = MAX_FIFO_LENGTH - 1;
 
-	chip->last_fifo_v_uv = chip->kdata.fifo[index].v;
-	chip->last_fifo_i_ua = chip->kdata.fifo[index].i;
-
 	if (chip->kdata.fifo_length == 1)	/* Only accumulator data */
 		chip->kdata.seq_no = chip->seq_no++ % U32_MAX;
 
@@ -573,7 +459,7 @@ static int qg_process_rt_fifo(struct qpnp_qg *chip)
 static int process_rt_fifo_data(struct qpnp_qg *chip, bool update_smb)
 {
 	int rc = 0;
-	ktime_t now = ktime_get_boottime();
+	ktime_t now = ktime_get();
 	s64 time_delta;
 
 	/*
@@ -618,7 +504,7 @@ static int process_rt_fifo_data(struct qpnp_qg *chip, bool update_smb)
 			goto done;
 		}
 		/* FIFOs restarted */
-		chip->last_fifo_update_time = ktime_get_boottime();
+		chip->last_fifo_update_time = ktime_get();
 
 		/* signal the read thread */
 		chip->data_ready = true;
@@ -640,7 +526,7 @@ done:
 static int qg_vbat_low_wa(struct qpnp_qg *chip)
 {
 	int rc, i, temp = 0;
-	u32 vbat_low_uv = 0;
+	u32 vbat_low_uv = 0, fifo_length = 0;
 
 	if ((chip->wa_flags & QG_VBAT_LOW_WA) && chip->vbat_low) {
 		rc = qg_get_battery_temp(chip, &temp);
@@ -670,11 +556,37 @@ static int qg_vbat_low_wa(struct qpnp_qg *chip)
 		}
 	}
 
-	rc = qg_config_s2_state(chip, S2_LOW_VBAT,
-			chip->vbat_low ? true : false, false);
-	if (rc < 0)
-		pr_err("Failed to configure for VBAT_LOW rc=%d\n", rc);
+	rc = get_fifo_length(chip, &fifo_length, false);
+	if (rc < 0) {
+		pr_err("Failed to get FIFO length, rc=%d\n", rc);
+		return rc;
+	}
 
+	if (chip->vbat_low && fifo_length == chip->dt.s2_vbat_low_fifo_length)
+		return 0;
+
+	if (!chip->vbat_low && fifo_length == chip->dt.s2_fifo_length)
+		return 0;
+
+	rc = qg_master_hold(chip, true);
+	if (rc < 0) {
+		pr_err("Failed to hold master, rc=%d\n", rc);
+		goto done;
+	}
+
+	fifo_length = chip->vbat_low ? chip->dt.s2_vbat_low_fifo_length :
+					chip->dt.s2_fifo_length;
+
+	rc = qg_update_fifo_length(chip, fifo_length);
+	if (rc < 0)
+		goto done;
+
+	qg_dbg(chip, QG_DEBUG_STATUS, "FIFO length updated to %d vbat_low=%d\n",
+					fifo_length, chip->vbat_low);
+done:
+	qg_master_hold(chip, false);
+	/* FIFOs restarted */
+	chip->last_fifo_update_time = ktime_get();
 	return rc;
 }
 
@@ -741,22 +653,6 @@ config_vbat_low:
 	qg_dbg(chip, QG_DEBUG_STATUS,
 		"VBAT LOW threshold updated to %dmV temp=%d\n",
 						vbat_mv, temp);
-
-	return rc;
-}
-
-static int qg_fast_charge_config(struct qpnp_qg *chip)
-{
-	int rc = 0;
-
-	if (!chip->dt.qg_fast_chg_cfg)
-		return 0;
-
-	rc = qg_config_s2_state(chip, S2_FAST_CHARGING,
-			(chip->charge_status == POWER_SUPPLY_STATUS_CHARGING)
-			? true : false, false);
-	if (rc < 0)
-		pr_err("Failed to exit S2_SLEEP rc=%d\n", rc);
 
 	return rc;
 }
@@ -1106,7 +1002,7 @@ static int qg_esr_estimate(struct qpnp_qg *chip)
 		goto done;
 	}
 	/* FIFOs restarted */
-	chip->last_fifo_update_time = ktime_get_boottime();
+	chip->last_fifo_update_time = ktime_get();
 
 	if (chip->esr_avg) {
 		chip->kdata.param[QG_ESR].data = chip->esr_avg;
@@ -1193,7 +1089,7 @@ static void process_udata_work(struct work_struct *work)
 #define MAX_FIFO_DELTA_PERCENT		10
 static irqreturn_t qg_fifo_update_done_handler(int irq, void *data)
 {
-	ktime_t now = ktime_get_boottime();
+	ktime_t now = ktime_get();
 	int rc, hw_delta_ms = 0, margin_ms = 0;
 	u32 fifo_length = 0;
 	s64 time_delta_ms = 0;
@@ -1223,10 +1119,6 @@ static irqreturn_t qg_fifo_update_done_handler(int irq, void *data)
 	rc = qg_vbat_thresholds_config(chip);
 	if (rc < 0)
 		pr_err("Failed to apply VBAT EMPTY config rc=%d\n", rc);
-
-	rc = qg_fast_charge_config(chip);
-	if (rc < 0)
-		pr_err("Failed to apply fast-charge config rc=%d\n", rc);
 
 	rc = qg_vbat_low_wa(chip);
 	if (rc < 0) {
@@ -1968,9 +1860,6 @@ static int qg_psy_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CAPACITY:
 		rc = qg_get_battery_capacity(chip, &pval->intval);
 		break;
-	case POWER_SUPPLY_PROP_CAPACITY_RAW:
-		pval->intval = chip->sys_soc;
-		break;
 	case POWER_SUPPLY_PROP_REAL_CAPACITY:
 		rc = qg_get_battery_capacity_real(chip, &pval->intval);
 		break;
@@ -2074,9 +1963,6 @@ static int qg_psy_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_POWER_AVG:
 		rc = qg_get_power(chip, &pval->intval, true);
 		break;
-	case POWER_SUPPLY_PROP_SCALE_MODE_EN:
-		pval->intval = chip->fvss_active;
-		break;
 	default:
 		pr_debug("Unsupported property %d\n", psp);
 		break;
@@ -2103,7 +1989,6 @@ static int qg_property_is_writeable(struct power_supply *psy,
 
 static enum power_supply_property qg_psy_props[] = {
 	POWER_SUPPLY_PROP_CAPACITY,
-	POWER_SUPPLY_PROP_CAPACITY_RAW,
 	POWER_SUPPLY_PROP_REAL_CAPACITY,
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
@@ -2135,7 +2020,6 @@ static enum power_supply_property qg_psy_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_AVG,
 	POWER_SUPPLY_PROP_POWER_AVG,
 	POWER_SUPPLY_PROP_POWER_NOW,
-	POWER_SUPPLY_PROP_SCALE_MODE_EN,
 };
 
 static const struct power_supply_desc qg_psy_desc = {
@@ -2391,33 +2275,6 @@ done:
 	return rc;
 }
 
-static void qg_sleep_exit_work(struct work_struct *work)
-{
-	int rc;
-	struct qpnp_qg *chip = container_of(work,
-			struct qpnp_qg, qg_sleep_exit_work.work);
-
-	vote(chip->awake_votable, SLEEP_EXIT_VOTER, true, 0);
-
-	mutex_lock(&chip->data_lock);
-	/*
-	 * if this work is executing, the system has been active
-	 * for a while. So, force back the S2 active configuration
-	 */
-	qg_dbg(chip, QG_DEBUG_STATUS, "sleep_exit_work: exit S2_SLEEP\n");
-	rc = qg_config_s2_state(chip, S2_SLEEP, false, true);
-	if (rc < 0)
-		pr_err("Failed to exit S2_SLEEP rc=%d\n", rc);
-
-	vote(chip->awake_votable, SLEEP_EXIT_DATA_VOTER, true, 0);
-	/* signal the read thread */
-	chip->data_ready = true;
-	wake_up_interruptible(&chip->qg_wait_q);
-
-	mutex_unlock(&chip->data_lock);
-
-	vote(chip->awake_votable, SLEEP_EXIT_VOTER, false, 0);
-}
 
 static void qg_status_change_work(struct work_struct *work)
 {
@@ -2557,12 +2414,6 @@ static ssize_t qg_device_read(struct file *file, char __user *buf, size_t count,
 	struct qpnp_qg *chip = file->private_data;
 	unsigned long data_size = sizeof(chip->kdata);
 
-	if (count < data_size) {
-		pr_err("Invalid datasize %lu, expected lesser then %zu\n",
-							data_size, count);
-		return -EINVAL;
-	}
-
 	/* non-blocking access, return */
 	if (!chip->data_ready && (file->f_flags & O_NONBLOCK))
 		return 0;
@@ -2598,7 +2449,6 @@ static ssize_t qg_device_read(struct file *file, char __user *buf, size_t count,
 	vote(chip->awake_votable, FIFO_DONE_VOTER, false, 0);
 	vote(chip->awake_votable, FIFO_RT_DONE_VOTER, false, 0);
 	vote(chip->awake_votable, SUSPEND_DATA_VOTER, false, 0);
-	vote(chip->awake_votable, SLEEP_EXIT_DATA_VOTER, false, 0);
 
 	qg_dbg(chip, QG_DEBUG_DEVICE,
 		"QG device read complete Seq_no=%u Size=%ld\n",
@@ -2941,7 +2791,7 @@ static int qg_determine_pon_soc(struct qpnp_qg *chip)
 	bool use_pon_ocv = true;
 	unsigned long rtc_sec = 0;
 	u32 ocv_uv = 0, soc = 0, pon_soc = 0, full_soc = 0, cutoff_soc = 0;
-	u32 shutdown[SDAM_MAX] = {0}, soc_raw = 0;
+	u32 shutdown[SDAM_MAX] = {0};
 	char ocv_type[20] = "NONE";
 
 	if (!chip->profile_loaded) {
@@ -3020,7 +2870,6 @@ static int qg_determine_pon_soc(struct qpnp_qg *chip)
 	use_pon_ocv = false;
 	ocv_uv = shutdown[SDAM_OCV_UV];
 	soc = shutdown[SDAM_SOC];
-	soc_raw = shutdown[SDAM_SOC] * 100;
 	strlcpy(ocv_type, "SHUTDOWN_SOC", 20);
 	qg_dbg(chip, QG_DEBUG_PON, "Using SHUTDOWN_SOC @ PON\n");
 
@@ -3088,9 +2937,7 @@ use_pon_ocv:
 			soc = DIV_ROUND_UP(((pon_soc - cutoff_soc) * 100),
 						(full_soc - cutoff_soc));
 			soc = CAP(0, 100, soc);
-			soc_raw = soc * 100;
 		} else {
-			soc_raw = pon_soc * 100;
 			soc = pon_soc;
 		}
 
@@ -3104,7 +2951,6 @@ done:
 		return rc;
 	}
 
-	chip->cc_soc = chip->sys_soc = soc_raw;
 	chip->last_adj_ssoc = chip->catch_up_soc = chip->msoc = soc;
 	chip->kdata.param[QG_PON_OCV_UV].data = ocv_uv;
 	chip->kdata.param[QG_PON_OCV_UV].valid = true;
@@ -3155,39 +3001,6 @@ static int qg_set_wa_flags(struct qpnp_qg *chip)
 	qg_dbg(chip, QG_DEBUG_PON, "wa_flags = %x\n", chip->wa_flags);
 
 	return 0;
-}
-
-#define SDAM_MAGIC_NUMBER		0x12345678
-static int qg_sanitize_sdam(struct qpnp_qg *chip)
-{
-	int rc = 0;
-	u32 data = 0;
-
-	rc = qg_sdam_read(SDAM_MAGIC, &data);
-	if (rc < 0) {
-		pr_err("Failed to read SDAM rc=%d\n", rc);
-		return rc;
-	}
-
-	if (data == SDAM_MAGIC_NUMBER) {
-		qg_dbg(chip, QG_DEBUG_PON, "SDAM valid\n");
-	} else if (data == 0) {
-		rc = qg_sdam_write(SDAM_MAGIC, SDAM_MAGIC_NUMBER);
-		if (!rc)
-			qg_dbg(chip, QG_DEBUG_PON, "First boot. SDAM initilized\n");
-	} else {
-		/* SDAM has invalid value */
-		rc = qg_sdam_clear();
-		if (!rc) {
-			pr_err("SDAM uninitialized, SDAM reset\n");
-			rc = qg_sdam_write(SDAM_MAGIC, SDAM_MAGIC_NUMBER);
-		}
-	}
-
-	if (rc < 0)
-		pr_err("Failed in SDAM operation, rc=%d\n", rc);
-
-	return rc;
 }
 
 #define ADC_CONV_DLY_512MS		0xA
@@ -3251,8 +3064,6 @@ static int qg_hw_init(struct qpnp_qg *chip)
 		}
 	}
 
-	chip->s2_state = S2_DEFAULT;
-	chip->s2_state_mask |= S2_DEFAULT;
 	/* signal the read thread */
 	chip->data_ready = true;
 	wake_up_interruptible(&chip->qg_wait_q);
@@ -3263,7 +3074,7 @@ done_fifo:
 		pr_err("Failed to release master, rc=%d\n", rc);
 		return rc;
 	}
-	chip->last_fifo_update_time = ktime_get_boottime();
+	chip->last_fifo_update_time = ktime_get();
 
 	if (chip->dt.ocv_timer_expiry_min != -EINVAL) {
 		if (chip->dt.ocv_timer_expiry_min < 2)
@@ -3588,9 +3399,6 @@ static int qg_alg_init(struct qpnp_qg *chip)
 #define DEFAULT_S2_VBAT_LOW_LENGTH	2
 #define DEFAULT_S2_ACC_LENGTH		128
 #define DEFAULT_S2_ACC_INTVL_MS		100
-#define DEFAULT_SLEEP_S2_FIFO_LENGTH	8
-#define DEFAULT_SLEEP_S2_ACC_LENGTH	256
-#define DEFAULT_SLEEP_S2_ACC_INTVL_MS	200
 #define DEFAULT_DELTA_SOC		1
 #define DEFAULT_SHUTDOWN_SOC_SECS	360
 #define DEFAULT_COLD_TEMP_THRESHOLD	0
@@ -3610,8 +3418,6 @@ static int qg_alg_init(struct qpnp_qg *chip)
 #define ESR_CHG_MIN_IBAT_UA		(-450000)
 #define DEFAULT_SLEEP_TIME_SECS		1800 /* 30 mins */
 #define DEFAULT_SYS_MIN_VOLT_MV		2800
-#define DEFAULT_FAST_CHG_S2_FIFO_LENGTH	1
-#define DEFAULT_FVSS_VBAT_MV		3500
 static int qg_parse_dt(struct qpnp_qg *chip)
 {
 	int rc = 0;
@@ -3854,48 +3660,6 @@ static int qg_parse_dt(struct qpnp_qg *chip)
 	else
 		chip->dt.sys_min_volt_mv = temp;
 
-	if (of_property_read_bool(node, "qcom,qg-sleep-config")) {
-
-		chip->dt.qg_sleep_config = true;
-
-		rc = of_property_read_u32(node,
-				"qcom,sleep-s2-fifo-length", &temp);
-		if (rc < 0)
-			chip->dt.sleep_s2_fifo_length =
-					DEFAULT_SLEEP_S2_FIFO_LENGTH;
-		else
-			chip->dt.sleep_s2_fifo_length = temp;
-
-		rc = of_property_read_u32(node,
-				"qcom,sleep-s2-acc-length", &temp);
-		if (rc < 0)
-			chip->dt.sleep_s2_acc_length =
-					DEFAULT_SLEEP_S2_ACC_LENGTH;
-		else
-			chip->dt.sleep_s2_acc_length = temp;
-
-		rc = of_property_read_u32(node,
-				"qcom,sleep-s2-acc-intvl-ms", &temp);
-		if (rc < 0)
-			chip->dt.sleep_s2_acc_intvl_ms =
-					DEFAULT_SLEEP_S2_ACC_INTVL_MS;
-		else
-			chip->dt.sleep_s2_acc_intvl_ms = temp;
-	}
-
-	if (of_property_read_bool(node, "qcom,qg-fast-chg-config")) {
-
-		chip->dt.qg_fast_chg_cfg = true;
-
-		rc = of_property_read_u32(node,
-				"qcom,fast-chg-s2-fifo-length", &temp);
-		if (rc < 0)
-			chip->dt.fast_chg_s2_fifo_length =
-					DEFAULT_FAST_CHG_S2_FIFO_LENGTH;
-		else
-			chip->dt.fast_chg_s2_fifo_length = temp;
-	}
-
 	chip->dt.qg_ext_sense = of_property_read_bool(node, "qcom,qg-ext-sns");
 
 	chip->dt.use_s7_ocv = of_property_read_bool(node, "qcom,qg-use-s7-ocv");
@@ -3905,18 +3669,6 @@ static int qg_parse_dt(struct qpnp_qg *chip)
 		chip->dt.min_sleep_time_secs = DEFAULT_SLEEP_TIME_SECS;
 	else
 		chip->dt.min_sleep_time_secs = temp;
-
-	if (of_property_read_bool(node, "qcom,fvss-enable")) {
-
-		chip->dt.fvss_enable = true;
-
-		rc = of_property_read_u32(node,
-				"qcom,fvss-vbatt-mv", &temp);
-		if (rc < 0)
-			chip->dt.fvss_vbat_mv = DEFAULT_FVSS_VBAT_MV;
-		else
-			chip->dt.fvss_vbat_mv = temp;
-	}
 
 	/* Capacity learning params*/
 	if (!chip->dt.cl_disable) {
@@ -4003,7 +3755,6 @@ static int process_suspend(struct qpnp_qg *chip)
 		return 0;
 
 	cancel_delayed_work_sync(&chip->ttf->ttf_work);
-	cancel_delayed_work_sync(&chip->qg_sleep_exit_work);
 
 	chip->suspend_data = false;
 
@@ -4012,13 +3763,6 @@ static int process_suspend(struct qpnp_qg *chip)
 
 	/* ignore any suspend processing if we are charging */
 	if (chip->charge_status == POWER_SUPPLY_STATUS_CHARGING) {
-		/* Reset the sleep config if we are charging */
-		if (chip->dt.qg_sleep_config) {
-			qg_dbg(chip, QG_DEBUG_STATUS, "Suspend: Charging - Exit S2_SLEEP\n");
-			rc = qg_config_s2_state(chip, S2_SLEEP, false, true);
-			if (rc < 0)
-				pr_err("Failed to exit S2-sleep rc=%d\n", rc);
-		}
 		qg_dbg(chip, QG_DEBUG_PM, "Charging @ suspend - ignore processing\n");
 		return 0;
 	}
@@ -4036,23 +3780,12 @@ static int process_suspend(struct qpnp_qg *chip)
 		return rc;
 	}
 	sleep_fifo_length &= SLEEP_IBAT_QUALIFIED_LENGTH_MASK;
-
-	if (chip->dt.qg_sleep_config) {
-		qg_dbg(chip, QG_DEBUG_STATUS, "Suspend: Forcing S2_SLEEP\n");
-		rc = qg_config_s2_state(chip, S2_SLEEP, true, true);
-		if (rc < 0)
-			pr_err("Failed to config S2_SLEEP rc=%d\n", rc);
-		if (chip->kdata.fifo_length > 0)
-			chip->suspend_data = true;
-	} else if (fifo_rt_length >=
-			(chip->dt.s2_fifo_length - sleep_fifo_length)) {
-		/*
-		 * If the real-time FIFO count is greater than
-		 * the the #fifo to enter sleep, save the FIFO data
-		 * and reset the fifo count. This is avoid a gauranteed wakeup
-		 * due to fifo_done event as the curent FIFO length is already
-		 * beyond the sleep length.
-		 */
+	/*
+	 * If the real-time FIFO count is greater than
+	 * the the #fifo to enter sleep, save the FIFO data
+	 * and reset the fifo count.
+	 */
+	if (fifo_rt_length >= (chip->dt.s2_fifo_length - sleep_fifo_length)) {
 		rc = qg_master_hold(chip, true);
 		if (rc < 0) {
 			pr_err("Failed to hold master, rc=%d\n", rc);
@@ -4072,7 +3805,7 @@ static int process_suspend(struct qpnp_qg *chip)
 			return rc;
 		}
 		/* FIFOs restarted */
-		chip->last_fifo_update_time = ktime_get_boottime();
+		chip->last_fifo_update_time = ktime_get();
 
 		chip->suspend_data = true;
 	}
@@ -4087,7 +3820,6 @@ static int process_suspend(struct qpnp_qg *chip)
 	return rc;
 }
 
-#define QG_SLEEP_EXIT_TIME_MS		15000 /* 15 secs */
 static int process_resume(struct qpnp_qg *chip)
 {
 	u8 status2 = 0, rt_status = 0;
@@ -4101,10 +3833,6 @@ static int process_resume(struct qpnp_qg *chip)
 
 	get_rtc_time(&rtc_sec);
 	sleep_time_secs = rtc_sec - chip->suspend_time;
-
-	if (chip->dt.qg_sleep_config)
-		schedule_delayed_work(&chip->qg_sleep_exit_work,
-				msecs_to_jiffies(QG_SLEEP_EXIT_TIME_MS));
 
 	rc = qg_read(chip, chip->qg_base + QG_STATUS2_REG, &status2, 1);
 	if (rc < 0) {
@@ -4273,7 +4001,6 @@ static int qpnp_qg_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, chip);
 	INIT_WORK(&chip->udata_work, process_udata_work);
 	INIT_WORK(&chip->qg_status_change_work, qg_status_change_work);
-	INIT_DELAYED_WORK(&chip->qg_sleep_exit_work, qg_sleep_exit_work);
 	mutex_init(&chip->bus_lock);
 	mutex_init(&chip->soc_lock);
 	mutex_init(&chip->data_lock);
@@ -4321,12 +4048,6 @@ static int qpnp_qg_probe(struct platform_device *pdev)
 	rc = qg_sdam_init(chip->dev);
 	if (rc < 0) {
 		pr_err("Failed to initialize QG SDAM, rc=%d\n", rc);
-		return rc;
-	}
-
-	rc = qg_sanitize_sdam(chip);
-	if (rc < 0) {
-		pr_err("Failed to sanitize SDAM, rc=%d\n", rc);
 		return rc;
 	}
 
@@ -4440,7 +4161,6 @@ static int qpnp_qg_remove(struct platform_device *pdev)
 	qg_batterydata_exit();
 	qg_soc_exit(chip);
 
-	cancel_delayed_work_sync(&chip->qg_sleep_exit_work);
 	cancel_work_sync(&chip->udata_work);
 	cancel_work_sync(&chip->qg_status_change_work);
 	device_destroy(chip->qg_class, chip->dev_no);

@@ -34,6 +34,9 @@
 #include <linux/perf_event.h>
 #include <linux/of_device.h>
 
+// tedlin@ASTI, 2019/06/12 add for CONFIG_HOUSTON
+#include <oneplus/houston/houston_helper.h>
+
 enum ev_index {
 	INST_IDX,
 	CM_IDX,
@@ -123,6 +126,10 @@ static void read_perf_counters(int cpu, struct cpu_grp_info *cpu_grp)
 	} else {
 		devstats->stall_pct = 100;
 	}
+
+// tedlin@ASTI, 2019/06/12 add to update hw events (CONFIG_HOUSTON)
+	ht_update_hw_events(devstats->inst_count, devstats->mem_count, cyc_cnt);
+
 }
 
 static unsigned long get_cnt(struct memlat_hwmon *hw)

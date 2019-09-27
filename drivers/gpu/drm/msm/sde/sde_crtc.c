@@ -42,9 +42,41 @@
 #include "sde_power_handle.h"
 #include "sde_core_perf.h"
 #include "sde_trace.h"
+//xiaoxiaohuan@OnePlus.MultiMediaService,2018/08/04, add for fingerprint
+#include <linux/msm_drm_notify.h>
+#include <linux/notifier.h>
+
+
+#include <linux/err.h>
+#include <linux/list.h>
+#include <linux/of.h>
+#include <linux/err.h>
+#include "msm_drv.h"
+#include "sde_connector.h"
+#include "msm_mmu.h"
+#include "dsi_display.h"
+#include "dsi_panel.h"
+#include "dsi_ctrl.h"
+#include "dsi_ctrl_hw.h"
+#include "dsi_drm.h"
+#include "dsi_clk.h"
+#include "dsi_pwr.h"
+#include "sde_dbg.h"
+#include <linux/kobject.h>
+#include <linux/string.h>
+#include <linux/sysfs.h>
+#include <linux/module.h>
+#include <linux/init.h>
+#include <drm/drm_mipi_dsi.h>
+extern int msm_drm_notifier_call_chain(unsigned long val, void *v);
 
 #define SDE_PSTATES_MAX (SDE_STAGE_MAX * 4)
 #define SDE_MULTIRECT_PLANE_MAX (SDE_STAGE_MAX * 2)
+
+#include <drm/drm_sysfs.h>
+#include <drm/drmP.h>
+#define to_drm_connector(d) dev_get_drvdata(d)
+#define to_dsi_bridge(x)  container_of((x), struct dsi_bridge, base)
 
 struct sde_crtc_custom_events {
 	u32 event;
@@ -778,7 +810,7 @@ static ssize_t measured_fps_show(struct device *device,
 	struct drm_crtc *crtc;
 	struct sde_crtc *sde_crtc;
 	unsigned int fps_int, fps_decimal;
-	u64 fps = 0, frame_count = 0;
+	u64 fps = 0, frame_count = 1;
 	ktime_t current_time;
 	int i = 0, current_time_index;
 	u64 diff_us;
@@ -857,7 +889,7 @@ static ssize_t measured_fps_show(struct device *device,
 	fps_int = (unsigned int) sde_crtc->fps_info.measured_fps;
 	fps_decimal = do_div(fps_int, 10);
 	return scnprintf(buf, PAGE_SIZE,
-	"fps: %d.%d duration:%d frame_count:%llu\n", fps_int, fps_decimal,
+		"fps: %d.%d duration:%d frame_count:%llu", fps_int, fps_decimal,
 			sde_crtc->fps_info.fps_periodic_duration, frame_count);
 }
 
@@ -1408,10 +1440,8 @@ static u32 _sde_crtc_get_displays_affected(struct drm_crtc *crtc,
 {
 	struct sde_crtc *sde_crtc;
 	struct sde_crtc_state *crtc_state;
-	struct drm_encoder *encoder;
 	u32 disp_bitmask = 0;
 	int i;
-	bool is_ppsplit = false;
 
 	if (!crtc || !state) {
 		pr_err("Invalid crtc or state\n");
@@ -1421,16 +1451,8 @@ static u32 _sde_crtc_get_displays_affected(struct drm_crtc *crtc,
 	sde_crtc = to_sde_crtc(crtc);
 	crtc_state = to_sde_crtc_state(state);
 
-	list_for_each_entry(encoder,
-			&crtc->dev->mode_config.encoder_list, head) {
-		if (encoder->crtc != state->crtc)
-			continue;
-
-		is_ppsplit |= sde_encoder_is_topology_ppsplit(encoder);
-	}
-
 	/* pingpong split: one ROI, one LM, two physical displays */
-	if (is_ppsplit) {
+	if (crtc_state->is_ppsplit) {
 		u32 lm_split_width = crtc_state->lm_bounds[0].w / 2;
 		struct sde_rect *roi = &crtc_state->lm_roi[0];
 
@@ -2134,6 +2156,12 @@ static void _sde_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 		for (i = 0; i < cstate->num_dim_layers; i++)
 			_sde_crtc_setup_dim_layer_cfg(crtc, sde_crtc,
 					mixer, &cstate->dim_layer[i]);
+	//xiaoxiaohuan@OnePlus.MultiMediaService,2018/08/04, add for fingerprint
+	if (cstate->fingerprint_dim_layer)
+		{
+		_sde_crtc_setup_dim_layer_cfg(crtc, sde_crtc,
+					mixer, cstate->fingerprint_dim_layer);
+		}
 	}
 
 	_sde_crtc_program_lm_output_roi(crtc);
@@ -3062,6 +3090,32 @@ void sde_crtc_complete_commit(struct drm_crtc *crtc,
 	SDE_EVT32_VERBOSE(DRMID(crtc));
 
 	sde_core_perf_crtc_update(crtc, 0, false);
+	//xiaoxiaohuan@OnePlus.MultiMediaService,2018/08/04, add for fingerprint
+	{
+		struct sde_crtc_state *old_cstate;
+		struct sde_crtc_state *cstate;
+		struct msm_drm_notifier notifier_data;
+		int blank;
+
+		if (!old_state) {
+			SDE_ERROR("failed to find old cstate");
+			return;
+		}
+		old_cstate = to_sde_crtc_state(old_state);
+		cstate = to_sde_crtc_state(crtc->state);
+
+		if (old_cstate->fingerprint_pressed != cstate->fingerprint_pressed) {
+			blank = cstate->fingerprint_pressed;
+			notifier_data.data = &blank;
+			notifier_data.id = MSM_DRM_PRIMARY_DISPLAY;
+			pr_err("fingerprint status: %s",
+			       blank ? "pressed" : "up");
+			SDE_ATRACE_BEGIN("press_event_notify");
+			msm_drm_notifier_call_chain(MSM_DRM_ONSCREENFINGERPRINT_EVENT,
+					&notifier_data);
+			SDE_ATRACE_END("press_event_notify");
+		}
+	}
 }
 
 /**
@@ -3163,6 +3217,411 @@ static void _sde_crtc_set_dim_layer_v1(struct sde_crtc_state *cstate,
 				dim_layer[i].color_fill.color_2,
 				dim_layer[i].color_fill.color_3);
 	}
+}
+
+//xiaoxiaohuan@OnePlus.MultiMediaService,2018/08/04, add for fingerprint
+bool sde_crtc_get_dimlayer_mode(struct drm_crtc_state *crtc_state)
+{
+	struct sde_crtc_state *cstate;
+
+	if (!crtc_state)
+		return false;
+
+	cstate = to_sde_crtc_state(crtc_state);
+	return !!cstate->fingerprint_dim_layer;
+}
+
+bool sde_crtc_get_fingerprint_mode(struct drm_crtc_state *crtc_state)
+{
+	struct sde_crtc_state *cstate;
+
+	if (!crtc_state)
+		return false;
+
+	cstate = to_sde_crtc_state(crtc_state);
+	return !!cstate->fingerprint_mode;
+}
+
+bool sde_crtc_get_fingerprint_pressed(struct drm_crtc_state *crtc_state)
+{
+	struct sde_crtc_state *cstate;
+
+	if (!crtc_state)
+		return false;
+
+	cstate = to_sde_crtc_state(crtc_state);
+	return cstate->fingerprint_pressed;
+}
+
+/*******************************************************************/
+
+extern int oneplus_force_screenfp;
+extern int oneplus_panel_alpha;
+struct ba {
+	u32 brightness;
+	u32 alpha;
+};
+
+struct ba brightness_alpha_lut_1[] = {
+	{0, 0xff},
+	{1, 0xf1},
+	{2, 0xf0},
+	{3, 0xee},
+	{4, 0xec},
+	{6, 0xeb},
+	{10, 0xe7},
+	{20, 0xdf},
+	{30, 0xd8},
+	{45, 0xd0},
+	{70, 0xc5},
+	{100, 0xb9},
+	{150, 0xaf},
+	{227, 0x99},
+	{300, 0x88},
+	{400, 0x76},
+	{500, 0x66},
+	{600, 0x59},
+	{800, 0x42},
+	{1023, 0x2a},
+	{2000, 0x83},
+};
+
+struct ba brightness_alpha_lut_2[] = {
+	{0, 0xff},
+	{1, 0xf1},
+	{2, 236},
+	{3, 234},
+	{4, 232},
+	{6, 230},
+	{10, 225},
+	{20, 215},
+	{30, 208},
+	{45, 197},
+	{70, 184},
+	{100, 175},
+	{150, 160},
+	{227, 142},
+	{300, 128},
+	{400, 115},
+	{500, 100},
+	{600, 82},
+	{800, 66},
+	{1023, 30},
+	{2000, 0x83},
+};
+
+struct ba brightness_alpha_lut_dc[] = {
+
+	{0, 0xff},
+	{1, 0xE0},
+	{2, 0xd5},
+	{3, 0xd3},
+	{4, 0xd0},
+	{5, 0xce},
+	{6, 0xcb},
+	{8, 0xc8},
+	{10, 0xc4},
+	{15, 0xba},
+	{20, 0xb0},
+	{30, 0xa0},
+	{45, 0x8b},
+	{70, 0x72},
+	{100, 0x5a},
+	{150, 0x38},
+	{227, 0xe},
+	{260, 0x00}
+};
+
+struct ba brightness_alpha_lut[21] = {};
+
+static int interpolate(int x, int xa, int xb, int ya, int yb)
+{
+	int bf, factor, plus;
+	int sub = 0;
+
+	bf = 2 * (yb - ya) * (x - xa) / (xb - xa);
+	factor = bf / 2;
+	plus = bf % 2;
+	if ((xa - xb) && (yb - ya))
+		sub = 2 * (x - xa) * (x - xb) / (yb - ya) / (xa - xb);
+
+	return ya + factor + plus + sub;
+}
+
+int brightness_to_alpha(int brightness)
+{
+	int level = ARRAY_SIZE(brightness_alpha_lut);
+	int i = 0;
+
+	for (i = 0; i < ARRAY_SIZE(brightness_alpha_lut); i++){
+		if (brightness_alpha_lut[i].brightness >= brightness)
+			break;
+	}
+
+	if (i == 0)
+		return brightness_alpha_lut[0].alpha;
+	else if (i == level)
+		return brightness_alpha_lut[level - 1].alpha;
+
+	return interpolate(brightness,
+			brightness_alpha_lut[i-1].brightness,
+			brightness_alpha_lut[i].brightness,
+			brightness_alpha_lut[i-1].alpha,
+			brightness_alpha_lut[i].alpha);
+}
+
+int bl_to_alpha_dc(int brightness)
+{
+	int level = ARRAY_SIZE(brightness_alpha_lut_dc);
+	int i = 0;
+	int alpha;
+
+	for (i = 0; i < ARRAY_SIZE(brightness_alpha_lut_dc); i++) {
+		if (brightness_alpha_lut_dc[i].brightness >= brightness)
+			break;
+	}
+
+	if (i == 0)
+		alpha = brightness_alpha_lut_dc[0].alpha;
+	else if (i == level)
+		alpha = brightness_alpha_lut_dc[level - 1].alpha;
+	else
+		alpha = interpolate(brightness,
+			brightness_alpha_lut_dc[i-1].brightness,
+			brightness_alpha_lut_dc[i].brightness,
+			brightness_alpha_lut_dc[i-1].alpha,
+			brightness_alpha_lut_dc[i].alpha);
+	return alpha;
+}
+
+int oneplus_get_panel_brightness_to_alpha(void)
+{
+	struct dsi_display *display = get_main_display();
+
+	if (!display)
+		return 0;
+	if (oneplus_panel_alpha)
+		return oneplus_panel_alpha;
+    if (display->panel->dim_status)
+		return brightness_to_alpha(display->panel->hbm_backlight);
+    else
+	return bl_to_alpha_dc(display->panel->hbm_backlight);
+}
+
+int oneplus_onscreenaod_hid = 0;
+int oneplus_aod_hid = 0;
+ssize_t oneplus_display_notify_aod_hid(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	int onscreenaod_hid = 0;
+	SDE_ATRACE_BEGIN("aod_hid_node");
+	sscanf(buf, "%du", &onscreenaod_hid);
+	oneplus_onscreenaod_hid = !!onscreenaod_hid;
+	if (onscreenaod_hid == oneplus_onscreenaod_hid)
+		{
+		SDE_ATRACE_END("oneplus_display_notify_fp_press");
+		return count;
+		}
+
+	pr_err("notify aod hid %d\n", onscreenaod_hid );
+	oneplus_onscreenaod_hid = onscreenaod_hid;
+	SDE_ATRACE_END("aod_hid_node");
+	return count;
+}
+
+int oneplus_onscreenfp_status = 0;
+ssize_t oneplus_display_notify_fp_press(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	struct dsi_display *dsi_display = NULL;
+	struct dsi_bridge *c_bridge;
+	struct drm_device *drm_dev;
+	struct drm_connector *dsi_connector;
+	struct drm_mode_config *mode_config;
+	struct drm_atomic_state *state;
+	struct drm_crtc_state *crtc_state;
+	struct drm_crtc *crtc;
+	struct msm_drm_private *priv;
+	int err;
+	ktime_t now;
+	bool need_commit = false;
+	int onscreenfp_status = 0;
+	SDE_ATRACE_BEGIN("oneplus_display_notify_fp_press");
+	if ((connector == NULL) || (connector->encoder == NULL)
+			|| (connector->encoder->bridge == NULL))
+		return 0;
+
+	c_bridge =  to_dsi_bridge(connector->encoder->bridge);
+	dsi_display = c_bridge->display;
+
+	if ((dsi_display == NULL) || (dsi_display->panel == NULL))
+		return -EINVAL;
+	drm_dev = dsi_display->drm_dev;
+	dsi_connector = dsi_display->drm_conn;
+	mode_config = &drm_dev->mode_config;
+	sscanf(buf, "%du", &onscreenfp_status);
+	onscreenfp_status = !!onscreenfp_status;
+	if (onscreenfp_status == oneplus_onscreenfp_status)
+		{
+		SDE_ATRACE_END("oneplus_display_notify_fp_press");
+		return count;
+		}
+
+	pr_err("notify fingerpress %d\n", onscreenfp_status );
+	oneplus_onscreenfp_status = onscreenfp_status;
+
+	drm_modeset_lock_all(drm_dev);
+	state = drm_atomic_state_alloc(drm_dev);
+	state->acquire_ctx = mode_config->acquire_ctx;
+	crtc = dsi_connector->state->crtc;
+	crtc_state = drm_atomic_get_crtc_state(state, crtc);
+	priv = drm_dev->dev_private;
+	now = ktime_get();
+	need_commit = (((now- priv->commit_end_time) > 20000000 ? true:false)&&dsi_display->panel->aod_status==0);
+	if(need_commit){
+	err = drm_atomic_commit(state);
+		if (err < 0)
+			drm_atomic_state_clear(state);
+	}
+	drm_modeset_unlock_all(drm_dev);
+	SDE_ATRACE_END("oneplus_display_notify_fp_press");
+	return count;
+}
+extern int aod_layer_hide;
+extern bool HBM_flag;
+int oneplus_dim_status = 0;
+int oneplus_aod_fod = 0;
+int oneplus_aod_dc = 0;
+ ssize_t oneplus_display_notify_dim(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	struct dsi_display *dsi_display = NULL;
+	struct dsi_bridge *c_bridge;
+	struct drm_device *drm_dev;
+	struct drm_connector *dsi_connector;
+	struct drm_mode_config *mode_config;
+	struct drm_atomic_state *state;
+	struct drm_crtc_state *crtc_state;
+	struct drm_crtc *crtc;
+	int err;
+	int dim_status = 0;
+
+    SDE_ATRACE_BEGIN("oneplus_display_notify_dim");
+	if ((connector == NULL) || (connector->encoder == NULL)
+			|| (connector->encoder->bridge == NULL))
+		return 0;
+	c_bridge =	to_dsi_bridge(connector->encoder->bridge);
+	dsi_display = c_bridge->display;
+
+	if ((dsi_display == NULL) || (dsi_display->panel == NULL))
+		return -EINVAL;
+	drm_dev = dsi_display->drm_dev;
+	dsi_connector = dsi_display->drm_conn;
+	mode_config = &drm_dev->mode_config;
+	sscanf(buf, "%du", &dim_status);
+
+	if (dsi_display->panel->aod_status == 0 && (dim_status == 2)) {
+		pr_err("fp set it in normal status\n");
+		if (dim_status == oneplus_dim_status)
+			return count;
+		oneplus_dim_status = dim_status;
+		SDE_ATRACE_END("oneplus_display_notify_dim");
+		return count;
+	} else if (dsi_display->panel->aod_status == 1 && dim_status == 2) {
+		oneplus_onscreenfp_status = 1;
+		oneplus_aod_fod = 1;
+	} else if (dsi_display->panel->aod_status == 1 && dim_status == 0) {
+		oneplus_onscreenfp_status = 0;
+	} else if (dsi_display->panel->aod_status == 1 && dim_status == 5) {
+		oneplus_aod_dc = 1;
+	}
+	if (dim_status == 0)
+		oneplus_onscreenfp_status = 0;
+	if (dim_status == oneplus_dim_status)
+		return count;
+	oneplus_dim_status = dim_status;
+	pr_err("notify dim %d,aod = %d press= %d aod_hide =%d\n",
+		oneplus_dim_status, dsi_display->panel->aod_status, oneplus_onscreenfp_status, aod_layer_hide);
+	if (oneplus_dim_status == 1 && HBM_flag) {
+		pr_err("notify dim not commit");
+		return count;
+	}
+	drm_modeset_lock_all(drm_dev);
+
+	state = drm_atomic_state_alloc(drm_dev);
+	state->acquire_ctx = mode_config->acquire_ctx;
+	crtc = dsi_connector->state->crtc;
+	crtc_state = drm_atomic_get_crtc_state(state, crtc);
+	if((oneplus_dim_status !=0) && (oneplus_dim_status != 5)){
+		err = drm_atomic_commit(state);
+		if (err < 0)
+			drm_atomic_state_clear(state);
+	}
+	drm_modeset_unlock_all(drm_dev);
+	SDE_ATRACE_END("oneplus_display_notify_dim");
+	return count;
+}
+/***************************************************************************/
+static int sde_crtc_config_fingerprint_dim_layer(struct drm_crtc_state *crtc_state, int stage)
+{
+	struct sde_crtc_state *cstate;
+	struct drm_display_mode *mode = &crtc_state->adjusted_mode;
+	struct sde_hw_dim_layer *fingerprint_dim_layer;
+	int alpha = oneplus_get_panel_brightness_to_alpha();
+	struct sde_kms *kms;
+    struct dsi_display *display = get_main_display();
+
+    if(display == NULL || display->panel == NULL){
+        SDE_ERROR("display  panel is null\n");
+		return 0;
+    }
+
+    if(display->panel->aod_status==1){
+        if(oneplus_dim_status == 2){
+            alpha = 255;
+        }
+	}
+
+	kms = _sde_crtc_get_kms(crtc_state->crtc);
+	if (!kms || !kms->catalog) {
+		SDE_ERROR("invalid kms\n");
+		return -EINVAL;
+	}
+	SDE_ATRACE_BEGIN("set_dim_layer");
+
+	cstate = to_sde_crtc_state(crtc_state);
+
+	if (cstate->num_dim_layers == SDE_MAX_DIM_LAYERS - 1) {
+		pr_err("failed to get available dim layer for custom\n");
+		return -EINVAL;
+	}
+
+	if (!alpha) {
+		cstate->fingerprint_dim_layer = NULL;
+		return 0;
+	}
+
+	if ((stage + SDE_STAGE_0) >= kms->catalog->mixer[0].sblk->maxblendstages) {
+		return -EINVAL;
+	}
+
+	fingerprint_dim_layer = &cstate->dim_layer[cstate->num_dim_layers];
+	fingerprint_dim_layer->flags = SDE_DRM_DIM_LAYER_INCLUSIVE;
+	fingerprint_dim_layer->stage = stage + SDE_STAGE_0;
+
+	fingerprint_dim_layer->rect.x = 0;
+	fingerprint_dim_layer->rect.y = 0;
+	fingerprint_dim_layer->rect.w = mode->hdisplay;
+	fingerprint_dim_layer->rect.h = mode->vdisplay;
+	fingerprint_dim_layer->color_fill = (struct sde_mdss_color) {0, 0, 0, alpha};
+	cstate->fingerprint_dim_layer = fingerprint_dim_layer;
+	SDE_ATRACE_END("set_dim_layer");
+	return 0;
 }
 
 /**
@@ -3289,27 +3748,24 @@ static int _sde_crtc_check_dest_scaler_data(struct drm_crtc *crtc,
 
 	SDE_DEBUG("crtc%d\n", crtc->base.id);
 
-	mutex_lock(&sde_crtc->crtc_lock);
-
 	if (!cstate->ds_dirty) {
 		SDE_DEBUG("dest scaler property not set, skip validation\n");
-		goto end;
+		return 0;
 	}
 
 	if (!kms || !kms->catalog) {
 		SDE_ERROR("crtc%d: invalid parameters\n", crtc->base.id);
-		ret = -EINVAL;
-		goto end;
+		return -EINVAL;
 	}
 
 	if (!kms->catalog->mdp[0].has_dest_scaler) {
 		SDE_DEBUG("dest scaler feature not supported\n");
-		goto end;
+		return 0;
 	}
 
 	if (!sde_crtc->num_mixers) {
 		SDE_DEBUG("mixers not allocated\n");
-		goto end;
+		return 0;
 	}
 
 	ret = _sde_validate_hw_resources(sde_crtc);
@@ -3488,12 +3944,10 @@ disable:
 			cstate->ds_dirty = false;
 	}
 
-	goto end;
+	return 0;
 
 err:
 	cstate->ds_dirty = false;
-end:
-	mutex_unlock(&sde_crtc->crtc_lock);
 	return ret;
 }
 
@@ -3613,12 +4067,12 @@ static void _sde_crtc_setup_mixers(struct drm_crtc *crtc)
 	struct sde_crtc *sde_crtc = to_sde_crtc(crtc);
 	struct drm_encoder *enc;
 
-	mutex_lock(&sde_crtc->crtc_lock);
 	sde_crtc->num_ctls = 0;
 	sde_crtc->num_mixers = 0;
 	sde_crtc->mixers_swapped = false;
 	memset(sde_crtc->mixers, 0, sizeof(sde_crtc->mixers));
 
+	mutex_lock(&sde_crtc->crtc_lock);
 	/* Check for mixers on all encoders attached to this crtc */
 	list_for_each_entry(enc, &crtc->dev->mode_config.encoder_list, head) {
 		if (enc->crtc != crtc)
@@ -5237,6 +5691,217 @@ static int _sde_crtc_check_secure_state(struct drm_crtc *crtc,
 	return 0;
 }
 
+int op_dimlayer_bl_alpha = 260;
+int op_dimlayer_bl_enabled = 0;
+int op_dimlayer_bl_enable_real = 0;
+int op_dimlayer_bl = 0;
+bool finger_type = false;
+//extern int aod_layer_hide;
+extern int op_dimlayer_bl_enable;
+extern int op_dp_enable;
+extern int sde_plane_check_fingerprint_layer(const struct drm_plane_state *drm_state);
+static int sde_crtc_onscreenfinger_atomic_check(struct sde_crtc_state *cstate,
+		struct plane_state *pstates, int cnt)
+{
+	int fp_index = -1;
+	int fppressed_index = -1;
+    int aod_index = -1;
+	int fppressed_index_rt = -1;
+	int zpos = INT_MAX;
+	int mode;
+	int fp_mode = oneplus_onscreenfp_status;
+	int dim_mode = oneplus_dim_status;
+	int aod_mode = -1;
+	int i = 0;
+	int dim_backlight = 0;
+	struct dsi_display *display = get_main_display();
+	static int dim_backlight_pre;
+
+	if (display == NULL ||
+		display->panel == NULL) {
+		SDE_ERROR("display  panel is null\n");
+		return 0;
+    }
+
+	if (display->panel->aod_status == 1) {
+		if (oneplus_dim_status == 2 && oneplus_onscreenfp_status == 1) {
+			fp_mode = 1;
+			//dim_mode = 0;
+		} else if (oneplus_dim_status == 2 && oneplus_onscreenfp_status == 0) {
+			fp_mode = 0;
+			dim_mode = 0;
+		}
+	}
+	if (oneplus_dim_status == 5 || aod_layer_hide == 1) {
+		oneplus_aod_hid = 1;
+		dim_mode = 0;
+	}
+
+    aod_mode = oneplus_aod_hid;
+	if (oneplus_dim_status == 5 && display->panel->aod_status == 0)
+		dim_mode = 0;
+
+	for (i = 0; i < cnt; i++) {
+		mode = sde_plane_check_fingerprint_layer(pstates[i].drm_pstate);
+		if (mode == 1)
+			fp_index = i;
+		if (mode == 2) {
+			fppressed_index = i;
+			fppressed_index_rt = i;
+		}
+        if (mode ==3)
+            aod_index = i;
+	}
+	if(fp_index >=0 && dim_mode!=0)
+		display->panel->dim_status = true;
+	else
+		display->panel->dim_status = false;
+
+	if(aod_index <0){
+		oneplus_aod_hid = 0;
+		aod_layer_hide = 0;
+	}
+
+	if (fppressed_index_rt < 0) {
+		oneplus_aod_fod = 0;
+		oneplus_aod_dc = 0;
+    }
+
+	if (finger_type) {
+		if (aod_index >= 0 &&
+			aod_mode == 1) {
+			SDE_ATRACE_BEGIN("aod_layer_qbt_hid");
+			pstates[aod_index].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0;
+			aod_index = -1;
+			SDE_ATRACE_END("aod_layer_qbt_hid");
+		}
+        return 0;
+	}
+
+	if (
+		(fp_index >= 0 && dim_mode != 0) ||
+		(display->panel->aod_status == 1
+		 && oneplus_aod_dc == 0)
+		) {
+		op_dimlayer_bl = 0;
+	} else {
+		if (op_dimlayer_bl_enable && !op_dp_enable) {
+			if (display->panel->bl_config.bl_level != 0 &&
+				display->panel->bl_config.bl_level < op_dimlayer_bl_alpha) {
+				dim_backlight = 1;
+				op_dimlayer_bl = 1;
+				if (mode_fps == 60 && dsi_panel_name == DSI_PANEL_SAMSUNG_S6E3HC2)
+					dim_backlight_pre = 1;
+			} else {
+				op_dimlayer_bl = 0;
+			}
+		} else {
+			op_dimlayer_bl = 0;
+			if (dim_backlight_pre) {
+				if (mode_fps == 60 && dsi_panel_name == DSI_PANEL_SAMSUNG_S6E3HC2)
+					dim_backlight = 1;
+
+				dim_backlight_pre = 0;
+				SDE_ERROR("show dl one more frame %d\n", dsi_panel_name);
+			}
+		}
+    }
+
+	if (fp_index >= 0 || fppressed_index >= 0 || oneplus_force_screenfp || dim_backlight == 1) {
+		if (fp_index >= 0 && fppressed_index >= 0) {
+			if (pstates[fp_index].stage >= pstates[fppressed_index].stage) {
+				SDE_ERROR("Bug!!@@@@: fp layer top of fppressed layer\n");
+				return -EINVAL;
+			}
+		}
+		if (fppressed_index >= 0) {
+			if (zpos > pstates[fppressed_index].stage)
+				zpos = pstates[fppressed_index].stage;
+			pstates[fppressed_index].stage++;
+		}
+
+		if (fp_index >= 0) {
+			if (zpos > pstates[fp_index].stage)
+				zpos = pstates[fp_index].stage;
+			pstates[fp_index].stage++;
+		}
+		for (i = 0; i < cnt; i++) {
+				if (i == fp_index || i == fppressed_index)
+					{
+					continue;
+					}
+				if (pstates[i].stage >= zpos) {
+				//	SDE_ERROR("Warn!!: the fp layer not on top");
+				pstates[i].stage++;
+				}
+			}
+		if (zpos == INT_MAX) {
+			zpos = 0;
+			for (i = 0; i < cnt; i++) {
+				if (pstates[i].stage > zpos)
+					zpos = pstates[i].stage;
+			}
+			zpos++;
+		}
+
+		if (fp_index >= 0) {
+			if (dim_mode == 0) {
+				//pstates[fp_index].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0xff;
+				fp_index = -1;
+			}
+		}
+        if (fppressed_index >= 0) {
+			if (fp_mode == 0) {
+				pstates[fppressed_index].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0;
+				if(oneplus_aod_fod == 1 && aod_index < 0) {
+					for (i = 0; i < cnt; i++) {
+						if(i!=fppressed_index ) {
+							if(pstates[i].sde_pstate->property_values[PLANE_PROP_ALPHA].value == 0){
+								pstates[i].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0xff;
+							}
+						}
+					}
+				}
+				fppressed_index = -1;
+			} else {
+				pstates[fppressed_index].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0xff;
+			}
+		}
+
+         if (aod_index >= 0) {
+			if (aod_mode == 1) {
+                SDE_ATRACE_BEGIN("aod_layer_hid");
+				pstates[aod_index].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0;
+				aod_index = -1;
+                SDE_ATRACE_END("aod_layer_hid");
+			}
+		}
+
+		if (fp_index >= 0)
+			cstate->fingerprint_mode = true;
+		else
+			cstate->fingerprint_mode = false;
+
+		if ((fp_index >= 0 || dim_backlight > 0) && sde_crtc_config_fingerprint_dim_layer(&cstate->base, zpos)) {
+			SDE_ERROR("Failed to config dim layer\n");
+			return -EINVAL;
+		}
+		if (fppressed_index >= 0)
+			cstate->fingerprint_pressed = true;
+		else {
+			cstate->fingerprint_pressed = false;
+		}
+	} else{
+	cstate->fingerprint_pressed = false;
+	cstate->fingerprint_mode = false;
+    }
+	if (fp_index < 0 && !dim_backlight) {
+		cstate->fingerprint_dim_layer = NULL;
+	}
+
+	return 0;
+}
+
 static int sde_crtc_atomic_check(struct drm_crtc *crtc,
 		struct drm_crtc_state *state)
 {
@@ -5422,7 +6087,9 @@ static int sde_crtc_atomic_check(struct drm_crtc *crtc,
 			sde_plane_clear_multirect(pipe_staged[i]);
 		}
 	}
-
+	rc = sde_crtc_onscreenfinger_atomic_check(cstate, pstates, cnt);
+	if (rc)
+		goto end;
 	/* assign mixer stages based on sorted zpos property */
 	sort(pstates, cnt, sizeof(pstates[0]), pstate_cmp, NULL);
 
@@ -5653,6 +6320,9 @@ static void sde_crtc_install_properties(struct drm_crtc *crtc,
 	msm_property_install_range(&sde_crtc->property_info,
 		"idle_time", 0, 0, U64_MAX, 0,
 		CRTC_PROP_IDLE_TIMEOUT);
+	//xiaoxiaohuan@OnePlus.MultiMediaService,2018/08/04, add for fingerprint
+		msm_property_install_range(&sde_crtc->property_info,"CRTC_CUST",
+			0x0, 0, INT_MAX, 0, CRTC_PROP_CUSTOM);
 
 	if (catalog->has_idle_pc)
 		msm_property_install_enum(&sde_crtc->property_info,
@@ -5697,14 +6367,6 @@ static void sde_crtc_install_properties(struct drm_crtc *crtc,
 		sde_kms_info_add_keystr(info, "qseed_type", "qseed3");
 	if (catalog->qseed_type == SDE_SSPP_SCALER_QSEED3LITE)
 		sde_kms_info_add_keystr(info, "qseed_type", "qseed3lite");
-
-	sde_kms_info_add_keyint(info, "UBWC version", catalog->ubwc_version);
-	sde_kms_info_add_keyint(info, "UBWC macrotile_mode",
-				catalog->macrotile_mode);
-	sde_kms_info_add_keyint(info, "UBWC highest banking bit",
-				catalog->mdp[0].highest_bank_bit);
-	sde_kms_info_add_keyint(info, "UBWC swizzle",
-				catalog->mdp[0].ubwc_swizzle);
 
 	if (sde_is_custom_client()) {
 		/* No support for SMART_DMA_V1 yet */
@@ -5822,11 +6484,7 @@ static int _sde_crtc_get_output_fence(struct drm_crtc *crtc,
 {
 	struct sde_crtc *sde_crtc;
 	struct sde_crtc_state *cstate;
-	uint32_t offset, i;
-	struct drm_connector_state *old_conn_state, *new_conn_state;
-	struct drm_connector *conn;
-	struct sde_connector *sde_conn = NULL;
-	struct msm_display_info disp_info;
+	uint32_t offset;
 	bool is_vid = false;
 	struct drm_encoder *encoder;
 
@@ -5838,29 +6496,6 @@ static int _sde_crtc_get_output_fence(struct drm_crtc *crtc,
 						MSM_DISPLAY_CAP_VID_MODE);
 		if (is_vid)
 			break;
-	}
-
-	/*
-	 * encoder_mask of drm_crtc_state will be zero until atomic_check
-	 * phase completes for first commit of dp. Hence, check for video
-	 * mode capability for current commit from new_connector_state.
-	 */
-	if (!state->encoder_mask) {
-		for_each_oldnew_connector_in_state(state->state, conn,
-				 old_conn_state, new_conn_state, i) {
-			if (!new_conn_state || new_conn_state->crtc != crtc)
-				continue;
-
-			sde_conn = to_sde_connector(new_conn_state->connector);
-			if (sde_conn->display && sde_conn->ops.get_info) {
-				sde_conn->ops.get_info(conn, &disp_info,
-							sde_conn->display);
-				is_vid |= disp_info.capabilities &
-						MSM_DISPLAY_CAP_VID_MODE;
-				if (is_vid)
-					break;
-			}
-		}
 	}
 
 	offset = sde_crtc_get_property(cstate, CRTC_PROP_OUTPUT_FENCE_OFFSET);
@@ -5880,7 +6515,6 @@ static int _sde_crtc_get_output_fence(struct drm_crtc *crtc,
 	 * which will be incremented during the prepare commit phase
 	 */
 	offset++;
-	SDE_EVT32(DRMID(crtc), is_vid, offset);
 
 	return sde_fence_create(sde_crtc->output_fence, val, offset);
 }
@@ -6825,6 +7459,17 @@ struct drm_crtc *sde_crtc_init(struct drm_device *dev, struct drm_plane *plane)
 			sizeof(struct sde_crtc_state));
 
 	sde_crtc_install_properties(crtc, kms->catalog);
+
+	if (dsi_panel_name == DSI_PANEL_SAMSUNG_S6E3HC2 || dsi_panel_name == DSI_PANEL_SAMSUNG_S6E3FC2X01) {
+		for (i = 0; i < 21; i++)
+			brightness_alpha_lut[i] = brightness_alpha_lut_1[i];
+	} else if (dsi_panel_name == DSI_PANEL_SAMSUNG_SOFEF03F_M) {
+		for (i = 0; i < 21; i++)
+			brightness_alpha_lut[i] = brightness_alpha_lut_2[i];
+	} else {
+		for (i = 0; i < 21; i++)
+			brightness_alpha_lut[i] = brightness_alpha_lut_1[i];
+	}
 
 	/* Install color processing properties */
 	sde_cp_crtc_init(crtc);

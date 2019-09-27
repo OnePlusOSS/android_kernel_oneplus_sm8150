@@ -24,6 +24,8 @@
 #include "sm8150-sdxprairie.dtsi"
 #include "sm8150-mtp-audio-overlay.dtsi"
 
+#include "sm8150-oem.dtsi"
+
 / {
 	model = "SDXPRAIRIE MTP";
 	compatible = "qcom,sm8150-mtp", "qcom,sm8150", "qcom,mtp";

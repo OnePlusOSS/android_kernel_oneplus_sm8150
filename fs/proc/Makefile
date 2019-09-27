@@ -33,3 +33,5 @@ proc-$(CONFIG_PROC_KCORE)	+= kcore.o
 proc-$(CONFIG_PROC_VMCORE)	+= vmcore.o
 proc-$(CONFIG_PRINTK)	+= kmsg.o
 proc-$(CONFIG_PROC_PAGE_MONITOR)	+= page.o
+proc-$(CONFIG_ADJ_CHAIN) += adj_chain_stat.o
+proc-$(CONFIG_ONEPLUS_FG_OPT)	+= fg_uid.o

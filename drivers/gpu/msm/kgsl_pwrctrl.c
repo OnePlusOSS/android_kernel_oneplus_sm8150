@@ -29,6 +29,9 @@
 #include "kgsl_trace.h"
 #include "kgsl_gmu_core.h"
 
+// tedlin@ASTI 2019/06/12 add for CONFIG_HOUSTON
+#include <oneplus/houston/houston_helper.h>
+
 #define KGSL_PWRFLAGS_POWER_ON 0
 #define KGSL_PWRFLAGS_CLK_ON   1
 #define KGSL_PWRFLAGS_AXI_ON   2
@@ -2458,6 +2461,10 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 
 	of_property_read_string_array(pdev->dev.of_node, "tzone-names",
 		pwr->tzone_names, KGSL_MAX_TZONE_NAMES);
+
+// tedlin@ASTI 2019/06/12 add to register (CONFIG_HOUSTON)
+	ht_register_kgsl_pwrctrl(pwr);
+
 	/*
 	 * Cx ipeak client support, default value of Cx Ipeak GPU freq
 	 * is used if defined in GPU list and it is overridden by
@@ -2990,6 +2997,7 @@ _slumber(struct kgsl_device *device)
 		kgsl_pwrctrl_clk_set_options(device, false);
 		kgsl_pwrctrl_disable(device);
 		kgsl_pwrscale_sleep(device);
+		kgsl_pwrctrl_irq(device, KGSL_PWRFLAGS_OFF);
 		kgsl_pwrctrl_set_state(device, KGSL_STATE_SLUMBER);
 		pm_qos_update_request(&device->pwrctrl.pm_qos_req_dma,
 						PM_QOS_DEFAULT_VALUE);

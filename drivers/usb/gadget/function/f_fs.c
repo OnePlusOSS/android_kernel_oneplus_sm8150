@@ -644,12 +644,21 @@ static int ffs_ep0_open(struct inode *inode, struct file *file)
 
 	ffs_log("state %d setup_state %d flags %lu opened %d", ffs->state,
 		ffs->setup_state, ffs->flags, atomic_read(&ffs->opened));
-
-	if (unlikely(ffs->state == FFS_CLOSING))
+/* @bsp, 2019/04/27 usb & PD porting */
+/* Add log to check ep0 status */
+	if (atomic_read(&ffs->opened)) {
+		pr_err("ep0 is already opened!\n");
 		return -EBUSY;
+	}
+
+	if (unlikely(ffs->state == FFS_CLOSING)) {
+		pr_err("FFS_CLOSING!\n");
+		return -EBUSY;
+	}
 
 	file->private_data = ffs;
 	ffs_data_opened(ffs);
+	pr_info("ep0_open success!\n");
 
 	return 0;
 }
@@ -1392,7 +1401,6 @@ static long ffs_epfile_ioctl(struct file *file, unsigned code,
 		struct usb_endpoint_descriptor desc1, *desc;
 
 		switch (epfile->ffs->gadget->speed) {
-		case USB_SPEED_SUPER_PLUS:
 		case USB_SPEED_SUPER:
 			desc_idx = 2;
 			break;

@@ -12,6 +12,7 @@
 #include <linux/atomic.h>
 #include <linux/device.h>
 #include "esoc.h"
+#include <linux/oneplus/boot_mode.h>
 
 /*
  * cmd_mask : Specifies if a command/notifier is masked, and
@@ -342,6 +343,12 @@ int mdm_dbg_eng_init(struct esoc_drv *esoc_drv,
 	int ret;
 	struct device_driver *drv = &esoc_drv->driver;
 
+	if (get_second_board_absent() == 1) {
+		pr_err("%s second board absent, don't probe esoc-mdm-dbg-eng",
+		__func__);
+		ret = -1;
+		return ret;
+	}
 	ret = driver_create_file(drv, &driver_attr_command_mask);
 	if (ret) {
 		pr_err("Unable to create command mask file\n");

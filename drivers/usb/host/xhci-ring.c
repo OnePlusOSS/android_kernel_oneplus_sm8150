@@ -2780,6 +2780,10 @@ irqreturn_t xhci_irq(struct usb_hcd *hcd)
 		ret = IRQ_HANDLED;
 		goto out;
 	}
+/* @bsp, 2019/04/27 usb & PD porting */
+/* Abort suspend when interrupt is pending */
+	if (status & STS_HCE)
+		xhci_warn(xhci, "WARNING: Host controller Error\n");
 
 	if (!(status & STS_EINT))
 		goto out;
