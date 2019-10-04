@@ -2,6 +2,11 @@
 status of OnePlus 7 Pro TMO
 --------------------------------------
 =======================
+Oxygen OS 9.5.11.GM31CB
+=======================
+- Update CVE patch-
+
+=======================
 Oxygen OS 9.5.10.GM31CB
 =======================
 - used same branch of Oxygen OS 9.5.11.GM21AA -
