@@ -756,6 +756,13 @@ int mhi_send_cmd(struct mhi_controller *mhi_cntrl, struct mhi_chan *mhi_chan,
 		 enum MHI_CMD cmd);
 int __mhi_device_get_sync(struct mhi_controller *mhi_cntrl);
 
+static inline void mhi_trigger_resume(struct mhi_controller *mhi_cntrl)
+{
+	mhi_cntrl->runtime_get(mhi_cntrl, mhi_cntrl->priv_data);
+	mhi_cntrl->runtime_put(mhi_cntrl, mhi_cntrl->priv_data);
+	pm_wakeup_event(&mhi_cntrl->mhi_dev->dev, 0);
+}
+
 /* queue transfer buffer */
 int mhi_gen_tre(struct mhi_controller *mhi_cntrl, struct mhi_chan *mhi_chan,
 		void *buf, void *cb, size_t buf_len, enum MHI_FLAGS flags);
@@ -867,6 +874,8 @@ void mhi_deinit_free_irq(struct mhi_controller *mhi_cntrl);
 int mhi_dtr_init(void);
 void mhi_rddm_prepare(struct mhi_controller *mhi_cntrl,
 		      struct image_info *img_info);
+int mhi_prepare_channel(struct mhi_controller *mhi_cntrl,
+			struct mhi_chan *mhi_chan);
 
 /* isr handlers */
 irqreturn_t mhi_msi_handlr(int irq_number, void *dev);
