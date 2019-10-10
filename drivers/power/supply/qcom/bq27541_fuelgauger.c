@@ -92,6 +92,7 @@
 #define BQ27411_REG_AI                  0x10
 #define BQ27411_REG_SOC                 0x1c
 #define BQ27411_REG_HEALTH              0x20
+#define BQ27411_REG_FCC                 0xE
 
 #define CONTROL_CMD                 0x00
 #define CONTROL_STATUS              0x00
@@ -898,6 +899,29 @@ static int bq27541_remaining_capacity(struct bq27541_device_info *di)
 	return cap;
 }
 
+static int bq27541_full_chg_capacity(struct bq27541_device_info *di)
+{
+	int ret;
+	int cap = 0;
+
+	if (di->allow_reading) {
+#ifdef CONFIG_GAUGE_BQ27411
+		/* david.liu@bsp, 20161004 Add BQ27411 support */
+		ret = bq27541_read(BQ27411_REG_FCC,
+				&cap, 0, di);
+#else
+		ret = bq27541_read(BQ27541_REG_FCC, &cap, 0, di);
+#endif
+		if (ret) {
+			pr_err("error reading full chg capacity.\n");
+			return ret;
+		}
+	}
+
+	return cap;
+}
+
+
 static int bq27541_batt_health(struct bq27541_device_info *di)
 {
 	int ret;
@@ -928,6 +952,12 @@ static int bq27541_get_batt_remaining_capacity(void)
 {
 	return bq27541_remaining_capacity(bq27541_di);
 }
+
+static int bq27541_get_batt_full_chg_capacity(void)
+{
+	return bq27541_full_chg_capacity(bq27541_di);
+}
+
 
 static int bq27541_get_batt_health(void)
 {
@@ -1069,6 +1099,8 @@ static struct external_battery_gauge bq27541_batt_gauge = {
 	.is_battery_id_valid        = bq27541_is_battery_id_valid,
 	.get_batt_remaining_capacity
 		= bq27541_get_batt_remaining_capacity,
+	.get_batt_full_chg_capacity
+		= bq27541_get_batt_full_chg_capacity,
 	.get_batt_health        = bq27541_get_batt_health,
 	.get_batt_bq_soc		= bq27541_get_batt_bq_soc,
 #ifdef CONFIG_GAUGE_BQ27411

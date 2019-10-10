@@ -601,6 +601,7 @@ struct smb_charger {
 	bool				disable_normal_chg_for_dash;
 	bool				ship_mode;
 	bool				dash_on;
+	bool				chg_disabled;
 	bool				chg_ovp;
 	bool				is_power_changed;
 	bool				recharge_pending;
