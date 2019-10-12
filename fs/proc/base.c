@@ -3279,6 +3279,39 @@ static const struct file_operations proc_pid_memplus_type_operations = {
 };
 #endif
 
+static ssize_t vm_fragment_max_gap_read(struct file *file,
+				char __user *buf, size_t count, loff_t *ppos)
+{
+	struct task_struct *task;
+	struct mm_struct *mm;
+	struct vm_area_struct *vma;
+	char buffer[PROC_NUMBUF];
+	size_t len;
+	int vm_fragment_gap_max;
+
+	task = get_proc_task(file_inode(file));
+	if (!task)
+		return -ESRCH;
+
+	mm = task->mm;
+	if (RB_EMPTY_ROOT(&mm->mm_rb)) {
+		put_task_struct(task);
+		return -ENOMEM;
+	}
+
+	vma = rb_entry(mm->mm_rb.rb_node, struct vm_area_struct, vm_rb);
+	vm_fragment_gap_max = (int)(vma->rb_subtree_gap >> 20);
+
+	put_task_struct(task);
+
+	len = snprintf(buffer, sizeof(buffer), "%d\n", vm_fragment_gap_max);
+	return simple_read_from_buffer(buf, count, ppos, buffer, len);
+}
+
+static const struct file_operations proc_vm_fragment_monitor_operations = {
+	.read = vm_fragment_max_gap_read,
+};
+
 /*
  * Thread groups
  */
@@ -3409,6 +3442,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_SMART_BOOST
 	REG("page_hot_count", 0666, proc_page_hot_count_operations),
 #endif
+	REG("vm_fragment_gap_max", 0666, proc_vm_fragment_monitor_operations),
 
 };
 
