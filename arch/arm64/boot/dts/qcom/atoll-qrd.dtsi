@@ -121,7 +121,7 @@
 	qcom,sw-jeita-enable;
 	qcom,fcc-stepping-enable;
 	qcom,suspend-input-on-debug-batt;
-	qcom,sec-charger-config = <3>;
+	qcom,sec-charger-config = <1>;
 	qcom,thermal-mitigation = <4200000 3500000 3000000
 			2500000 2000000 1500000 1000000 500000>;
 	dpdm-supply = <&qusb_phy0>;
@@ -135,8 +135,95 @@
 	extcon = <&pm6150_pdphy>, <&pm6150_charger>, <&eud>;
 };
 
+&qusb_phy0 {
+	qcom,qusb-phy-init-seq =
+		/* <value reg_offset> */
+		<0x23 0x210 /* PWR_CTRL1 */
+		 0x03 0x04  /* PLL_ANALOG_CONTROLS_TWO */
+		 0x7c 0x18c /* PLL_CLOCK_INVERTERS */
+		 0x80 0x2c  /* PLL_CMODE */
+		 0x0a 0x184 /* PLL_LOCK_DELAY */
+		 0x19 0xb4  /* PLL_DIGITAL_TIMERS_TWO */
+		 0x40 0x194 /* PLL_BIAS_CONTROL_1 */
+		 0x22 0x198 /* PLL_BIAS_CONTROL_2 */
+		 0x21 0x214 /* PWR_CTRL2 */
+		 0x08 0x220 /* IMP_CTRL1 */
+		 0x58 0x224 /* IMP_CTRL2 */
+		 0x67 0x240 /* TUNE1 */
+		 0x29 0x244 /* TUNE2 */
+		 0xca 0x248 /* TUNE3 */
+		 0x04 0x24c /* TUNE4 */
+		 0x03 0x250 /* TUNE5 */
+		 0x30 0x23c /* CHG_CTRL2 */
+		 0x22 0x210>; /* PWR_CTRL1 */
+
+	qcom,qusb-phy-host-init-seq =
+		/* <value reg_offset> */
+		<0x23 0x210 /* PWR_CTRL1 */
+		0x03 0x04  /* PLL_ANALOG_CONTROLS_TWO */
+		0x7c 0x18c /* PLL_CLOCK_INVERTERS */
+		0x80 0x2c  /* PLL_CMODE */
+		0x0a 0x184 /* PLL_LOCK_DELAY */
+		0x19 0xb4  /* PLL_DIGITAL_TIMERS_TWO */
+		0x40 0x194 /* PLL_BIAS_CONTROL_1 */
+		0x22 0x198 /* PLL_BIAS_CONTROL_2 */
+		0x21 0x214 /* PWR_CTRL2 */
+		0x08 0x220 /* IMP_CTRL1 */
+		0x58 0x224 /* IMP_CTRL2 */
+		0x67 0x240 /* TUNE1 */
+		0x29 0x244 /* TUNE2 */
+		0xca 0x248 /* TUNE3 */
+		0x04 0x24c /* TUNE4 */
+		0x03 0x250 /* TUNE5 */
+		0x30 0x23c /* CHG_CTRL2 */
+		0x22 0x210>; /* PWR_CTRL1 */
+};
+
 &usb_qmp_dp_phy {
 	extcon = <&pm6150_pdphy>;
+};
+
+&pm6150_gpios {
+	smb_stat {
+	smb_stat_default: smb_stat_default {
+			pins = "gpio3";
+			function = "normal";
+			input-enable;
+			bias-pull-up;
+			qcom,pull-up-strength = <PMIC_GPIO_PULL_UP_30>;
+			power-source = <0>;
+		};
+	};
+};
+
+&qupv3_se9_i2c {
+	status = "ok";
+	#include "smb1390.dtsi"
+};
+
+&smb1390 {
+	/delete-property/ interrupts;
+	interrupts = <0x0 0xc2 0x0 IRQ_TYPE_LEVEL_LOW>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&smb_stat_default>;
+	status = "ok";
+};
+
+&smb1390_charger {
+	compatible = "qcom,smb1390-charger-psy";
+	io-channels = <&pm6150_vadc ADC_AMUX_THM2>;
+	io-channel-names = "cp_die_temp";
+	qcom,parallel-input-mode = <1>; /* USBIN */
+	qcom,parallel-output-mode = <2>; /* VBAT */
+	status = "ok";
+};
+
+&smb1390_slave {
+	status = "ok";
+};
+
+&smb1390_slave_charger {
+	status = "ok";
 };
 
 &pm6150l_gpios {
