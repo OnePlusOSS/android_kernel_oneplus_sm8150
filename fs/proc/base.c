@@ -3287,14 +3287,20 @@ static ssize_t vm_fragment_max_gap_read(struct file *file,
 	struct vm_area_struct *vma;
 	char buffer[PROC_NUMBUF];
 	size_t len;
-	int vm_fragment_gap_max;
+	int vm_fragment_gap_max = 0;
 
 	task = get_proc_task(file_inode(file));
 	if (!task)
 		return -ESRCH;
 
-	mm = task->mm;
+	mm = get_task_mm(task);
+	if (!mm) {
+		put_task_struct(task);
+		return -ENOMEM;
+	}
+
 	if (RB_EMPTY_ROOT(&mm->mm_rb)) {
+		mmput(mm);
 		put_task_struct(task);
 		return -ENOMEM;
 	}
@@ -3302,6 +3308,7 @@ static ssize_t vm_fragment_max_gap_read(struct file *file,
 	vma = rb_entry(mm->mm_rb.rb_node, struct vm_area_struct, vm_rb);
 	vm_fragment_gap_max = (int)(vma->rb_subtree_gap >> 20);
 
+	mmput(mm);
 	put_task_struct(task);
 
 	len = snprintf(buffer, sizeof(buffer), "%d\n", vm_fragment_gap_max);
