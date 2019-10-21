@@ -61,6 +61,7 @@ enum print_reason {
 #define THIRD_PROTECT_RISE_RATE 3
 #define THIRD_PROTECT_LOOP_TEMP 40
 #define THIRD_PROTECT_INTERVAL_TEMP 15
+#define THIRD_PROTECT_BASE_TEMP 20
 #define FV_OFFSET_VOLTAGE 70
 #define SKIN_THERMAL_HIGH 40
 #define SKIN_THERMAL_NORMAL 37
@@ -649,6 +650,7 @@ struct smb_charger {
 	int					third_protect_rise_rate;
 	int					third_protect_loop_temp;
 	int					third_protect_interval_temp;
+	int					third_protect_base_temp;
 	int					skin_thermal_high_threshold;
 	int					skin_thermal_normal_threshold;
 	bool					enable_dash_current_adjust;

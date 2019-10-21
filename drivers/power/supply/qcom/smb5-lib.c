@@ -6785,25 +6785,25 @@ static void op_connect_temp_check_work(struct work_struct *work)
 	}
 
 	if ((chg->connecter_temp >= chg->first_protect_connecter_temp)
-			|| chg->connector_short) {
+			|| chg->connector_short) { /* >=60 */
 		pr_info("connecter_temp=%d,connector_short=%d\n",
 				chg->connecter_temp,
 				chg->connector_short);
 		op_disconnect_vbus(chg, true);
-	}
-	else {/*< 60*/
+	} else {/*20<= ? < 60*/
 		if ((interval_temp >= chg->second_protect_interval_temp)
 			&& (chg->connecter_temp >=
 			chg->second_protect_connecter_temp)) {
-			/*interval > 15 && connecter > 45*/
+			/*interval > 12 && connecter > 45*/
 			pr_info("interval_temp=%d,connecter_temp=%d\n",
 					interval_temp,
 					chg->connecter_temp);
 			op_disconnect_vbus(chg, true);
 			return;
-		} else if ((interval_temp >= third_interval_temp) ||
+		} else if (((interval_temp >= third_interval_temp) &&
+			(chg->connecter_temp >= chg->third_protect_base_temp)) ||
 			(chg->connecter_temp >= loop_enter_temp)) {
-		/*interval >=10 or connecter >= 35 enter*/
+		/*interval >=8 && connecter >=20  or connecter >= 40 enter*/
 			if (chg->count_run <= chg->count_total) {
 			/*time out count*/
 				if (chg->count_run == 0)
@@ -6814,7 +6814,7 @@ static void op_connect_temp_check_work(struct work_struct *work)
 					chg->current_temp = chg->connecter_temp;
 					if ((chg->current_temp -
 						chg->pre_temp) >=
-						chg->third_protect_rise_rate) {
+						chg->third_protect_rise_rate) { /* 3 degree per 1.5 senconds*/
 						chg->connector_short = true;
 						pr_info("cout_run=%d,short=%d\n",
 							chg->count_run,
@@ -6831,7 +6831,7 @@ static void op_connect_temp_check_work(struct work_struct *work)
 					smblib_dbg(chg, PR_FAST_DEBUG, "count reset!\n");
 				}
 			}
-		} else {/*<35*/
+		} else {/*connecter <20 or connecter < 40 && interval < 8*/
 			if (chg->count_run)/* high temp cold down count reset.*/
 				chg->count_run = 0;
 			smblib_dbg(chg, PR_FAST_DEBUG,

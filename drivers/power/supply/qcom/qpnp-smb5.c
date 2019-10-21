@@ -739,6 +739,14 @@ static int smb5_parse_dt(struct smb5 *chip)
 	pr_info("third_protect_interval_temp=%d\n",
 		chg->third_protect_interval_temp);
 
+	OF_PROP_READ(node, "op,third-protect-base-temp",
+			chg->third_protect_base_temp, retval, 1);
+	if (chg->third_protect_base_temp <= 0)
+		chg->third_protect_base_temp =
+			THIRD_PROTECT_BASE_TEMP;
+	pr_info("third_protect_base_temp=%d\n",
+		chg->third_protect_base_temp);
+
 	OF_PROP_READ(node, "op,skin-thermal-high-threshold",
 			chg->skin_thermal_high_threshold, retval, 1);
 	if (chg->skin_thermal_high_threshold <= 0)

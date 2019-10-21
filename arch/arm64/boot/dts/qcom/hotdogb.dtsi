@@ -374,6 +374,7 @@
 	op,third-protect-rise-rate = <3>;
 	op,third-protect-loop-temp = <40>;
 	op,third-protect-interval-temp = <8>;
+	op,third-protect-base-temp = <20>;
 
 	/* for charge current&voltage curve optimize */
 	op,fv-offset-voltage-mv = <50>;
