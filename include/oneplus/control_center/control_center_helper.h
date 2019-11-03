@@ -39,9 +39,10 @@ extern void cc_tsk_free(void* task);
 
 /* ddr related control */
 extern atomic_t cc_expect_ddrfreq;
-extern bool cc_ddr_set_enable;
-extern bool cc_ddr_lower_bound_enable;
-extern bool cc_ddr_lock_enable;
+extern bool cc_ddr_boost_enable;
+//extern bool cc_ddr_set_enable;
+//extern bool cc_ddr_lower_bound_enable;
+//extern bool cc_ddr_lock_enable;
 
 extern u64 cc_cpu_find_ddr(int cpu);
 extern bool cc_is_ddrfreq_related(const char* name);
