@@ -8583,6 +8583,9 @@ static int msm_drm_notifier_callback(struct notifier_block *self,
 			vote(chip->usb_icl_votable,
 					SW_ICL_MAX_VOTER, true, rp_ua);
 		}
+		/* add to update fg node value on panel event */
+		panel_flag1 = 1;
+		panel_flag2 = 1;
 	}
 
 	return 0;

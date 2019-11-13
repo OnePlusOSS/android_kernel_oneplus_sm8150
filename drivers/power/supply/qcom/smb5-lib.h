@@ -792,6 +792,9 @@ extern bool get_prop_fast_chg_started(struct smb_charger *chg);
 extern void mcu_en_gpio_set(int value);
 extern void switch_mode_to_normal(void);
 extern struct smb_charger *g_chg;
+/* add to update fg node value on panel event */
+extern int panel_flag1;
+extern int panel_flag2;
 void op_disconnect_vbus(struct smb_charger *chg, bool enable);
 
 int smblib_read(struct smb_charger *chg, u16 addr, u8 *val);
