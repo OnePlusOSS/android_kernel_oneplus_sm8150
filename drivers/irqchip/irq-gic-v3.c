@@ -43,7 +43,8 @@
 #include <linux/syscore_ops.h>
 #include <linux/suspend.h>
 #include <linux/notifier.h>
-
+/* Add for battery historian */
+#include <linux/wakeup_reason.h>
 #include "irq-gic-common.h"
 
 struct redist_region {
@@ -425,6 +426,10 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 			name = "stray irq";
 		else if (desc->action && desc->action->name)
 			name = desc->action->name;
+
+		/* Add for battery historian */
+		if (name != NULL)
+			log_wakeup_reason(irq);
 
 		pr_warn("%s: %d triggered %s\n", __func__, irq, name);
 	}
