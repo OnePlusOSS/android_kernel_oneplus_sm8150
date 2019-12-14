@@ -65,6 +65,15 @@
 #include "io-pgtable.h"
 #include "arm-smmu-regs.h"
 
+/*
+ * Apparently, some Qualcomm arm64 platforms which appear to expose their SMMU
+ * global register space are still, in fact, using a hypervisor to mediate it
+ * by trapping and emulating register accesses. Sadly, some deployed versions
+ * of said trapping code have bugs wherein they go horribly wrong for stores
+ * using r31 (i.e. XZR/WZR) as the source register.
+ */
+#define QCOM_DUMMY_VAL -1
+
 #define ARM_MMU500_ACTLR_CPRE		(1 << 1)
 
 #define ARM_MMU500_ACR_CACHE_LOCK	(1 << 26)
@@ -820,6 +829,7 @@ static void __arm_smmu_free_bitmap(unsigned long *map, int idx)
 
 static int arm_smmu_prepare_clocks(struct arm_smmu_power_resources *pwr)
 {
+<<<<<<< HEAD
 	int i, ret = 0;
 
 	for (i = 0; i < pwr->num_clocks; ++i) {
@@ -829,6 +839,16 @@ static int arm_smmu_prepare_clocks(struct arm_smmu_power_resources *pwr)
 			while (i--)
 				clk_unprepare(pwr->clocks[i]);
 			break;
+=======
+	unsigned int spin_cnt, delay;
+
+	writel_relaxed(QCOM_DUMMY_VAL, sync);
+	for (delay = 1; delay < TLB_LOOP_TIMEOUT; delay *= 2) {
+		for (spin_cnt = TLB_SPIN_COUNT; spin_cnt > 0; spin_cnt--) {
+			if (!(readl_relaxed(status) & sTLBGSTATUS_GSACTIVE))
+				return;
+			cpu_relax();
+>>>>>>> v4.14.158
 		}
 	}
 	return ret;
@@ -5040,8 +5060,14 @@ static void __exit arm_smmu_exit(void)
 	return platform_driver_unregister(&arm_smmu_driver);
 }
 
+<<<<<<< HEAD
 subsys_initcall(arm_smmu_init);
 module_exit(arm_smmu_exit);
+=======
+	/* Invalidate the TLB, just in case */
+	writel_relaxed(QCOM_DUMMY_VAL, gr0_base + ARM_SMMU_GR0_TLBIALLH);
+	writel_relaxed(QCOM_DUMMY_VAL, gr0_base + ARM_SMMU_GR0_TLBIALLNSNH);
+>>>>>>> v4.14.158
 
 static int __init arm_smmu_of_init(struct device_node *np)
 {

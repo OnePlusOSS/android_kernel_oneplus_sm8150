@@ -842,6 +842,7 @@ int f2fs_get_valid_checkpoint(struct f2fs_sb_info *sbi)
 	unsigned int cp_blks = 1 + __cp_payload(sbi);
 	block_t cp_blk_no;
 	int i;
+	int err;
 
 	sbi->ckpt = f2fs_kzalloc(sbi, array_size(blk_size, cp_blks),
 				 GFP_KERNEL);
@@ -869,6 +870,7 @@ int f2fs_get_valid_checkpoint(struct f2fs_sb_info *sbi)
 	} else if (cp2) {
 		cur_page = cp2;
 	} else {
+		err = -EFSCORRUPTED;
 		goto fail_no_cp;
 	}
 
@@ -881,8 +883,14 @@ int f2fs_get_valid_checkpoint(struct f2fs_sb_info *sbi)
 		sbi->cur_cp_pack = 2;
 
 	/* Sanity checking of checkpoint */
+<<<<<<< HEAD
 	if (f2fs_sanity_check_ckpt(sbi))
+=======
+	if (sanity_check_ckpt(sbi)) {
+		err = -EFSCORRUPTED;
+>>>>>>> v4.14.158
 		goto free_fail_no_cp;
+	}
 
 	if (cp_blks <= 1)
 		goto done;
@@ -911,8 +919,13 @@ free_fail_no_cp:
 	f2fs_put_page(cp1, 1);
 	f2fs_put_page(cp2, 1);
 fail_no_cp:
+<<<<<<< HEAD
 	kvfree(sbi->ckpt);
 	return -EINVAL;
+=======
+	kfree(sbi->ckpt);
+	return err;
+>>>>>>> v4.14.158
 }
 
 static void __add_dirty_inode(struct inode *inode, enum inode_type type)

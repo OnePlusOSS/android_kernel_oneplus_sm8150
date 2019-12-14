@@ -208,6 +208,7 @@ repeat:
 	rcu_read_unlock();
 
 	proc_flush_task(p);
+	cgroup_release(p);
 
 	write_lock_irq(&tasklist_lock);
 	ptrace_release_task(p);
@@ -233,7 +234,6 @@ repeat:
 	}
 
 	write_unlock_irq(&tasklist_lock);
-	cgroup_release(p);
 	release_thread(p);
 	call_rcu(&p->rcu, delayed_put_task_struct);
 
@@ -513,7 +513,7 @@ static void exit_mm(void)
 	struct core_state *core_state;
 	int mm_released;
 
-	mm_release(current, mm);
+	exit_mm_release(current, mm);
 	if (!mm)
 		return;
 	sync_mm_rss(mm);
@@ -830,6 +830,7 @@ void __noreturn do_exit(long code)
 		panic("Recursive fault!\n");
 #else
 		pr_alert("Fixing recursive fault but reboot is needed!\n");
+<<<<<<< HEAD
 #endif
 		/*
 		 * We can do this unlocked here. The futex code uses
@@ -841,11 +842,15 @@ void __noreturn do_exit(long code)
 		 * task into the wait for ever nirwana as well.
 		 */
 		tsk->flags |= PF_EXITPIDONE;
+=======
+		futex_exit_recursive(tsk);
+>>>>>>> v4.14.158
 		set_current_state(TASK_UNINTERRUPTIBLE);
 		schedule();
 	}
 
 	exit_signals(tsk);  /* sets PF_EXITING */
+<<<<<<< HEAD
 	sched_exit(tsk);
 	/*
 	 * Ensure that all new tsk->pi_lock acquisitions must observe
@@ -858,6 +863,8 @@ void __noreturn do_exit(long code)
 	 */
 	raw_spin_lock_irq(&tsk->pi_lock);
 	raw_spin_unlock_irq(&tsk->pi_lock);
+=======
+>>>>>>> v4.14.158
 
 	if (unlikely(in_atomic())) {
 		pr_info("note: %s[%d] exited with preempt_count %d\n",
@@ -937,12 +944,6 @@ void __noreturn do_exit(long code)
 	 * Make sure we are holding no locks:
 	 */
 	debug_check_no_locks_held();
-	/*
-	 * We can do this unlocked here. The futex code uses this flag
-	 * just to verify whether the pi state cleanup has been done
-	 * or not. In the worst case it loops once more.
-	 */
-	tsk->flags |= PF_EXITPIDONE;
 
 	if (tsk->io_context)
 		exit_io_context(tsk);

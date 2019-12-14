@@ -482,7 +482,7 @@ static int xive_find_target_in_mask(const struct cpumask *mask,
 	 * Now go through the entire mask until we find a valid
 	 * target.
 	 */
-	for (;;) {
+	do {
 		/*
 		 * We re-check online as the fallback case passes us
 		 * an untested affinity mask
@@ -490,12 +490,11 @@ static int xive_find_target_in_mask(const struct cpumask *mask,
 		if (cpu_online(cpu) && xive_try_pick_target(cpu))
 			return cpu;
 		cpu = cpumask_next(cpu, mask);
-		if (cpu == first)
-			break;
 		/* Wrap around */
 		if (cpu >= nr_cpu_ids)
 			cpu = cpumask_first(mask);
-	}
+	} while (cpu != first);
+
 	return -1;
 }
 
@@ -1009,12 +1008,13 @@ static void xive_ipi_eoi(struct irq_data *d)
 {
 	struct xive_cpu *xc = __this_cpu_read(xive_cpu);
 
-	DBG_VERBOSE("IPI eoi: irq=%d [0x%lx] (HW IRQ 0x%x) pending=%02x\n",
-		    d->irq, irqd_to_hwirq(d), xc->hw_ipi, xc->pending_prio);
-
 	/* Handle possible race with unplug and drop stale IPIs */
 	if (!xc)
 		return;
+
+	DBG_VERBOSE("IPI eoi: irq=%d [0x%lx] (HW IRQ 0x%x) pending=%02x\n",
+		    d->irq, irqd_to_hwirq(d), xc->hw_ipi, xc->pending_prio);
+
 	xive_do_source_eoi(xc->hw_ipi, &xc->ipi_data);
 	xive_do_queue_eoi(xc);
 }
