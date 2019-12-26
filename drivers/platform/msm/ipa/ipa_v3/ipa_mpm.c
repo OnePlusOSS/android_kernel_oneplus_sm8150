@@ -2168,8 +2168,12 @@ static int ipa_mpm_mhi_probe_cb(struct mhi_device *mhi_dev,
 	case IPA_MPM_TETH_INIT:
 		if (ul_prod != IPA_CLIENT_MAX) {
 			/* No teth started yet, disable UL channel */
-			ipa_mpm_start_stop_mhip_chan(IPA_MPM_MHIP_CHAN_UL,
-						probe_id, MPM_MHIP_STOP);
+			ret = ipa3_stop_gsi_channel(ipa_ep_idx);
+			if (ret) {
+				IPA_MPM_ERR("MHIP Stop channel err = %d\n",
+					ret);
+				goto fail_stop_channel;
+			}
 			/* Disable data path */
 			if (ipa_mpm_start_stop_ul_mhip_data_path(probe_id,
 				MPM_MHIP_STOP)) {
@@ -2212,6 +2216,7 @@ static int ipa_mpm_mhi_probe_cb(struct mhi_device *mhi_dev,
 
 fail_gsi_setup:
 fail_start_channel:
+fail_stop_channel:
 fail_smmu:
 	if (ipa_mpm_ctx->dev_info.ipa_smmu_enabled)
 		IPA_MPM_DBG("SMMU failed\n");
