@@ -15,11 +15,43 @@
 #include <linux/cpufreq.h>
 #include <linux/init.h>
 #include <linux/module.h>
+#include <linux/oneplus/boot_mode.h>
 
+#define CPUFREQ_INDEX 5
 static void cpufreq_gov_performance_limits(struct cpufreq_policy *policy)
 {
+	unsigned int index = 0;
+	unsigned int valid_freq;
+	struct cpufreq_frequency_table *table, *pos;
+	static unsigned int first_cpu = 1010;
 	pr_debug("setting to %u kHz\n", policy->max);
-	__cpufreq_driver_target(policy, policy->max, CPUFREQ_RELATION_H);
+	if (get_boot_mode() ==  MSM_BOOT_MODE__WLAN
+		|| (get_boot_mode() ==  MSM_BOOT_MODE__RF)
+		|| (get_boot_mode() ==  MSM_BOOT_MODE__FACTORY)) {
+		if (first_cpu != cpumask_first(policy->related_cpus))
+			first_cpu = cpumask_first(policy->related_cpus);
+			table = policy->freq_table;
+			if (!table) {
+				pr_err("Failed to get freqtable\n");
+			} else {
+				for (pos = table; pos->frequency
+					!= CPUFREQ_TABLE_END; pos++)
+					index++;
+				if (index > CPUFREQ_INDEX)
+					index = index - CPUFREQ_INDEX;
+				valid_freq = table[index].frequency;
+				if (valid_freq)
+					__cpufreq_driver_target(policy,
+						valid_freq,
+						CPUFREQ_RELATION_H);
+				else
+					__cpufreq_driver_target(policy,
+						policy->max,
+						CPUFREQ_RELATION_H);
+			}
+	} else
+		__cpufreq_driver_target(policy, policy->max,
+						CPUFREQ_RELATION_H);
 }
 
 static struct cpufreq_governor cpufreq_gov_performance = {

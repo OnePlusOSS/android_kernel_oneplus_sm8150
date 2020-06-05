@@ -1867,7 +1867,7 @@ void *msm_vidc_open(int core_id, int session_type)
 		goto err_invalid_core;
 	}
 
-	pr_info(VIDC_DBG_TAG "Opening video instance: %pK, %d\n",
+	pr_debug(VIDC_DBG_TAG "Opening video instance: %pK, %d\n",
 		"info", inst, session_type);
 	mutex_init(&inst->sync_lock);
 	mutex_init(&inst->bufq[CAPTURE_PORT].lock);
@@ -1907,7 +1907,6 @@ void *msm_vidc_open(int core_id, int session_type)
 	inst->profile = V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE;
 	inst->level = V4L2_MPEG_VIDEO_H264_LEVEL_1_0;
 	inst->entropy_mode = V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CAVLC;
-	inst->max_filled_length = 0;
 	for (i = SESSION_MSG_INDEX(SESSION_MSG_START);
 		i <= SESSION_MSG_INDEX(SESSION_MSG_END); i++) {
 		init_completion(&inst->completions[i]);
@@ -2156,7 +2155,7 @@ int msm_vidc_destroy(struct msm_vidc_inst *inst)
 
 	msm_vidc_debugfs_deinit_inst(inst);
 
-	pr_info(VIDC_DBG_TAG "Closed video instance: %pK\n",
+	pr_debug(VIDC_DBG_TAG "Closed video instance: %pK\n",
 			"info", inst);
 	kfree(inst);
 	return 0;

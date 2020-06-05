@@ -28,6 +28,9 @@
 #include <linux/mm_types_task.h>
 #include <linux/task_io_accounting.h>
 
+// tedlin@ASTI 2019/06/12 add for CONFIG_CONTROL_CENTER
+#include <oneplus/control_center/control_center_helper.h>
+
 /* task_struct member predeclarations (sorted alphabetically): */
 struct audit_context;
 struct backing_dev_info;
@@ -274,7 +277,6 @@ extern int __must_check io_schedule_prepare(void);
 extern void io_schedule_finish(int token);
 extern long io_schedule_timeout(long timeout);
 extern void io_schedule(void);
-extern int set_task_boost(int boost, u64 period);
 
 /**
  * struct prev_cputime - snapshot of system and user cputime
@@ -755,6 +757,16 @@ struct task_struct {
 	unsigned int			flags;
 	unsigned int			ptrace;
 
+    /* add for fd leak debug */
+	bool dump_fd_leak;
+
+	int compensate_time;
+	int compensate_need;
+
+        /* huruihuan add for kill task in D status */
+	unsigned int kill_flag;
+	struct timespec ttu;
+
 #ifdef CONFIG_SMP
 	struct llist_node		wake_entry;
 	int				on_cpu;
@@ -778,11 +790,7 @@ struct task_struct {
 	const struct sched_class	*sched_class;
 	struct sched_entity		se;
 	struct sched_rt_entity		rt;
-	u64				 last_sleep_ts;
-
-	int				boost;
-	u64				boost_period;
-	u64				boost_expires;
+	u64 last_sleep_ts;
 #ifdef CONFIG_SCHED_WALT
 	struct ravg ravg;
 	/*
@@ -835,6 +843,12 @@ struct task_struct {
 	struct sched_info		sched_info;
 
 	struct list_head		tasks;
+
+#ifdef CONFIG_ADJ_CHAIN
+	struct list_head adj_chain_tasks;
+	u32 adj_chain_status;
+#endif
+
 #ifdef CONFIG_SMP
 	struct plist_node		pushable_tasks;
 	struct rb_node			pushable_dl_tasks;
@@ -1348,12 +1362,23 @@ struct task_struct {
 	/* Used by LSM modules for access restriction: */
 	void				*security;
 #endif
+#ifdef CONFIG_OPCHAIN
+	u64 utask_tag;
+	u64 utask_tag_base;
+	int etask_claim;
+	int claim_cpu;
+	bool utask_slave;
+#endif
 
 	/*
 	 * New fields for task_struct should be added above here, so that
 	 * they are included in the randomized portion of task_struct.
 	 */
 	randomized_struct_fields_end
+
+#ifdef CONFIG_SMART_BOOST
+	int hot_count;
+#endif
 
 	/* CPU-specific state of this task: */
 	struct thread_struct		thread;
@@ -1364,6 +1389,54 @@ struct task_struct {
 	 *
 	 * Do not put anything below here!
 	 */
+
+// tedlin@ASTI 2019/06/12 add for CONFIG_HOUSTON
+#ifdef CONFIG_HOUSTON
+#ifndef HT_PERF_COUNT_MAX
+#define HT_PERF_COUNT_MAX 5
+	/* RTG */
+	spinlock_t rtg_lock;
+	struct list_head rtg_node;
+	struct list_head rtg_perf_node;
+	s64 rtg_ts;
+	s64 rtg_period_ts;
+	u32 rtg_cnt;
+	u32 rtg_peak;
+	u64 prev_schedstat;
+	u64 prev_ts_us;
+
+	/* perf */
+	struct list_head perf_node;
+	u32 perf_activate;
+	u32 perf_regular_activate;
+	u64 enqueue_ts;
+	u64 run_ts;
+	u64 end_ts;
+	u64 acc_run_ts;
+	u64 delta_ts;
+	u64 total_run_ts;
+
+	/* filter */
+	s64 f_ts;
+	u32 f_cnt;
+	u32 f_peak;
+	u64 perf_counters[HT_PERF_COUNT_MAX];
+	struct perf_event* perf_events[HT_PERF_COUNT_MAX];
+	struct work_struct perf_work;
+	struct list_head ht_perf_event_node;
+#undef HT_PERF_COUNT_MAX
+#endif
+#endif
+
+// tedlin@ASTI 2019/06/12 add for CONFIG_CONTROL_CENTER
+#ifdef CONFIG_CONTROL_CENTER
+	bool cc_enable;
+	struct cc_tsk_data* ctd;
+#endif
+
+// add for chainboost CONFIG_ONEPLUS_CHAIN_BOOST
+	int main_boost_switch;
+	int main_wake_boost;
 };
 
 static inline struct pid *task_pid(struct task_struct *task)

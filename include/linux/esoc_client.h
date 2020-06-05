@@ -16,6 +16,8 @@
 #include <linux/esoc_ctrl.h>
 #include <linux/notifier.h>
 
+extern int oem_get_download_mode(void);
+
 enum esoc_client_hook_prio {
 	ESOC_MHI_HOOK,
 	ESOC_CNSS_HOOK,
@@ -26,6 +28,7 @@ struct esoc_link_data {
 	enum esoc_client_hook_prio prio;
 	__u64 link_id;
 };
+
 
 /* Flag values used with the power_on and power_off hooks */
 #define ESOC_HOOK_MDM_CRASH	0x0001 /* In crash handling path */
@@ -89,4 +92,7 @@ static inline int esoc_unregister_client_hook(struct esoc_desc *desc,
 	return -EIO;
 }
 #endif
+int get_ssr_reason_state(void);
+int oem_set_esoc_ssr(int enable);
+int is_oem_esoc_ssr(void);
 #endif

@@ -148,6 +148,9 @@ typedef int (dio_iodone_t)(struct kiocb *iocb, loff_t offset,
 /* Has write method(s) */
 #define FMODE_CAN_WRITE         ((__force fmode_t)0x40000)
 
+/* File hasn't page cache and can't be mmaped, for stackable filesystem */
+#define FMODE_NONMAPPABLE       ((__force fmode_t)0x400000)
+
 /* File was opened by fanotify and shouldn't generate fanotify events */
 #define FMODE_NONOTIFY		((__force fmode_t)0x4000000)
 
@@ -1287,6 +1290,8 @@ extern int send_sigurg(struct fown_struct *fown);
 #define SB_SYNCHRONOUS	16	/* Writes are synced at once */
 #define SB_MANDLOCK	64	/* Allow mandatory locks on an FS */
 #define SB_DIRSYNC	128	/* Directory modifications are synchronous */
+/* [OSP-3675]: add to indicate userdata to superblock */
+#define SB_USERDATA	256
 #define SB_NOATIME	1024	/* Do not update access times. */
 #define SB_NODIRATIME	2048	/* Do not update directory access times */
 #define SB_SILENT	32768
@@ -1733,6 +1738,7 @@ struct file_operations {
 	long (*fallocate)(struct file *file, int mode, loff_t offset,
 			  loff_t len);
 	void (*show_fdinfo)(struct seq_file *m, struct file *f);
+	struct file* (*get_lower_file)(struct file *f);
 #ifndef CONFIG_MMU
 	unsigned (*mmap_capabilities)(struct file *);
 #endif

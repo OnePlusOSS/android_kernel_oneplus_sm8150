@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -15,8 +15,6 @@
 #include "cam_csiphy_dev.h"
 #include "cam_csiphy_soc.h"
 #include "cam_common_util.h"
-#include "cam_packet_util.h"
-
 
 #include <soc/qcom/scm.h>
 #include <cam_mem_mgr.h>
@@ -167,7 +165,7 @@ int32_t cam_cmd_buf_parser(struct csiphy_device *csiphy_dev,
 	uint32_t                *cmd_buf = NULL;
 	struct cam_csiphy_info  *cam_cmd_csiphy_info = NULL;
 	size_t                  len;
-	size_t                  remain_len;
+	size_t                  remaining_len_of_buff;
 
 	if (!cfg_dev || !csiphy_dev) {
 		CAM_ERR(CAM_CSIPHY, "Invalid Args");
@@ -181,7 +179,7 @@ int32_t cam_cmd_buf_parser(struct csiphy_device *csiphy_dev,
 		return rc;
 	}
 
-	remain_len = len;
+	remaining_len_of_buff = len;
 	if ((sizeof(struct cam_packet) > len) ||
 		((size_t)cfg_dev->offset >= len - sizeof(struct cam_packet))) {
 		CAM_ERR(CAM_CSIPHY,
@@ -191,13 +189,24 @@ int32_t cam_cmd_buf_parser(struct csiphy_device *csiphy_dev,
 		goto rel_pkt_buf;
 	}
 
-	remain_len -= (size_t)cfg_dev->offset;
+	remaining_len_of_buff -= cfg_dev->offset;
 	csl_packet = (struct cam_packet *)
 		(generic_pkt_ptr + (uint32_t)cfg_dev->offset);
 
-	if (cam_packet_util_validate_packet(csl_packet,
-		remain_len)) {
-		CAM_ERR(CAM_CSIPHY, "Invalid packet params");
+	if (((size_t)(csl_packet->header.size) > remaining_len_of_buff)) {
+		CAM_ERR(CAM_CSIPHY,
+			"Inval pkt_header_size: %zu, len:of_buff: %zu",
+			csl_packet->header.size, remaining_len_of_buff);
+		rc = -EINVAL;
+		goto rel_pkt_buf;
+	}
+
+	remaining_len_of_buff -= sizeof(struct cam_packet);
+
+	if ((sizeof(struct cam_cmd_buf_desc) > remaining_len_of_buff) ||
+		(csl_packet->num_cmd_buf * sizeof(struct cam_cmd_buf_desc) >
+			remaining_len_of_buff)) {
+		CAM_ERR(CAM_CSIPHY, "InVal len: %zu", remaining_len_of_buff);
 		rc = -EINVAL;
 		goto rel_pkt_buf;
 	}
@@ -214,14 +223,6 @@ int32_t cam_cmd_buf_parser(struct csiphy_device *csiphy_dev,
 		goto rel_pkt_buf;
 	}
 
-	if ((len < sizeof(struct cam_csiphy_info)) ||
-		(cmd_desc->offset > (len - sizeof(struct cam_csiphy_info)))) {
-		CAM_ERR(CAM_CSIPHY,
-			"Not enough buffer provided for cam_cisphy_info");
-		rc = -EINVAL;
-		goto rel_pkt_buf;
-	}
-
 	cmd_buf = (uint32_t *)generic_ptr;
 	cmd_buf += cmd_desc->offset / 4;
 	cam_cmd_csiphy_info = (struct cam_csiphy_info *)cmd_buf;
@@ -232,18 +233,13 @@ int32_t cam_cmd_buf_parser(struct csiphy_device *csiphy_dev,
 	csiphy_dev->csiphy_info.csiphy_3phase =
 		cam_cmd_csiphy_info->csiphy_3phase;
 	csiphy_dev->csiphy_info.combo_mode |= cam_cmd_csiphy_info->combo_mode;
-	if (cam_cmd_csiphy_info->combo_mode == 1) {
+	if (cam_cmd_csiphy_info->combo_mode == 1)
 		csiphy_dev->csiphy_info.settle_time_combo_sensor =
 			cam_cmd_csiphy_info->settle_time;
-		csiphy_dev->csiphy_info.data_rate_combo_sensor =
-			cam_cmd_csiphy_info->data_rate;
-	} else {
+	else
 		csiphy_dev->csiphy_info.settle_time =
 			cam_cmd_csiphy_info->settle_time;
-		csiphy_dev->csiphy_info.data_rate =
-			cam_cmd_csiphy_info->data_rate;
-	}
-
+	csiphy_dev->csiphy_info.data_rate = cam_cmd_csiphy_info->data_rate;
 
 	if (cam_cmd_csiphy_info->secure_mode == 1)
 		cam_csiphy_update_secure_info(csiphy_dev,
@@ -272,65 +268,6 @@ void cam_csiphy_cphy_irq_config(struct csiphy_device *csiphy_dev)
 			csiphy_dev->ctrl_reg->csiphy_irq_reg[i].reg_data,
 			csiphybase +
 			csiphy_dev->ctrl_reg->csiphy_irq_reg[i].reg_addr);
-}
-
-void cam_csiphy_cphy_data_rate_config(struct csiphy_device *csiphy_device)
-{
-	int i = 0, j = 0;
-	uint64_t phy_data_rate = 0;
-	void __iomem *csiphybase = NULL;
-	ssize_t num_table_entries = 0;
-	struct data_rate_settings_t *settings_table = NULL;
-
-	if ((csiphy_device == NULL) ||
-		(csiphy_device->ctrl_reg == NULL) ||
-		(csiphy_device->ctrl_reg->data_rates_settings_table == NULL)) {
-		CAM_DBG(CAM_CSIPHY,
-			"Data rate specific register table not found");
-		return;
-	}
-
-	phy_data_rate = csiphy_device->csiphy_info.data_rate;
-	csiphybase =
-		csiphy_device->soc_info.reg_map[0].mem_base;
-	settings_table =
-		csiphy_device->ctrl_reg->data_rates_settings_table;
-	num_table_entries =
-		settings_table->num_data_rate_settings;
-
-	CAM_DBG(CAM_CSIPHY, "required data rate : %llu", phy_data_rate);
-	for (i = 0; i < num_table_entries; i++) {
-		struct data_rate_reg_info_t *drate_settings =
-			settings_table->data_rate_settings;
-		uint64_t bandwidth =
-			drate_settings[i].bandwidth;
-		ssize_t  num_reg_entries =
-		drate_settings[i].data_rate_reg_array_size;
-
-		if (phy_data_rate > bandwidth) {
-			CAM_DBG(CAM_CSIPHY,
-					"Skipping table [%d] %llu required: %llu",
-					i, bandwidth, phy_data_rate);
-			continue;
-		}
-
-		CAM_DBG(CAM_CSIPHY,
-			"table[%d] BW : %llu Selected", i, bandwidth);
-		for (j = 0; j < num_reg_entries; j++) {
-			uint32_t reg_addr =
-			drate_settings[i].csiphy_data_rate_regs[j].reg_addr;
-
-			uint32_t reg_data =
-			drate_settings[i].csiphy_data_rate_regs[j].reg_data;
-
-			CAM_DBG(CAM_CSIPHY,
-				"writing reg : %x val : %x",
-						reg_addr, reg_data);
-			cam_io_w_mb(reg_data,
-				csiphybase + reg_addr);
-		}
-		break;
-	}
 }
 
 void cam_csiphy_cphy_irq_disable(struct csiphy_device *csiphy_dev)
@@ -540,9 +477,6 @@ int32_t cam_csiphy_config_dev(struct csiphy_device *csiphy_dev)
 		lane_pos++;
 	}
 
-	if (csiphy_dev->csiphy_info.csiphy_3phase)
-		cam_csiphy_cphy_data_rate_config(csiphy_dev);
-
 	cam_csiphy_cphy_irq_config(csiphy_dev);
 
 	return rc;
@@ -551,7 +485,7 @@ int32_t cam_csiphy_config_dev(struct csiphy_device *csiphy_dev)
 void cam_csiphy_shutdown(struct csiphy_device *csiphy_dev)
 {
 	struct cam_hw_soc_info *soc_info;
-	int32_t i = 0, rc = 0;
+	int32_t i = 0;
 
 	if (csiphy_dev->csiphy_state == CAM_CSIPHY_INIT)
 		return;
@@ -574,10 +508,7 @@ void cam_csiphy_shutdown(struct csiphy_device *csiphy_dev)
 		cam_csiphy_reset(csiphy_dev);
 		cam_soc_util_disable_platform_resource(soc_info, true, true);
 
-		rc = cam_cpas_stop(csiphy_dev->cpas_handle);
-		if (rc)
-			CAM_ERR(CAM_CSIPHY, "cpas stop failed %d", rc);
-
+		cam_cpas_stop(csiphy_dev->cpas_handle);
 		csiphy_dev->csiphy_state = CAM_CSIPHY_ACQUIRE;
 	}
 
@@ -601,11 +532,6 @@ void cam_csiphy_shutdown(struct csiphy_device *csiphy_dev)
 	csiphy_dev->acquire_count = 0;
 	csiphy_dev->start_dev_count = 0;
 	csiphy_dev->csiphy_state = CAM_CSIPHY_INIT;
-
-	/* reset csiphy info */
-	csiphy_dev->csiphy_info.lane_mask = 0;
-	csiphy_dev->csiphy_info.lane_cnt = 0;
-	csiphy_dev->csiphy_info.combo_mode = 0;
 }
 
 static int32_t cam_csiphy_external_cmd(struct csiphy_device *csiphy_dev,
@@ -733,7 +659,7 @@ int32_t cam_csiphy_core_cfg(void *phy_dev,
 		bridge_params.v4l2_sub_dev_flag = 0;
 		bridge_params.media_entity_flag = 0;
 		bridge_params.priv = csiphy_dev;
-		bridge_params.dev_id = CAM_CSIPHY;
+
 		if (csiphy_acq_params.combo_mode >= 2) {
 			CAM_ERR(CAM_CSIPHY, "Invalid combo_mode %d",
 				csiphy_acq_params.combo_mode);
@@ -925,7 +851,6 @@ int32_t cam_csiphy_core_cfg(void *phy_dev,
 		ahb_vote.type = CAM_VOTE_ABSOLUTE;
 		ahb_vote.vote.level = CAM_SVS_VOTE;
 		axi_vote.compressed_bw = CAM_CPAS_DEFAULT_AXI_BW;
-		axi_vote.compressed_bw_ab = CAM_CPAS_DEFAULT_AXI_BW;
 		axi_vote.uncompressed_bw = CAM_CPAS_DEFAULT_AXI_BW;
 
 		rc = cam_cpas_start(csiphy_dev->cpas_handle,
@@ -942,10 +867,7 @@ int32_t cam_csiphy_core_cfg(void *phy_dev,
 			if (rc < 0) {
 				csiphy_dev->csiphy_info.secure_mode[offset] =
 					CAM_SECURE_MODE_NON_SECURE;
-				rc = cam_cpas_stop(csiphy_dev->cpas_handle);
-				if (rc < 0)
-					CAM_ERR(CAM_CSIPHY,
-						"de-voting CPAS: %d", rc);
+				cam_cpas_stop(csiphy_dev->cpas_handle);
 				goto release_mutex;
 			}
 		}
@@ -953,9 +875,7 @@ int32_t cam_csiphy_core_cfg(void *phy_dev,
 		rc = cam_csiphy_enable_hw(csiphy_dev);
 		if (rc != 0) {
 			CAM_ERR(CAM_CSIPHY, "cam_csiphy_enable_hw failed");
-			rc = cam_cpas_stop(csiphy_dev->cpas_handle);
-			if (rc < 0)
-				CAM_ERR(CAM_CSIPHY, "de-voting CPAS: %d", rc);
+			cam_cpas_stop(csiphy_dev->cpas_handle);
 			goto release_mutex;
 		}
 		rc = cam_csiphy_config_dev(csiphy_dev);
@@ -965,9 +885,7 @@ int32_t cam_csiphy_core_cfg(void *phy_dev,
 		if (rc < 0) {
 			CAM_ERR(CAM_CSIPHY, "cam_csiphy_config_dev failed");
 			cam_csiphy_disable_hw(csiphy_dev);
-			rc = cam_cpas_stop(csiphy_dev->cpas_handle);
-			if (rc < 0)
-				CAM_ERR(CAM_CSIPHY, "de-voting CPAS: %d", rc);
+			cam_cpas_stop(csiphy_dev->cpas_handle);
 			goto release_mutex;
 		}
 		csiphy_dev->start_dev_count++;

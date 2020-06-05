@@ -546,8 +546,6 @@ struct diag_mask_info {
 	int mask_len;
 	uint8_t *update_buf;
 	int update_buf_len;
-	uint8_t *update_buf_client;
-	int update_buf_client_len;
 	uint8_t status;
 	struct mutex lock;
 };
@@ -624,7 +622,7 @@ struct diagchar_dev {
 	int dci_tag;
 	int dci_client_id[MAX_DCI_CLIENTS];
 	struct mutex dci_mutex;
-	struct mutex rpmsginfo_mutex[NUM_PERIPHERALS];
+	spinlock_t rpmsginfo_lock[NUM_PERIPHERALS];
 	int num_dci_client;
 	unsigned char *apps_dci_buf;
 	int dci_state;

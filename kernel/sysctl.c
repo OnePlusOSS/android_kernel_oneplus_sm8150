@@ -135,6 +135,15 @@ static int one_thousand = 1000;
 #ifdef CONFIG_SCHED_WALT
 static int two_million = 2000000;
 #endif
+
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+unsigned int sysctl_fg_io_opt = 1;
+
+/* [OSP-3675]: ext4 fsync */
+unsigned int sysctl_ext4_fsync_enable = 1;
+unsigned int ext4_fsync_enable_status;
+unsigned long sysctl_blkdev_issue_flush_count;
+
 #ifdef CONFIG_PRINTK
 static int ten_thousand = 10000;
 #endif
@@ -413,6 +422,29 @@ static struct ctl_table kern_table[] = {
 		.maxlen		= sizeof(unsigned int) * MAX_MARGIN_LEVELS,
 		.mode		= 0644,
 		.proc_handler	= sched_updown_migrate_handler,
+	},
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+{
+		.procname	= "fg_io_opt",
+		.data		= &sysctl_fg_io_opt,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+},
+/* [OSP-3675]: ext4 fsync */
+	{
+		.procname       = "ext4_fsync_enable",
+		.data           = &sysctl_ext4_fsync_enable,
+		.maxlen         = sizeof(unsigned int),
+		.mode           = 0666,
+		.proc_handler   = proc_dointvec,
+	},
+	{
+		.procname       = "blkdev_issue_flush_count",
+		.data           = &sysctl_blkdev_issue_flush_count,
+		.maxlen         = sizeof(unsigned long),
+		.mode           = 0644,
+		.proc_handler   = proc_dointvec,
 	},
 	{
 		.procname	= "sched_downmigrate",
@@ -945,7 +977,7 @@ static struct ctl_table kern_table[] = {
 		.data		= &console_loglevel,
 		.maxlen		= 4*sizeof(int),
 		.mode		= 0644,
-		.proc_handler	= proc_dointvec,
+		.proc_handler	= proc_dointvec_oem,
 	},
 	{
 		.procname	= "printk_ratelimit",
@@ -1520,6 +1552,21 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= &zero,
 		.extra2		= &one_hundred,
+	},
+	{
+		.procname	= "breath_period",
+		.data		= &vm_breath_period,
+		.maxlen		= sizeof(vm_breath_period),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &zero,
+	},
+	{
+		.procname	= "breath_priority",
+		.data		= &vm_breath_priority,
+		.maxlen		= sizeof(vm_breath_priority),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
 	},
 	{
 		.procname       = "want_old_faultaround_pte",
@@ -2663,6 +2710,24 @@ int proc_dointvec(struct ctl_table *table, int write,
 {
 	return do_proc_dointvec(table, write, buffer, lenp, ppos, NULL, NULL);
 }
+static unsigned int oem_en_chg_prk_lv = 1;
+module_param(oem_en_chg_prk_lv, uint, 0644);
+
+int proc_dointvec_oem(struct ctl_table *table, int write,
+		     void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+    if(oem_en_chg_prk_lv || !write )
+		return do_proc_dointvec(table, write, buffer, lenp, ppos, NULL, NULL);
+    else
+		return -ENOSYS;
+}
+static int __init oem_disable_chg_prk_lv(char *str)
+{
+	oem_en_chg_prk_lv = 0;
+	return 0;
+}
+early_param("debug", oem_disable_chg_prk_lv);
+
 
 /**
  * proc_douintvec - read a vector of unsigned integers

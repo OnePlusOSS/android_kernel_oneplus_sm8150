@@ -39,6 +39,15 @@
 #include "sched.h"
 #include "tune.h"
 #include "walt.h"
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+#include <linux/oem/oneplus_healthinfo.h>
+#endif
+
+//curtis@ASTI, 2019/4/29, add for uxrealm CONFIG_OPCHAIN
+#include "../coretech/uxcore/opchain_helper.h"
+
+// tedlin@ASTI 2019/06/12 add for CONFIG_HOUSTON
+#include <oneplus/houston/houston_helper.h>
 
 #ifdef CONFIG_SMP
 static inline bool task_fits_max(struct task_struct *p, int cpu);
@@ -73,8 +82,11 @@ walt_dec_cfs_rq_stats(struct cfs_rq *cfs_rq, struct task_struct *p) {}
 
 #define walt_inc_throttled_cfs_rq_stats(...)
 #define walt_dec_throttled_cfs_rq_stats(...)
-
 #endif
+
+// add for chainboost CONFIG_ONEPLUS_CHAIN_BOOST
+unsigned  int __read_mostly main_preempt_disable = 1;
+module_param(main_preempt_disable, uint, 0664);
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
@@ -100,6 +112,10 @@ unsigned int sysctl_sched_sync_hint_enable = 1;
  * Enable/disable using cstate knowledge in idle sibling selection
  */
 unsigned int sysctl_sched_cstate_aware = 1;
+
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+extern void ohm_schedstats_record(int sched_type, int fg, u64 delta);
+#endif
 
 /*
  * The initial- and re-scaling of tunables is configurable
@@ -953,6 +969,9 @@ update_stats_wait_start(struct cfs_rq *cfs_rq, struct sched_entity *se)
 
 	schedstat_set(se->statistics.wait_start, wait_start);
 }
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+extern void ohm_schedstats_record(int sched_type, int fg, u64 delta);
+#endif
 
 static inline void
 update_stats_wait_end(struct cfs_rq *cfs_rq, struct sched_entity *se)
@@ -984,6 +1003,10 @@ update_stats_wait_end(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	schedstat_inc(se->statistics.wait_count);
 	schedstat_add(se->statistics.wait_sum, delta);
 	schedstat_set(se->statistics.wait_start, 0);
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+	ohm_schedstats_record(OHM_SCHED_SCHEDLATENCY, current_is_fg(), (delta >> 20));
+#endif
+
 }
 
 static inline void
@@ -1035,6 +1058,10 @@ update_stats_enqueue_sleeper(struct cfs_rq *cfs_rq, struct sched_entity *se)
 				schedstat_add(se->statistics.iowait_sum, delta);
 				schedstat_inc(se->statistics.iowait_count);
 				trace_sched_stat_iowait(tsk, delta);
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+				ohm_schedstats_record(OHM_SCHED_IOWAIT, current_is_fg(),
+							(delta >> 20));
+#endif
 			}
 
 			trace_sched_stat_blocked(tsk, delta);
@@ -2890,18 +2917,6 @@ static inline void cfs_rq_util_change(struct cfs_rq *cfs_rq)
 	}
 }
 
-static inline int per_task_boost(struct task_struct *p)
-{
-	if (p->boost_period) {
-		if (sched_clock() > p->boost_expires) {
-			p->boost_period = 0;
-			p->boost_expires = 0;
-			p->boost = 0;
-		}
-	}
-	return p->boost;
-}
-
 #ifdef CONFIG_SMP
 /*
  * Approximate:
@@ -4004,6 +4019,8 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
 	bool renorm = !(flags & ENQUEUE_WAKEUP) || (flags & ENQUEUE_MIGRATED);
 	bool curr = cfs_rq->curr == se;
+// add for chainboost CONFIG_ONEPLUS_CHAIN_BOOST
+	bool boost_flag = 0;
 
 	/*
 	 * If we're the current task, we must renormalise before calling
@@ -4023,6 +4040,22 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	if (renorm && !curr)
 		se->vruntime += cfs_rq->min_vruntime;
 
+// add for chainboost CONFIG_ONEPLUS_CHAIN_BOOST
+	if (entity_is_task(se)) {
+		struct task_struct *tsk = task_of(se);
+
+		if (main_preempt_disable &&
+			((tsk->main_boost_switch == 1 &&
+			tsk->group_leader == tsk) ||
+			tsk->main_wake_boost == 1)){
+			se->vruntime = cfs_rq->min_vruntime -
+				(sysctl_sched_wakeup_granularity << 3);
+			boost_flag = 1;
+			if (tsk->main_wake_boost == 1)
+				tsk->main_wake_boost = 0;
+		}
+	}
+
 	/*
 	 * When enqueuing a sched_entity, we must:
 	 *   - Update loads to have both entity and cfs_rq synced with now.
@@ -4036,8 +4069,12 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	update_cfs_shares(se);
 	account_entity_enqueue(cfs_rq, se);
 
-	if (flags & ENQUEUE_WAKEUP)
+// add for chainboost CONFIG_ONEPLUS_CHAIN_BOOST
+	if (flags & ENQUEUE_WAKEUP && !boost_flag)
 		place_entity(cfs_rq, se, 0);
+	/*if (flags & ENQUEUE_WAKEUP)
+	 *	place_entity(cfs_rq, se, 0);
+	 */
 
 	check_schedstat_required();
 	update_stats_enqueue(cfs_rq, se, flags);
@@ -4161,6 +4198,15 @@ check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 	struct sched_entity *se;
 	s64 delta;
 
+// add for chainboost CONFIG_ONEPLUS_CHAIN_BOOST
+	if (entity_is_task(curr) && main_preempt_disable) {
+		struct task_struct *tsk = task_of(curr);
+
+		if (tsk->main_boost_switch == 1 &&
+			tsk->group_leader == tsk)
+			return;
+	}
+
 	ideal_runtime = sched_slice(cfs_rq, curr);
 	delta_exec = curr->sum_exec_runtime - curr->prev_sum_exec_runtime;
 	if (delta_exec > ideal_runtime) {
@@ -4238,7 +4284,6 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 {
 	struct sched_entity *left = __pick_first_entity(cfs_rq);
 	struct sched_entity *se;
-	bool strict_skip = false;
 
 	/*
 	 * If curr is set we have to see if its left of the leftmost entity
@@ -4258,15 +4303,13 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 
 		if (se == curr) {
 			second = __pick_first_entity(cfs_rq);
-			if (sched_feat(STRICT_SKIP_BUDDY))
-				strict_skip = true;
 		} else {
 			second = __pick_next_entity(se);
 			if (!second || (curr && entity_before(curr, second)))
 				second = curr;
 		}
 
-		if (second && (strict_skip ||
+		if (second && (sched_feat(STRICT_SKIP_BUDDY) ||
 		    wakeup_preempt_entity(second, left) < 1))
 			se = second;
 	}
@@ -5299,6 +5342,9 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct sched_entity *se = &p->se;
 	int task_new = !(flags & ENQUEUE_WAKEUP);
 
+//curtis@ASTI, 2019/4/29, add for uxrealm CONFIG_OPCHAIN
+	opc_task_switch(true, cpu_of(rq), p, 0);
+
 #ifdef CONFIG_SCHED_WALT
 	p->misfit = !task_fits_max(p, rq->cpu);
 #endif
@@ -5390,6 +5436,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct cfs_rq *cfs_rq;
 	struct sched_entity *se = &p->se;
 	int task_sleep = flags & DEQUEUE_SLEEP;
+
+//curtis@ASTI, 2019/4/29, add for uxrealm CONFIG_OPCHAIN
+	opc_task_switch(false, cpu_of(rq), p, rq->clock);
 
 	/*
 	 * The code below (indirectly) updates schedutil which looks at
@@ -7351,20 +7400,14 @@ static inline bool task_fits_max(struct task_struct *p, int cpu)
 {
 	unsigned long capacity = capacity_orig_of(cpu);
 	unsigned long max_capacity = cpu_rq(cpu)->rd->max_cpu_capacity.val;
-	unsigned long task_boost = per_task_boost(p);
 
 	if (capacity == max_capacity)
 		return true;
 
-	if (is_min_capacity_cpu(cpu)) {
-		if (task_boost_policy(p) == SCHED_BOOST_ON_BIG ||
-			task_boost > 0 ||
-			schedtune_task_boost(p) > 0)
-			return false;
-	} else { /* mid cap cpu */
-		if (task_boost > 1)
-			return false;
-	}
+	if ((task_boost_policy(p) == SCHED_BOOST_ON_BIG ||
+			schedtune_task_boost(p) > 0) &&
+			is_min_capacity_cpu(cpu))
+		return false;
 
 	return task_fits_capacity(p, capacity, cpu);
 }
@@ -7413,6 +7456,24 @@ static int start_cpu(struct task_struct *p, bool boosted,
 {
 	struct root_domain *rd = cpu_rq(smp_processor_id())->rd;
 	int start_cpu = -1;
+//curtis@ASTI, 2019/4/29, add for uxrealm CONFIG_OPCHAIN
+	bool is_uxtop = is_opc_task(p, UT_FORE);
+
+// tedlin@ASTI 2019/06/12 add for CONFIG_HOUSTON
+	if (is_uxtop && current->ravg.demand_scaled >= p->ravg.demand_scaled) {
+		/* add 'current' into RTG list */
+		ht_rtg_list_add_tail(current);
+	}
+
+//curtis@ASTI, 2019/4/29, add for uxrealm CONFIG_OPCHAIN
+	if (is_uxtop && task_sched_boost(p)) {
+		if (rd->mid_cap_orig_cpu != -1
+			&& task_fits_max(p, rd->mid_cap_orig_cpu))
+			return rd->mid_cap_orig_cpu;
+
+		return rd->max_cap_orig_cpu;
+	}
+
 
 	if (boosted) {
 		if (rd->mid_cap_orig_cpu != -1 &&
@@ -7534,6 +7595,12 @@ static inline int find_best_target(struct task_struct *p, int *backup_cpu,
 			if (!cpu_online(i) || cpu_isolated(i))
 				continue;
 
+// add for chainboost CONFIG_ONEPLUS_CHAIN_BOOST
+			if (current->main_boost_switch == 1 &&
+				current->group_leader == current &&
+				main_preempt_disable && i == smp_processor_id())
+				continue;
+
 			if (isolated_candidate == -1)
 				isolated_candidate = i;
 			/*
@@ -7552,7 +7619,13 @@ static inline int find_best_target(struct task_struct *p, int *backup_cpu,
 			 * so prev_cpu will receive a negative bias due to the double
 			 * accounting. However, the blocked utilization may be zero.
 			 */
+
+//curtis@ASTI, 2019/4/29, add for uxrealm CONFIG_OPCHAIN
+			//wake_util = opc_cpu_util(cpu_util_wake(i, p),
+			//		i, p, NUMS_CPU);
+
 			wake_util = cpu_util_without(i, p);
+
 			new_util = wake_util + task_util_est(p);
 			spare_wake_cap = capacity_orig_of(i) - wake_util;
 
@@ -8133,9 +8206,17 @@ static int find_energy_efficient_cpu(struct sched_domain *sd,
 	int placement_boost = task_boost_policy(p);
 	u64 start_t = 0;
 	int next_cpu = -1, backup_cpu = -1;
-	int boosted = (schedtune_task_boost(p) > 0 || per_task_boost(p) > 0);
+	int boosted = (schedtune_task_boost(p) > 0);
+//curtis@ASTI, 2019/4/29, add for uxrealm CONFIG_OPCHAIN
+	bool is_uxtop = is_opc_task(p, UT_FORE);
 
 	fbt_env.fastpath = 0;
+
+// add for chainboost CONFIG_ONEPLUS_CHAIN_BOOST
+	if (p->main_boost_switch == 1 && p->group_leader == p) {
+		if (cpu_online(7) && !cpu_isolated(7))
+			return 7;
+	}
 
 	if (trace_sched_task_util_enabled())
 		start_t = sched_clock();
@@ -8143,8 +8224,10 @@ static int find_energy_efficient_cpu(struct sched_domain *sd,
 	if (need_idle)
 		sync = 0;
 
+//curtis@ASTI, 2019/4/29, add for uxrealm CONFIG_OPCHAIN
 	if (sysctl_sched_sync_hint_enable && sync &&
-				bias_to_waker_cpu(p, cpu, rtg_target)) {
+				bias_to_waker_cpu(p, cpu, rtg_target) &&
+				opc_check_uxtop_cpu(is_uxtop, cpu)) {
 		target_cpu = cpu;
 		fbt_env.fastpath = SYNC_WAKEUP;
 		goto out;
@@ -8219,9 +8302,10 @@ static int find_energy_efficient_cpu(struct sched_domain *sd,
 		    p->state == TASK_WAKING)
 			delta = task_util(p);
 #endif
+//morison@ASTI, 2019/7/24, modify for uxrealm CONFIG_OPCHAIN
 		if (task_placement_boost_enabled(p) || need_idle || boosted ||
 		    (rtg_target && (!cpumask_test_cpu(prev_cpu, rtg_target) ||
-		    cpumask_test_cpu(target_cpu, rtg_target))) ||
+		    cpumask_test_cpu(target_cpu, rtg_target))) || is_uxtop ||
 		    __cpu_overutilized(prev_cpu, delta) ||
 		    !task_fits_max(p, prev_cpu) || cpu_isolated(prev_cpu))
 			goto out;
@@ -8256,8 +8340,8 @@ out:
 
 	trace_sched_task_util(p, next_cpu, backup_cpu, target_cpu, sync,
 			need_idle, fbt_env.fastpath, placement_boost,
-			rtg_target ? cpumask_first(rtg_target) : -1, start_t,
-			boosted);
+			rtg_target ? cpumask_first(rtg_target) : -1, is_uxtop,
+			start_t, boosted);
 	return target_cpu;
 }
 
@@ -8990,6 +9074,9 @@ enum group_type {
 #define LBF_SOME_PINNED	0x08
 #define LBF_IGNORE_BIG_TASKS 0x100
 #define LBF_IGNORE_PREFERRED_CLUSTER_TASKS 0x200
+//curtis@ASTI, 2019/4/29, add for uxrealm CONFIG_OPCHAIN
+#define LBF_IGNORE_UX_TOP 0x800
+#define LBF_IGNORE_SLAVE 0xC00
 
 struct lb_env {
 	struct sched_domain	*sd;
@@ -9188,6 +9275,11 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 		!task_fits_max(p, env->dst_cpu))
 		return 0;
 #endif
+//curtis@ASTI, 2019/4/29, add for uxrealm CONFIG_OPCHAIN
+	if (env->flags & LBF_IGNORE_UX_TOP && is_opc_task(p, UT_FORE))
+		return 0;
+	if (env->flags & LBF_IGNORE_SLAVE && UTASK_SLAVE(p))
+		return 0;
 
 	if (task_running(env->src_rq, p)) {
 		schedstat_inc(p->se.statistics.nr_failed_migrations_running);
@@ -9283,6 +9375,8 @@ static int detach_tasks(struct lb_env *env)
 	unsigned long load = 0;
 	int detached = 0;
 	int orig_loop = env->loop;
+//curtis@ASTI, 2019/4/29, add for uxrealm CONFIG_OPCHAIN
+	int src_claim = opc_get_claim_on_cpu(env->src_cpu);
 
 	lockdep_assert_held(&env->src_rq->lock);
 
@@ -9292,8 +9386,14 @@ static int detach_tasks(struct lb_env *env)
 	if (!same_cluster(env->dst_cpu, env->src_cpu))
 		env->flags |= LBF_IGNORE_PREFERRED_CLUSTER_TASKS;
 
-	if (cpu_capacity(env->dst_cpu) < cpu_capacity(env->src_cpu))
+//curtis@ASTI, 2019/4/29, add for uxrealm CONFIG_OPCHAIN
+	if (cpu_capacity(env->dst_cpu) < cpu_capacity(env->src_cpu)) {
 		env->flags |= LBF_IGNORE_BIG_TASKS;
+		if (src_claim == 1)
+			env->flags |= LBF_IGNORE_UX_TOP | LBF_IGNORE_SLAVE;
+		else if (src_claim == -1)
+			env->flags |= LBF_IGNORE_SLAVE;
+	}
 
 redo:
 	while (!list_empty(tasks)) {
@@ -9375,6 +9475,10 @@ next:
 		tasks = &env->src_rq->cfs_tasks;
 		env->flags &= ~(LBF_IGNORE_BIG_TASKS |
 				LBF_IGNORE_PREFERRED_CLUSTER_TASKS);
+//curtis@ASTI, 2019/4/29, add for uxrealm CONFIG_OPCHAIN
+		if (env->flags & LBF_IGNORE_SLAVE)
+			env->flags &= ~LBF_IGNORE_SLAVE;
+
 		env->loop = orig_loop;
 		goto redo;
 	}
@@ -9707,8 +9811,9 @@ static void update_cpu_capacity(struct sched_domain *sd, int cpu)
 		mcc->cpu = cpu;
 #ifdef CONFIG_SCHED_DEBUG
 		raw_spin_unlock_irqrestore(&mcc->lock, flags);
-		printk_deferred(KERN_INFO "CPU%d: update max cpu_capacity %lu\n",
-				cpu, capacity);
+
+		/*printk_deferred("CPU%d: update max cpu_capacity %lu\n",
+							cpu, capacity);*/
 		goto skip_unlock;
 #endif
 	}

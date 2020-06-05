@@ -1748,11 +1748,10 @@ static void inv_args_pre(struct smq_invoke_ctx *ctx)
 					DMA_BIDIRECTIONAL);
 				dma_buf_end_cpu_access(map->buf,
 					DMA_BIDIRECTIONAL);
-			} else {
+			} else
 				dmac_flush_range(
 					uint64_to_ptr(rpra[i].buf.pv), (char *)
 					uint64_to_ptr(rpra[i].buf.pv + 1));
-			}
 		}
 
 		end = (uintptr_t)uint64_to_ptr(rpra[i].buf.pv +
@@ -1763,10 +1762,9 @@ static void inv_args_pre(struct smq_invoke_ctx *ctx)
 					DMA_BIDIRECTIONAL);
 				dma_buf_end_cpu_access(map->buf,
 					DMA_BIDIRECTIONAL);
-			} else {
+			} else
 				dmac_flush_range((char *)end,
 					(char *)end + 1);
-			}
 		}
 	}
 }
@@ -1931,13 +1929,11 @@ static int fastrpc_internal_invoke(struct fastrpc_file *fl, uint32_t mode,
 			goto bail;
 	}
 
-	PERF(fl->profile, GET_COUNTER(perf_counter, PERF_INVARGS),
-	inv_args_pre(ctx);
-	PERF_END);
-
-	PERF(fl->profile, GET_COUNTER(perf_counter, PERF_INVARGS),
-	inv_args(ctx);
-	PERF_END);
+	if (!fl->sctx->smmu.coherent) {
+		PERF(fl->profile, GET_COUNTER(perf_counter, PERF_INVARGS),
+		inv_args_pre(ctx);
+		PERF_END);
+	}
 
 	PERF(fl->profile, GET_COUNTER(perf_counter, PERF_LINK),
 	VERIFY(err, 0 == fastrpc_invoke_send(ctx, kernel, invoke->handle));
@@ -1956,7 +1952,8 @@ static int fastrpc_internal_invoke(struct fastrpc_file *fl, uint32_t mode,
 	}
 
 	PERF(fl->profile, GET_COUNTER(perf_counter, PERF_INVARGS),
-	inv_args(ctx);
+	if (!fl->sctx->smmu.coherent)
+		inv_args(ctx);
 	PERF_END);
 
 	VERIFY(err, 0 == (err = ctx->retval));
@@ -4051,15 +4048,16 @@ static int fastrpc_probe(struct platform_device *pdev)
 		if (range.addr && !of_property_read_bool(dev->of_node,
 							 "restrict-access")) {
 			int srcVM[1] = {VMID_HLOS};
-			int destVM[3] = {VMID_HLOS, VMID_SSC_Q6,
+			int destVM[4] = {VMID_HLOS, VMID_MSS_MSA, VMID_SSC_Q6,
 						VMID_ADSP_Q6};
-			int destVMperm[3] = {PERM_READ | PERM_WRITE | PERM_EXEC,
+			int destVMperm[4] = {PERM_READ | PERM_WRITE | PERM_EXEC,
+				PERM_READ | PERM_WRITE | PERM_EXEC,
 				PERM_READ | PERM_WRITE | PERM_EXEC,
 				PERM_READ | PERM_WRITE | PERM_EXEC,
 				};
 
 			VERIFY(err, !hyp_assign_phys(range.addr, range.size,
-					srcVM, 1, destVM, destVMperm, 3));
+					srcVM, 1, destVM, destVMperm, 4));
 			if (err)
 				goto bail;
 			me->range.addr = range.addr;

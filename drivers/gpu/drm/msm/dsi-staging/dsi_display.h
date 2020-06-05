@@ -115,13 +115,11 @@ struct dsi_display_boot_param {
  * @src_clks:          Source clocks for DSI display.
  * @mux_clks:          Mux clocks used for DFPS.
  * @shadow_clks:       Used for DFPS.
- * @xo_clks:           XO clocks for DSI display
  */
 struct dsi_display_clk_info {
 	struct dsi_clk_link_set src_clks;
 	struct dsi_clk_link_set mux_clks;
 	struct dsi_clk_link_set shadow_clks;
-	struct dsi_clk_link_set xo_clks;
 };
 
 /**
@@ -148,7 +146,6 @@ struct dsi_display_ext_bridge {
  * @ext_conn:         Pointer to external connector attached to DSI connector
  * @name:             Name of the display.
  * @display_type:     Display type as defined in device tree.
- * @dsi_type:         Display label as defined in device tree.
  * @list:             List pointer.
  * @is_active:        Is display active.
  * @is_cont_splash_enabled:  Is continuous splash enabled
@@ -199,7 +196,6 @@ struct dsi_display {
 
 	const char *name;
 	const char *display_type;
-	const char *dsi_type;
 	struct list_head list;
 	bool is_cont_splash_enabled;
 	bool sw_te_using_wd;
@@ -421,6 +417,7 @@ int dsi_display_validate_mode_change(struct dsi_display *display,
 			struct dsi_display_mode *cur_dsi_mode,
 			struct dsi_display_mode *mode);
 
+extern int msm_drm_notifier_call_chain(unsigned long val, void *v);
 /**
  * dsi_display_set_mode() - Set mode on the display.
  * @display:           Handle to display.
@@ -584,6 +581,10 @@ int dsi_display_set_tpg_state(struct dsi_display *display, bool enable);
 
 int dsi_display_clock_gate(struct dsi_display *display, bool enable);
 int dsi_dispaly_static_frame(struct dsi_display *display, bool enable);
+uint64_t dsi_display_get_serial_number_id(uint64_t serial_number);
+
+int dsi_display_get_serial_number_AT(struct drm_connector *connector);
+
 
 /**
  * dsi_display_enable_event() - enable interrupt based connector event
@@ -670,15 +671,6 @@ int dsi_display_set_power(struct drm_connector *connector,
 int dsi_display_pre_kickoff(struct drm_connector *connector,
 		struct dsi_display *display,
 		struct msm_display_kickoff_params *params);
-/*
- * dsi_display_pre_commit - program pre commit features
- * @display: Pointer to private display structure
- * @params: Parameters for pre commit time programming
- * Returns: Zero on success
- */
-int dsi_display_pre_commit(void *display,
-		struct msm_display_conn_params *params);
-
 /**
  * dsi_display_get_dst_format() - get dst_format from DSI display
  * @connector:        Pointer to drm connector structure
@@ -707,4 +699,12 @@ int dsi_display_cont_splash_config(void *display);
 int dsi_display_get_panel_vfp(void *display,
 	int h_active, int v_active);
 
+extern int connector_state_crtc_index;
+extern int msm_drm_notifier_call_chain(unsigned long val, void *v);
+
+struct dsi_display *get_main_display(void);
+extern char gamma_para[2][413];
+int dsi_display_gamma_read(struct dsi_display *dsi_display);
+void dsi_display_gamma_read_work(struct work_struct *work);
+extern struct delayed_work *sde_esk_check_delayed_work;
 #endif /* _DSI_DISPLAY_H_ */

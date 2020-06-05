@@ -57,6 +57,9 @@ struct mhi_dev {
 	dma_addr_t iova_stop;
 	enum mhi_suspend_mode suspend_mode;
 
+	/* if set, soc support dynamic bw scaling */
+	void (*bw_scale)(struct mhi_controller *mhi_cntrl,
+			 struct mhi_dev *mhi_dev);
 	unsigned int lpm_disable_depth;
 	/* lock to toggle low power modes */
 	spinlock_t lpm_lock;
@@ -65,6 +68,7 @@ struct mhi_dev {
 void mhi_deinit_pci_dev(struct mhi_controller *mhi_cntrl);
 int mhi_pci_probe(struct pci_dev *pci_dev,
 		  const struct pci_device_id *device_id);
+void mhi_reg_write_work(struct work_struct *w);
 
 #ifdef CONFIG_ARCH_QCOM
 

@@ -1054,7 +1054,7 @@ static void sde_kms_commit(struct msm_kms *kms,
 	SDE_ATRACE_END("sde_kms_commit");
 }
 
-void sde_kms_release_splash_resource(struct sde_kms *sde_kms,
+static void _sde_kms_release_splash_resource(struct sde_kms *sde_kms,
 		struct drm_crtc *crtc)
 {
 	struct msm_drm_private *priv;
@@ -1117,8 +1117,6 @@ static void sde_kms_complete_commit(struct msm_kms *kms,
 	struct drm_crtc_state *old_crtc_state;
 	struct drm_connector *connector;
 	struct drm_connector_state *old_conn_state;
-	struct msm_display_conn_params params;
-
 	int i, rc = 0;
 
 	if (!kms || !old_state)
@@ -1150,18 +1148,7 @@ static void sde_kms_complete_commit(struct msm_kms *kms,
 		c_conn = to_sde_connector(connector);
 		if (!c_conn->ops.post_kickoff)
 			continue;
-
-		memset(&params, 0, sizeof(params));
-
-		if (c_conn->qsync_updated &&
-			(c_conn->qsync_mode == SDE_RM_QSYNC_ONE_SHOT_MODE)) {
-			/* Reset qsync states if mode is one shot */
-			params.qsync_mode = c_conn->qsync_mode = 0;
-			params.qsync_update = true;
-			SDE_EVT32(connector->base.id, c_conn->qsync_mode);
-		}
-
-		rc = c_conn->ops.post_kickoff(connector, &params);
+		rc = c_conn->ops.post_kickoff(connector);
 		if (rc) {
 			pr_err("Connector Post kickoff failed rc=%d\n",
 					 rc);
@@ -1171,7 +1158,7 @@ static void sde_kms_complete_commit(struct msm_kms *kms,
 	sde_power_resource_enable(&priv->phandle, sde_kms->core_client, false);
 
 	for_each_crtc_in_state(old_state, crtc, old_crtc_state, i)
-		sde_kms_release_splash_resource(sde_kms, crtc);
+		_sde_kms_release_splash_resource(sde_kms, crtc);
 
 	SDE_EVT32_VERBOSE(SDE_EVTLOG_FUNC_EXIT);
 	SDE_ATRACE_END("sde_kms_complete_commit");
@@ -1394,7 +1381,6 @@ static int _sde_kms_setup_displays(struct drm_device *dev,
 		.cmd_transfer = dsi_display_cmd_transfer,
 		.cont_splash_config = dsi_display_cont_splash_config,
 		.get_panel_vfp = dsi_display_get_panel_vfp,
-		.prepare_commit = dsi_conn_prepare_commit,
 	};
 	static const struct sde_connector_ops wb_ops = {
 		.post_init =    sde_wb_connector_post_init,
@@ -1541,7 +1527,6 @@ static int _sde_kms_setup_displays(struct drm_device *dev,
 			sde_encoder_destroy(encoder);
 		}
 	}
-
 	/* dp */
 	for (i = 0; i < sde_kms->dp_display_count &&
 			priv->num_encoders < max_encoders; ++i) {
@@ -1588,7 +1573,6 @@ static int _sde_kms_setup_displays(struct drm_device *dev,
 
 		/* update display cap to MST_MODE for DP MST encoders */
 		info.capabilities |= MSM_DISPLAY_CAP_MST_MODE;
-		sde_kms->dp_stream_count = dp_display_get_num_of_streams();
 		for (idx = 0; idx < sde_kms->dp_stream_count; idx++) {
 			info.h_tile_instance[0] = idx;
 			encoder = sde_encoder_init(dev, &info);
@@ -1886,14 +1870,6 @@ static void _sde_kms_hw_destroy(struct sde_kms *sde_kms,
 	if (sde_kms->core_client)
 		sde_power_client_destroy(&priv->phandle, sde_kms->core_client);
 	sde_kms->core_client = NULL;
-
-	if (sde_kms->sid)
-		msm_iounmap(pdev, sde_kms->sid);
-	sde_kms->sid = NULL;
-
-	if (sde_kms->reg_dma)
-		msm_iounmap(pdev, sde_kms->reg_dma);
-	sde_kms->reg_dma = NULL;
 
 	if (sde_kms->vbif[VBIF_NRT])
 		msm_iounmap(pdev, sde_kms->vbif[VBIF_NRT]);
@@ -2778,8 +2754,7 @@ retry:
 		uint64_t lp;
 
 		if (!conn->state || !conn->state->crtc ||
-				conn->dpms != DRM_MODE_DPMS_ON ||
-				sde_encoder_in_clone_mode(conn->encoder))
+				conn->dpms != DRM_MODE_DPMS_ON)
 			continue;
 
 		lp = sde_connector_get_lp(conn);
@@ -2835,9 +2810,6 @@ retry:
 
 		lp = sde_connector_get_lp(conn);
 		if (lp != SDE_MODE_DPMS_LP2)
-			continue;
-
-		if (sde_encoder_in_clone_mode(conn->encoder))
 			continue;
 
 		ret = sde_encoder_wait_for_event(conn->encoder,
@@ -3074,35 +3046,9 @@ static void sde_kms_init_shared_hw(struct sde_kms *sde_kms)
 	if (!sde_kms || !sde_kms->hw_mdp || !sde_kms->catalog)
 		return;
 
-	if (sde_kms->hw_mdp->ops.intf_dp_select)
-		sde_kms->hw_mdp->ops.intf_dp_select(sde_kms->hw_mdp,
-						sde_kms->catalog);
-
 	if (sde_kms->hw_mdp->ops.reset_ubwc)
 		sde_kms->hw_mdp->ops.reset_ubwc(sde_kms->hw_mdp,
 						sde_kms->catalog);
-
-	if (sde_kms->hw_sid)
-		sde_hw_sid_rotator_set(sde_kms->hw_sid);
-}
-
-static void _sde_kms_set_lutdma_vbif_remap(struct sde_kms *sde_kms)
-{
-	struct sde_vbif_set_qos_params qos_params;
-	struct sde_mdss_cfg *catalog;
-
-	if (!sde_kms->catalog)
-		return;
-
-	catalog = sde_kms->catalog;
-
-	memset(&qos_params, 0, sizeof(qos_params));
-	qos_params.vbif_idx = catalog->dma_cfg.vbif_idx;
-	qos_params.xin_id = catalog->dma_cfg.xin_id;
-	qos_params.clk_ctrl = catalog->dma_cfg.clk_ctrl;
-	qos_params.client_type = VBIF_LUTDMA_CLIENT;
-
-	sde_vbif_set_qos_remap(sde_kms, &qos_params);
 }
 
 static void sde_kms_handle_power_event(u32 event_type, void *usr)
@@ -3121,7 +3067,6 @@ static void sde_kms_handle_power_event(u32 event_type, void *usr)
 		sde_irq_update(msm_kms, true);
 		sde_vbif_init_memtypes(sde_kms);
 		sde_kms_init_shared_hw(sde_kms);
-		_sde_kms_set_lutdma_vbif_remap(sde_kms);
 		sde_kms->first_kickoff = true;
 	} else if (event_type == SDE_POWER_EVENT_PRE_DISABLE) {
 		sde_irq_update(msm_kms, false);
@@ -3355,19 +3300,6 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 					rc);
 	}
 
-	sde_kms->sid = msm_ioremap(platformdev, "sid_phys",
-							"sid_phys");
-	if (IS_ERR(sde_kms->sid)) {
-		sde_kms->sid = NULL;
-		SDE_DEBUG("SID_PHYS is not defined\n");
-	} else {
-		sde_kms->sid_len = msm_iomap_size(platformdev, "sid_phys");
-		rc =  sde_dbg_reg_register_base("sid", sde_kms->sid,
-				sde_kms->sid_len);
-		if (rc)
-			SDE_ERROR("dbg base register sid failed: %d\n", rc);
-	}
-
 	sde_kms->core_client = sde_power_client_create(&priv->phandle, "core");
 	if (IS_ERR_OR_NULL(sde_kms->core_client)) {
 		rc = PTR_ERR(sde_kms->core_client);
@@ -3515,14 +3447,6 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 			sde_kms->hw_vbif[vbif_idx] = NULL;
 			goto power_error;
 		}
-	}
-
-	sde_kms->hw_sid = sde_hw_sid_init(sde_kms->sid,
-				sde_kms->sid_len, sde_kms->catalog);
-	if (IS_ERR(sde_kms->hw_sid)) {
-		SDE_ERROR("failed to init sid %d\n", PTR_ERR(sde_kms->hw_sid));
-		sde_kms->hw_sid = NULL;
-		goto power_error;
 	}
 
 	rc = sde_core_perf_init(&sde_kms->perf, dev, sde_kms->catalog,

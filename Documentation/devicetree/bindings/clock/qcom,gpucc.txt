@@ -8,8 +8,7 @@ Required properties :
 		"qcom,gpucc-sm6150",
 		"qcom,gpucc-sdmmagpie",
 		"qcom,gpucc-trinket",
-		"qcom,gpucc-sa6155",
-		"qcom,atoll-gpucc".
+		"qcom,gpucc-sa6155".
 
 - reg : shall contain base register offset and size.
 - reg-names: names of registers listed in the same order as in the reg property.

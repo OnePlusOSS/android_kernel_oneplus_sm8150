@@ -19,6 +19,9 @@
 #include <linux/sched/sysctl.h>
 #include "sched.h"
 
+#include <oneplus/houston/houston_helper.h>
+#include <oneplus/aigov/aigov_helper.h>
+
 #define SUGOV_KTHREAD_PRIORITY	50
 
 struct sugov_tunables {
@@ -223,6 +226,11 @@ static void sugov_update_commit(struct sugov_policy *sg_policy, u64 time,
 	struct cpufreq_policy *policy = sg_policy->policy;
 	unsigned int cpu;
 
+#ifdef CONFIG_CONTROL_CENTER
+	/* keep requested freq */
+	sg_policy->policy->req_freq = next_freq;
+#endif
+
 	if (sg_policy->next_freq == next_freq)
 		return;
 
@@ -235,13 +243,14 @@ static void sugov_update_commit(struct sugov_policy *sg_policy, u64 time,
 	if (policy->fast_switch_enabled) {
 		sugov_track_cycles(sg_policy, sg_policy->policy->cur, time);
 		next_freq = cpufreq_driver_fast_switch(policy, next_freq);
-		if (!next_freq)
+		if (!next_freq || (next_freq == policy->cur))
 			return;
 
 		policy->cur = next_freq;
 		for_each_cpu(cpu, policy->cpus) {
 			trace_cpu_frequency(next_freq, cpu);
 		}
+		cpufreq_stats_record_transition(policy, next_freq);
 	} else {
 		if (use_pelt())
 			sg_policy->work_in_progress = true;
@@ -369,6 +378,44 @@ static bool sugov_cpu_is_busy(struct sugov_cpu *sg_cpu)
 static inline bool sugov_cpu_is_busy(struct sugov_cpu *sg_cpu) { return false; }
 #endif /* CONFIG_NO_HZ_COMMON */
 
+#ifdef CONFIG_AIGOV
+static void aigov_evaluate(struct sugov_cpu* sg_cpu, unsigned long *util, unsigned long *max)
+{
+	struct sugov_policy *sg_policy;
+
+	if (unlikely(!sg_cpu))
+		return;
+
+	sg_policy = sg_cpu->sg_policy;
+
+	if (aigov_enabled()) {
+		unsigned long aigov_pred_freq = aigov_get_cpufreq(sg_cpu->cpu);
+		unsigned long aigov_pred_util;
+		unsigned long aigov_extra_util = aigov_get_boost_hint(sg_cpu->cpu);
+		int w = aigov_get_weight();
+
+		aigov_pred_freq = clamp(aigov_pred_freq, 0UL, (unsigned long) sg_policy->policy->cpuinfo.max_freq);
+		aigov_pred_util = freq_to_util(sg_policy, aigov_pred_freq);
+		aigov_extra_util = aigov_get_boost_hint(sg_cpu->cpu) * (*max) / 10;
+		aigov_extra_util = min(aigov_extra_util, *max);
+
+		/* if ai has predicted util */
+		if (aigov_pred_util)
+			aigov_pred_util = (((*util * (100 - w))/ 100 + (aigov_pred_util * w)/ 100) * 4) / 5;
+		else
+			aigov_pred_util = *util;
+
+		/* add extra util (from fps boost) */
+		aigov_pred_util += aigov_extra_util;
+
+		aigov_dump(sg_cpu->cpu, *util, aigov_pred_util, aigov_extra_util);
+
+		if (aigov_use_util())
+			*util = aigov_pred_util;
+	}
+}
+#endif
+
 #define NL_RATIO 75
 #define DEFAULT_HISPEED_LOAD 90
 static void sugov_walt_adjust(struct sugov_cpu *sg_cpu, unsigned long *util,
@@ -469,12 +516,17 @@ static unsigned int sugov_next_freq_shared(struct sugov_cpu *sg_cpu, u64 time)
 	u64 last_freq_update_time = sg_policy->last_freq_update_time;
 	unsigned long util = 0, max = 1;
 	unsigned int j;
+#ifdef CONFIG_AIGOV
+	struct sugov_cpu* last_sg_cpu = NULL;
+#endif
 
 	for_each_cpu(j, policy->cpus) {
 		struct sugov_cpu *j_sg_cpu = &per_cpu(sugov_cpu, j);
 		unsigned long j_util, j_max;
 		s64 delta_ns;
-
+#ifdef CONFIG_AIGOV
+		last_sg_cpu = j_sg_cpu;
+#endif
 		/*
 		 * If the CPU utilization was last updated before the previous
 		 * frequency update and the time elapsed between the last update
@@ -509,6 +561,9 @@ static unsigned int sugov_next_freq_shared(struct sugov_cpu *sg_cpu, u64 time)
 		sugov_walt_adjust(j_sg_cpu, &util, &max);
 	}
 
+#ifdef CONFIG_AIGOV
+	aigov_evaluate(last_sg_cpu, &util, &max);
+#endif
 	return get_next_freq(sg_policy, util, max);
 }
 
@@ -1043,7 +1098,12 @@ static int sugov_start(struct cpufreq_policy *policy)
 					     policy_is_shared(policy) ?
 							sugov_update_shared :
 							sugov_update_single);
+		ht_register_cpu_util(cpu, cpumask_first(policy->related_cpus),
+				&sg_cpu->util, &sg_policy->hispeed_util);
 	}
+#ifdef CONFIG_CONTROL_CENTER
+	policy->cc_enable = true;
+#endif
 	return 0;
 }
 
@@ -1051,6 +1111,10 @@ static void sugov_stop(struct cpufreq_policy *policy)
 {
 	struct sugov_policy *sg_policy = policy->governor_data;
 	unsigned int cpu;
+
+#ifdef CONFIG_CONTROL_CENTER
+	policy->cc_enable = false;
+#endif
 
 	for_each_cpu(cpu, policy->cpus)
 		cpufreq_remove_update_util_hook(cpu);

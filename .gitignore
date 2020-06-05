@@ -125,3 +125,23 @@ all.config
 
 # fetched Android config fragments
 kernel/configs/android-*.cfg
+
+include/linux/oem
+drivers/oem_debug
+drivers/param_read_write
+drivers/input/oneplus_touchscreen
+drivers/input/fingerprint
+fs/exfat
+fs/proc/adj_chain_stat.c
+fs/proc/fg_uid.c
+fs/proc/fg_uid.h
+mm/memory_monitor.c
+
+# OP SLA feature
+opslalib/slalib
+
+#front camera motor and hall
+drivers/step_motor
+drivers/tri_state_key
+drivers/oneplus
+drivers/vibrator

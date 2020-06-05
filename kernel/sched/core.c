@@ -46,6 +46,9 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
 
+// tedlin@ASTI 2019/06/12 add for CONFIG_HOUSTON
+#include <oneplus/houston/houston_helper.h>
+
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
 /*
@@ -898,6 +901,11 @@ void check_preempt_curr(struct rq *rq, struct task_struct *p, int flags)
 {
 	const struct sched_class *class;
 
+// add for chainboost CONFIG_ONEPLUS_CHAIN_BOOST
+	if (main_preempt_disable && rq->curr->main_boost_switch == 1 &&
+		rq->curr->group_leader == rq->curr &&
+		memcmp(p->comm, "kworker", 7) && !task_has_rt_policy(p))
+		return;
 	if (p->sched_class == rq->curr->sched_class) {
 		rq->curr->sched_class->check_preempt_curr(rq, p, flags);
 	} else {
@@ -2122,6 +2130,11 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags,
 	if (p->on_rq && ttwu_remote(p, wake_flags))
 		goto stat;
 
+// add for chainboost CONFIG_ONEPLUS_CHAIN_BOOST
+	if (main_preempt_disable && current->main_boost_switch == 1 &&
+		current->group_leader == current)
+		p->main_wake_boost = 1;
+
 #ifdef CONFIG_SMP
 	/*
 	 * Ensure we load p->on_cpu _after_ p->on_rq, otherwise it would be
@@ -2293,9 +2306,6 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.nr_migrations		= 0;
 	p->se.vruntime			= 0;
 	p->last_sleep_ts		= 0;
-	p->boost                = 0;
-	p->boost_expires        = 0;
-	p->boost_period         = 0;
 
 	INIT_LIST_HEAD(&p->se.group_node);
 
@@ -2481,6 +2491,8 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 	 */
 	p->prio = current->normal_prio;
 
+	p->compensate_need = 0;
+
 	/*
 	 * Revert to default priority/policy on fork if requested.
 	 */
@@ -2579,6 +2591,11 @@ void wake_up_new_task(struct task_struct *p)
 	raw_spin_lock_irqsave(&p->pi_lock, rf.flags);
 
 	p->state = TASK_RUNNING;
+// add for chainboost CONFIG_ONEPLUS_CHAIN_BOOST
+	if (main_preempt_disable && current->main_boost_switch == 1 &&
+		current->group_leader == current)
+		p->main_wake_boost = 1;
+
 #ifdef CONFIG_SMP
 	/*
 	 * Fork balancing, do it here and not earlier because:
@@ -3572,6 +3589,9 @@ static void __sched notrace __schedule(bool preempt)
 		++*switch_count;
 
 		trace_sched_switch(preempt, prev, next);
+
+// tedlin@ASTI 2019/06/12 add for CONFIG_HOUSTON
+		ht_sched_switch_update(prev, next);
 
 		/* Also unlocks the rq: */
 		rq = context_switch(rq, prev, next, &rf);
@@ -7492,26 +7512,6 @@ const u32 sched_prio_to_wmult[40] = {
  /*  10 */  39045157,  49367440,  61356676,  76695844,  95443717,
  /*  15 */ 119304647, 148102320, 186737708, 238609294, 286331153,
 };
-
-/*
- *@boost:should be 0,1,2.
- *@period:boost time based on ms units.
- */
-int set_task_boost(int boost, u64 period)
-{
-	if (boost < 0 || boost > 2)
-		return -EINVAL;
-	if (boost) {
-		current->boost = boost;
-		current->boost_period = (u64)period * 1000 * 1000;
-		current->boost_expires = sched_clock() + current->boost_period;
-	} else {
-		current->boost = 0;
-		current->boost_expires = 0;
-		current->boost_period = 0;
-	}
-	return 0;
-}
 
 #ifdef CONFIG_SCHED_WALT
 /*

@@ -13,6 +13,10 @@
 #include <linux/irqnr.h>
 #include <linux/sched/cputime.h>
 #include <linux/tick.h>
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+#include <linux/delay.h>
+#include <linux/oem/oneplus_healthinfo.h>
+#endif
 
 #ifndef arch_irq_stat_cpu
 #define arch_irq_stat_cpu(cpu) 0
@@ -196,6 +200,89 @@ static const struct file_operations proc_stat_operations = {
 	.llseek		= seq_lseek,
 	.release	= single_release,
 };
+
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+// Add for get cpu load
+struct cpu_load_stat {
+	u64 t_user;
+	u64 t_system;
+	u64 t_idle;
+	u64 t_iowait;
+	u64 t_irq;
+	u64 t_softirq;
+};
+
+int ohm_get_cur_cpuload(bool ctrl)
+{
+	int i;
+	int ret = 0;
+	struct cpu_load_stat cpu_load = { 0, 0, 0, 0, 0, 0 };
+	struct cpu_load_stat cpu_load_temp = { 0, 0, 0, 0, 0, 0 };
+	clock_t ct_user;
+	clock_t ct_system;
+	clock_t ct_idle;
+	clock_t ct_iowait;
+	clock_t ct_irq;
+	clock_t ct_softirq;
+	clock_t load;
+	clock_t sum = 0;
+
+	if (!ctrl) {
+		ret = -1;
+		return ret;
+	}
+
+	for_each_online_cpu(i) {
+		cpu_load_temp.t_user +=
+			kcpustat_cpu(i).cpustat[CPUTIME_USER];
+		cpu_load_temp.t_system +=
+			kcpustat_cpu(i).cpustat[CPUTIME_SYSTEM];
+		cpu_load_temp.t_idle += get_idle_time(i);
+		cpu_load_temp.t_iowait += get_iowait_time(i);
+		cpu_load_temp.t_irq +=
+			kcpustat_cpu(i).cpustat[CPUTIME_IRQ];
+		cpu_load_temp.t_softirq +=
+			kcpustat_cpu(i).cpustat[CPUTIME_SOFTIRQ];
+	}
+	msleep(25);
+	for_each_online_cpu(i) {
+		cpu_load.t_user += kcpustat_cpu(i).cpustat[CPUTIME_USER];
+		cpu_load.t_system +=
+			kcpustat_cpu(i).cpustat[CPUTIME_SYSTEM];
+		cpu_load.t_idle += get_idle_time(i);
+		cpu_load.t_iowait += get_iowait_time(i);
+		cpu_load.t_irq += kcpustat_cpu(i).cpustat[CPUTIME_IRQ];
+		cpu_load.t_softirq +=
+			kcpustat_cpu(i).cpustat[CPUTIME_SOFTIRQ];
+	}
+
+	ct_user = nsec_to_clock_t(cpu_load.t_user) -
+				nsec_to_clock_t(cpu_load_temp.t_user);
+	ct_system = nsec_to_clock_t(cpu_load.t_system) -
+				nsec_to_clock_t(cpu_load_temp.t_system);
+	ct_idle = nsec_to_clock_t(cpu_load.t_idle) -
+				nsec_to_clock_t(cpu_load_temp.t_idle);
+	ct_iowait = nsec_to_clock_t(cpu_load.t_iowait) -
+				nsec_to_clock_t(cpu_load_temp.t_iowait);
+	ct_irq = nsec_to_clock_t(cpu_load.t_irq) -
+				nsec_to_clock_t(cpu_load_temp.t_irq);
+	ct_softirq = nsec_to_clock_t(cpu_load.t_softirq) -
+				nsec_to_clock_t(cpu_load_temp.t_softirq);
+
+	sum = ct_user + ct_system + ct_idle + ct_iowait +
+			ct_irq + ct_softirq;
+	load = ct_user + ct_system + ct_iowait + ct_irq + ct_softirq;
+
+	if (sum == 0) {
+		ret = -1;
+		return ret;
+	}
+
+	ret = 100 * load / sum;
+	return ret;
+}
+
+#endif /*CONFIG_ONEPLUS_HEALTHINFO*/
 
 static int __init proc_stat_init(void)
 {

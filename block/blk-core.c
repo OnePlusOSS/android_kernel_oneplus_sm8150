@@ -45,6 +45,10 @@
 
 #include <linux/math64.h>
 
+#ifdef CONFIG_MEMPLUS
+#include <oneplus/memplus/memplus_helper.h>
+#endif
+
 #ifdef CONFIG_DEBUG_FS
 struct dentry *blk_debugfs_root;
 #endif
@@ -117,6 +121,8 @@ void blk_rq_init(struct request_queue *q, struct request *rq)
 	memset(rq, 0, sizeof(*rq));
 
 	INIT_LIST_HEAD(&rq->queuelist);
+	/*dylanchang, 2019/4/30, add foreground task io opt*/
+	INIT_LIST_HEAD(&rq->fg_list);
 	INIT_LIST_HEAD(&rq->timeout_list);
 	rq->cpu = -1;
 	rq->q = q;
@@ -828,6 +834,9 @@ static void blk_rq_timed_out_timer(unsigned long data)
 	kblockd_schedule_work(&q->timeout_work);
 }
 
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+#define FG_CNT_DEF 20
+#define BOTH_CNT_DEF 10
 struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id)
 {
 	struct request_queue *q;
@@ -857,6 +866,11 @@ struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id)
 			(VM_MAX_READAHEAD * 1024) / PAGE_SIZE;
 	q->backing_dev_info->capabilities = BDI_CAP_CGROUP_WRITEBACK;
 	q->backing_dev_info->name = "block";
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+	q->fg_count_max = FG_CNT_DEF;
+	q->both_count_max = BOTH_CNT_DEF;
+	q->fg_count = FG_CNT_DEF;
+	q->both_count = BOTH_CNT_DEF;
 	q->node = node_id;
 
 	setup_timer(&q->backing_dev_info->laptop_mode_wb_timer,
@@ -864,6 +878,8 @@ struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id)
 	setup_timer(&q->timeout, blk_rq_timed_out_timer, (unsigned long) q);
 	INIT_WORK(&q->timeout_work, NULL);
 	INIT_LIST_HEAD(&q->queue_head);
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+	INIT_LIST_HEAD(&q->fg_head);
 	INIT_LIST_HEAD(&q->timeout_list);
 	INIT_LIST_HEAD(&q->icq_list);
 #ifdef CONFIG_BLK_CGROUP
@@ -1797,7 +1813,9 @@ out:
 void blk_init_request_from_bio(struct request *req, struct bio *bio)
 {
 	struct io_context *ioc = rq_ioc(bio);
-
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+	if (bio->bi_opf & REQ_FG)
+		req->cmd_flags |= REQ_FG;
 	if (bio->bi_opf & REQ_RAHEAD)
 		req->cmd_flags |= REQ_FAILFAST_MASK;
 
@@ -2271,6 +2289,83 @@ out:
 }
 EXPORT_SYMBOL(generic_make_request);
 
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+#define SYSTEM_APP_UID 1000
+static bool is_system_uid(struct task_struct *t)
+{
+	int cur_uid;
+
+	cur_uid = task_uid(t).val;
+	if (cur_uid ==  SYSTEM_APP_UID)
+		return true;
+
+	return false;
+}
+
+static bool is_zygote_process(struct task_struct *t)
+{
+	const struct cred *tcred = __task_cred(t);
+
+	struct task_struct *first_child = NULL;
+
+	if (t->children.next && t->children.next !=
+		(struct list_head *)&t->children.next)
+		first_child =
+			container_of(t->children.next,
+			struct task_struct, sibling);
+	if (!strcmp(t->comm, "main") && (tcred->uid.val == 0) &&
+		(t->parent != 0 && !strcmp(t->parent->comm, "init")))
+		return true;
+	else
+		return false;
+	return false;
+}
+
+static bool is_system_process(struct task_struct *t)
+{
+	if (is_system_uid(t)) {
+		if (t->group_leader && (
+			!strncmp(t->group_leader->comm, "system_server", 13) ||
+			!strncmp(t->group_leader->comm, "surfaceflinger", 14) ||
+			!strncmp(t->group_leader->comm, "servicemanager", 14) ||
+			!strncmp(t->group_leader->comm, "ndroid.systemui", 15)))
+			return true;
+	}
+	return false;
+}
+
+bool is_critial_process(struct task_struct *t)
+{
+	if (is_zygote_process(t) || is_system_process(t))
+		return true;
+
+	return false;
+}
+
+bool is_filter_process(struct task_struct *t)
+{
+	if (!strncmp(t->comm, "logcat", TASK_COMM_LEN))
+		return true;
+
+	return false;
+}
+static bool high_prio_for_task(struct task_struct *t)
+{
+	int cur_uid;
+
+	if (!sysctl_fg_io_opt)
+		return false;
+
+	cur_uid = task_uid(t).val;
+	if ((is_fg(cur_uid) && !is_system_uid(t) &&
+		!is_filter_process(t)) ||
+		is_critial_process(t))
+		return true;
+
+	return false;
+}
+
+
 /**
  * submit_bio - submit a bio to the block device layer for I/O
  * @bio: The &struct bio which describes the I/O
@@ -2310,7 +2405,16 @@ blk_qc_t submit_bio(struct bio *bio)
 				bio_devname(bio, b), count);
 		}
 	}
-
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+#ifdef CONFIG_MEMPLUS
+	if (current_is_swapind())
+		bio->bi_opf |= REQ_FG;
+	else if (high_prio_for_task(current))
+		bio->bi_opf |= REQ_FG;
+#else
+	if (high_prio_for_task(current))
+		bio->bi_opf |= REQ_FG;
+#endif
 	return generic_make_request(bio);
 }
 EXPORT_SYMBOL(submit_bio);
@@ -2662,6 +2766,10 @@ static void blk_dequeue_request(struct request *rq)
 	BUG_ON(ELV_ON_HASH(rq));
 
 	list_del_init(&rq->queuelist);
+
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+	if (sysctl_fg_io_opt && (rq->cmd_flags & REQ_FG))
+		list_del_init(&rq->fg_list);
 
 	/*
 	 * the time frame between a request being removed from the lists

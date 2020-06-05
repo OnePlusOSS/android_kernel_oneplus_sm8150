@@ -381,12 +381,6 @@ static struct msm_soc_info cpu_of_id[] = {
 	/* qcs405 ID */
 	[352] = {MSM_CPU_QCS405, "QCS405"},
 
-	/* qcs404 ID */
-	[410] = {MSM_CPU_QCS404, "QCS404"},
-
-	/* qcs407 ID */
-	[411] = {MSM_CPU_QCS407, "QCS407"},
-
 	/* qcs403 ID */
 	[373] = {MSM_CPU_QCS403, "QCS403"},
 
@@ -424,9 +418,6 @@ static struct msm_soc_info cpu_of_id[] = {
 
 	/* atoll ID */
 	[407] = {MSM_CPU_ATOLL, "ATOLL"},
-
-	/* atollp ID */
-	[424] = {MSM_CPU_ATOLLP, "ATOLLP"},
 
 	/* Uninitialized IDs are not known to run Linux.
 	 * MSM_CPU_UNKNOWN is set to 0 to ensure these IDs are
@@ -1364,14 +1355,6 @@ static void * __init setup_dummy_socinfo(void)
 		dummy_socinfo.id = 372;
 		strlcpy(dummy_socinfo.build_id, "qcs401 - ",
 		sizeof(dummy_socinfo.build_id));
-	} else if (early_machine_is_qcs404()) {
-		dummy_socinfo.id = 410;
-		strlcpy(dummy_socinfo.build_id, "qcs404 - ",
-		sizeof(dummy_socinfo.build_id));
-	} else if (early_machine_is_qcs407()) {
-		dummy_socinfo.id = 411;
-		strlcpy(dummy_socinfo.build_id, "qcs407 - ",
-		sizeof(dummy_socinfo.build_id));
 	} else if (early_machine_is_sdxprairie()) {
 		dummy_socinfo.id = 357;
 		strlcpy(dummy_socinfo.build_id, "sdxprairie - ",
@@ -1411,10 +1394,6 @@ static void * __init setup_dummy_socinfo(void)
 	} else if (early_machine_is_atoll()) {
 		dummy_socinfo.id = 407;
 		strlcpy(dummy_socinfo.build_id, "atoll - ",
-		sizeof(dummy_socinfo.build_id));
-	} else if (early_machine_is_atollp()) {
-		dummy_socinfo.id = 424;
-		strlcpy(dummy_socinfo.build_id, "atollp - ",
 		sizeof(dummy_socinfo.build_id));
 	} else
 		strlcat(dummy_socinfo.build_id, "Dummy socinfo",

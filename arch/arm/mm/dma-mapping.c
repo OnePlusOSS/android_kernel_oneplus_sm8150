@@ -1795,7 +1795,8 @@ void __arm_iommu_free_attrs(struct device *dev, size_t size, void *cpu_addr,
 void arm_iommu_free_attrs(struct device *dev, size_t size,
 		    void *cpu_addr, dma_addr_t handle, unsigned long attrs)
 {
-	__arm_iommu_free_attrs(dev, size, cpu_addr, handle, attrs, NORMAL);
+	__arm_iommu_free_attrs(dev, size, cpu_addr, handle, attrs,
+				is_dma_coherent(dev, attrs, NORMAL));
 }
 
 void arm_coherent_iommu_free_attrs(struct device *dev, size_t size,
@@ -2717,13 +2718,10 @@ void arch_setup_dma_ops(struct device *dev, u64 dma_base, u64 size,
 	if (dev->dma_ops)
 		return;
 
-	if (arm_setup_iommu_dma_ops(dev, dma_base, size, iommu)) {
+	if (arm_setup_iommu_dma_ops(dev, dma_base, size, iommu))
 		dma_ops = arm_get_iommu_dma_map_ops(coherent);
-		dev->archdata.dma_ops_setup = true;
-	} else {
+	else
 		dma_ops = arm_get_dma_map_ops(coherent);
-		dev->archdata.dma_ops_setup = false;
-	}
 
 	set_dma_ops(dev, dma_ops);
 
@@ -2733,6 +2731,7 @@ void arch_setup_dma_ops(struct device *dev, u64 dma_base, u64 size,
 		dev->dma_ops = xen_dma_ops;
 	}
 #endif
+	dev->archdata.dma_ops_setup = true;
 }
 EXPORT_SYMBOL(arch_setup_dma_ops);
 

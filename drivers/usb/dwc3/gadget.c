@@ -230,8 +230,8 @@ int dwc3_gadget_resize_tx_fifos(struct dwc3 *dwc, struct dwc3_ep *dep)
 			|| usb_endpoint_xfer_isoc(dep->endpoint.desc))
 		mult = 3;
 
-	if ((dep->endpoint.maxburst > 6) &&
-			usb_endpoint_xfer_bulk(dep->endpoint.desc)
+	if ((dep->endpoint.maxburst > 2) &&
+			dep->endpoint.ep_type == EP_TYPE_GSI
 			&& dwc3_is_usb31(dwc))
 		mult = 6;
 
@@ -294,11 +294,9 @@ void dwc3_gadget_del_and_unmap_request(struct dwc3_ep *dep,
 	if (req->request.status == -EINPROGRESS)
 		req->request.status = status;
 
-	if (req->trb) {
-		dbg_ep_unmap(dep->number, req);
+	if (req->trb)
 		usb_gadget_unmap_request_by_dev(dwc->sysdev,
 				&req->request, req->direction);
-	}
 
 	req->trb = NULL;
 	trace_dwc3_gadget_giveback(req);
@@ -1141,12 +1139,6 @@ static void __dwc3_prepare_one_trb(struct dwc3_ep *dep, struct dwc3_trb *trb,
 	if (usb_endpoint_xfer_bulk(dep->endpoint.desc) && dep->stream_capable)
 		trb->ctrl |= DWC3_TRB_CTRL_SID_SOFN(stream_id);
 
-	/*
-	 * Ensure that updates of buffer address and size happens
-	 * before we set the DWC3_TRB_CTRL_HWO so that core
-	 * does not process any stale TRB.
-	 */
-	mb();
 	trb->ctrl |= DWC3_TRB_CTRL_HWO;
 
 	dwc3_ep_inc_enq(dep);
@@ -1371,7 +1363,6 @@ static void dwc3_prepare_trbs(struct dwc3_ep *dep)
 		else
 			dwc3_prepare_one_trb_linear(dep, req);
 
-		dbg_ep_map(dep->number, req);
 		if (!dwc3_calc_trbs_left(dep))
 			return;
 	}
@@ -1535,7 +1526,6 @@ static int __dwc3_gadget_ep_queue(struct dwc3_ep *dep, struct dwc3_request *req)
 
 	list_add_tail(&req->list, &dep->pending_list);
 
-	dbg_ep_queue(dep->number, req);
 	/*
 	 * NOTICE: Isochronous endpoints should NEVER be prestarted. We must
 	 * wait for a XferNotReady event so we will know what's the current
@@ -1712,7 +1702,7 @@ static int dwc3_gadget_ep_dequeue(struct usb_ep *ep,
 	}
 
 out1:
-	dbg_ep_dequeue(dep->number, req);
+	dbg_event(dep->number, "DEQUEUE", 0);
 	/* giveback the request */
 	dep->queued_requests--;
 	dwc3_gadget_giveback(dep, req, -ECONNRESET);
@@ -2073,10 +2063,12 @@ static int dwc3_gadget_set_selfpowered(struct usb_gadget *g,
 	return 0;
 }
 
+#define DWC3_SOFT_RESET_TIMEOUT 10 /* 10 msec */
 static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
 {
 	u32			reg, reg1;
 	u32			timeout = 1500;
+	ktime_t start, diff;
 
 	dbg_event(0xFF, "run_stop", is_on);
 	reg = dwc3_readl(dwc->regs, DWC3_DCTL);
@@ -2089,6 +2081,24 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
 		if (dwc->revision >= DWC3_REVISION_194A)
 			reg &= ~DWC3_DCTL_KEEP_CONNECT;
 
+		start = ktime_get();
+		/* issue device SoftReset */
+		dwc3_writel(dwc->regs, DWC3_DCTL,
+			reg | DWC3_DCTL_CSFTRST);
+		do {
+			reg = dwc3_readl(dwc->regs, DWC3_DCTL);
+			if (!(reg & DWC3_DCTL_CSFTRST))
+				break;
+
+			diff = ktime_sub(ktime_get(), start);
+			/* poll for max. 10ms */
+			if (ktime_to_ms(diff) > DWC3_SOFT_RESET_TIMEOUT) {
+				printk_ratelimited(KERN_ERR
+					"%s:core Reset Timed Out\n", __func__);
+				break;
+			}
+			cpu_relax();
+		} while (true);
 		dwc3_event_buffers_setup(dwc);
 		__dwc3_gadget_start(dwc);
 
@@ -3232,8 +3242,9 @@ static void dwc3_gadget_reset_interrupt(struct dwc3 *dwc)
 	dwc->b_suspend = false;
 	dwc3_notify_event(dwc, DWC3_CONTROLLER_NOTIFY_OTG_EVENT, 0);
 
-	usb_gadget_vbus_draw(&dwc->gadget, 100);
-
+/* @bsp, 2019/04/17 Battery & Charging porting */
+/*	usb_gadget_vbus_draw(&dwc->gadget, 100);
+*/
 	dwc3_reset_gadget(dwc);
 
 	reg = dwc3_readl(dwc->regs, DWC3_DCTL);
@@ -3649,8 +3660,11 @@ static void dwc3_gadget_interrupt(struct dwc3 *dwc,
 			if (dwc->gadget.state >= USB_STATE_CONFIGURED)
 				dwc3_gadget_suspend_interrupt(dwc,
 						event->event_info);
+/* @bsp, 2019/04/17 Battery & Charging porting */
+/*
 			else
 				usb_gadget_vbus_draw(&dwc->gadget, 2);
+*/
 		}
 		break;
 	case DWC3_DEVICE_EVENT_SOF:
@@ -3836,6 +3850,14 @@ static irqreturn_t dwc3_check_event_buf(struct dwc3_event_buffer *evt)
 		 * value.In that case setting the evt->lpos here
 		 * is a no-op. The value will be reset as part of run_stop(1).
 		 */
+		evt->lpos = (evt->lpos + count) % DWC3_EVENT_BUFFERS_SIZE;
+		dwc3_writel(dwc->regs, DWC3_GEVNTCOUNT(0), count);
+		return IRQ_HANDLED;
+	}
+
+	if (count > evt->length) {
+		dev_err(dwc->dev, "HUGE_EVCNT(%d)", count);
+		dbg_event(0xFF, "HUGE_EVCNT", count);
 		evt->lpos = (evt->lpos + count) % DWC3_EVENT_BUFFERS_SIZE;
 		dwc3_writel(dwc->regs, DWC3_GEVNTCOUNT(0), count);
 		return IRQ_HANDLED;

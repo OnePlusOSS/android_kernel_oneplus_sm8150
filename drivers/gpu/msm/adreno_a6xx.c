@@ -296,8 +296,8 @@ static const struct kgsl_hwcg_reg a640_hwcg_regs[] = {
 static const struct kgsl_hwcg_reg a612_hwcg_regs[] = {
 	{A6XX_RBBM_CLOCK_CNTL_SP0, 0x22222222},
 	{A6XX_RBBM_CLOCK_CNTL2_SP0, 0x02222220},
-	{A6XX_RBBM_CLOCK_DELAY_SP0, 0x00000081},
-	{A6XX_RBBM_CLOCK_HYST_SP0, 0x0000F3CF},
+	{A6XX_RBBM_CLOCK_DELAY_SP0, 0x0000F3CF},
+	{A6XX_RBBM_CLOCK_HYST_SP0, 0x00000081},
 	{A6XX_RBBM_CLOCK_CNTL_TP0, 0x22222222},
 	{A6XX_RBBM_CLOCK_CNTL2_TP0, 0x22222222},
 	{A6XX_RBBM_CLOCK_CNTL3_TP0, 0x22222222},
@@ -3341,7 +3341,6 @@ struct adreno_gpudev adreno_a6xx_gpudev = {
 	.preemption_pre_ibsubmit = a6xx_preemption_pre_ibsubmit,
 	.preemption_post_ibsubmit = a6xx_preemption_post_ibsubmit,
 	.preemption_init = a6xx_preemption_init,
-	.preemption_close = a6xx_preemption_close,
 	.preemption_schedule = a6xx_preemption_schedule,
 	.set_marker = a6xx_set_marker,
 	.preemption_context_init = a6xx_preemption_context_init,

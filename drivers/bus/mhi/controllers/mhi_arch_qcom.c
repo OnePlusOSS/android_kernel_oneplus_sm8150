@@ -41,6 +41,8 @@ struct arch_info {
 	void *boot_ipc_log;
 	void *tsync_ipc_log;
 	struct mhi_device *boot_dev;
+	struct mhi_link_info current_link_info;
+	struct work_struct bw_scale_work;
 	struct notifier_block pm_notifier;
 	struct completion pm_completion;
 };
@@ -62,6 +64,37 @@ enum MHI_DEBUG_LEVEL  mhi_ipc_log_lvl = MHI_MSG_LVL_VERBOSE;
 enum MHI_DEBUG_LEVEL  mhi_ipc_log_lvl = MHI_MSG_LVL_ERROR;
 
 #endif
+void mhi_reg_write_work(struct work_struct *w)
+{
+	struct mhi_controller *mhi_cntrl = container_of(w,
+						struct mhi_controller,
+						reg_write_work);
+	struct mhi_dev *mhi_dev = mhi_controller_get_devdata(mhi_cntrl);
+	struct pci_dev *pci_dev = mhi_dev->pci_dev;
+	struct reg_write_info *info =
+				&mhi_cntrl->reg_write_q[mhi_cntrl->read_idx];
+
+	if (!info->valid)
+		return;
+
+	if (mhi_is_active(mhi_cntrl->mhi_dev) && msm_pcie_prevent_l1(pci_dev))
+		return;
+
+	while (info->valid) {
+		if (!mhi_is_active(mhi_cntrl->mhi_dev))
+			return;
+
+		writel_relaxed(info->val, info->reg_addr);
+		info->valid = false;
+		mhi_cntrl->read_idx =
+			(mhi_cntrl->read_idx + 1) &
+			(REG_WRITE_QUEUE_LEN - 1);
+		info = &mhi_cntrl->reg_write_q[mhi_cntrl->read_idx];
+
+	}
+
+	msm_pcie_allow_l1(pci_dev);
+}
 
 static int mhi_arch_pm_notifier(struct notifier_block *nb,
 				unsigned long event, void *unused)
@@ -200,6 +233,7 @@ static void mhi_arch_esoc_ops_power_off(void *priv, unsigned int flags)
 	struct arch_info *arch_info = mhi_dev->arch_info;
 	struct pci_dev *pci_dev = mhi_dev->pci_dev;
 
+
 	MHI_LOG("Enter: mdm_crashed:%d\n", mdm_state);
 
 	/*
@@ -326,32 +360,68 @@ static  int mhi_arch_pcie_scale_bw(struct mhi_controller *mhi_cntrl,
 				   struct pci_dev *pci_dev,
 				   struct mhi_link_info *link_info)
 {
-	int ret;
+	int ret, scale;
 
-	mhi_cntrl->lpm_disable(mhi_cntrl, mhi_cntrl->priv_data);
 	ret = msm_pcie_set_link_bandwidth(pci_dev, link_info->target_link_speed,
 					  link_info->target_link_width);
-	mhi_cntrl->lpm_enable(mhi_cntrl, mhi_cntrl->priv_data);
 
 	if (ret)
 		return ret;
 
-	/* do a bus scale vote based on gen speeds */
-	mhi_arch_set_bus_request(mhi_cntrl, link_info->target_link_speed);
+	/* if we switch to low bw release bus scale voting */
+	scale = !(link_info->target_link_speed == PCI_EXP_LNKSTA_CLS_2_5GB);
+	mhi_arch_set_bus_request(mhi_cntrl, scale);
 
-	MHI_VERB("bw changed to speed:0x%x width:0x%x\n",
-		 link_info->target_link_speed, link_info->target_link_width);
+	MHI_VERB("bw changed to speed:0x%x width:0x%x bus_scale:%d\n",
+		 link_info->target_link_speed, link_info->target_link_width,
+		 scale);
 
 	return 0;
 }
 
-static int mhi_arch_bw_scale(struct mhi_controller *mhi_cntrl,
-			     struct mhi_link_info *link_info)
+static void mhi_arch_pcie_bw_scale_work(struct work_struct *work)
 {
-	struct mhi_dev *mhi_dev = mhi_controller_get_devdata(mhi_cntrl);
+	struct arch_info *arch_info = container_of(work,
+						   struct arch_info,
+						   bw_scale_work);
+	struct mhi_dev *mhi_dev = arch_info->mhi_dev;
 	struct pci_dev *pci_dev = mhi_dev->pci_dev;
+	struct device *dev = &pci_dev->dev;
+	struct mhi_controller *mhi_cntrl = dev_get_drvdata(dev);
+	struct mhi_link_info mhi_link_info;
+	struct mhi_link_info *cur_info = &arch_info->current_link_info;
+	int ret;
 
-	return mhi_arch_pcie_scale_bw(mhi_cntrl, pci_dev, link_info);
+	mutex_lock(&mhi_cntrl->pm_mutex);
+	if (!mhi_dev->powered_on || MHI_IS_SUSPENDED(mhi_dev->suspend_mode))
+		goto exit_work;
+
+	/* copy the latest speed change */
+	write_lock_irq(&mhi_cntrl->pm_lock);
+	mhi_link_info = mhi_cntrl->mhi_link_info;
+	write_unlock_irq(&mhi_cntrl->pm_lock);
+
+	/* link is already set to current settings */
+	if (cur_info->target_link_speed == mhi_link_info.target_link_speed &&
+	    cur_info->target_link_width == mhi_link_info.target_link_width)
+		goto exit_work;
+
+	ret = mhi_arch_pcie_scale_bw(mhi_cntrl, pci_dev, &mhi_link_info);
+	if (ret)
+		goto exit_work;
+
+	*cur_info = mhi_link_info;
+
+exit_work:
+	mutex_unlock(&mhi_cntrl->pm_mutex);
+}
+
+static void mhi_arch_pcie_bw_scale_cb(struct mhi_controller *mhi_cntrl,
+				      struct mhi_dev *mhi_dev)
+{
+	struct arch_info *arch_info = mhi_dev->arch_info;
+
+	schedule_work(&arch_info->bw_scale_work);
 }
 
 static int mhi_bl_probe(struct mhi_device *mhi_device,
@@ -396,13 +466,13 @@ int mhi_arch_pcie_init(struct mhi_controller *mhi_cntrl)
 {
 	struct mhi_dev *mhi_dev = mhi_controller_get_devdata(mhi_cntrl);
 	struct arch_info *arch_info = mhi_dev->arch_info;
-	struct mhi_link_info *cur_link_info;
 	char node[32];
 	int ret;
 	u16 linkstat;
 
 	if (!arch_info) {
 		struct msm_pcie_register_event *reg_event;
+		struct mhi_link_info *cur_link_info;
 
 		arch_info = devm_kzalloc(&mhi_dev->pci_dev->dev,
 					 sizeof(*arch_info), GFP_KERNEL);
@@ -494,24 +564,28 @@ int mhi_arch_pcie_init(struct mhi_controller *mhi_cntrl)
 				    mhi_dev->pci_dev, NULL, 0);
 		mhi_dev->pci_dev->no_d3hot = true;
 
-		mhi_cntrl->bw_scale = mhi_arch_bw_scale;
+		INIT_WORK(&arch_info->bw_scale_work,
+			  mhi_arch_pcie_bw_scale_work);
+		mhi_dev->bw_scale = mhi_arch_pcie_bw_scale_cb;
+
+		/* store the current bw info */
+		ret = pcie_capability_read_word(mhi_dev->pci_dev,
+						PCI_EXP_LNKSTA, &linkstat);
+		if (ret)
+			return ret;
+
+		cur_link_info = &arch_info->current_link_info;
+		cur_link_info->target_link_speed =
+			linkstat & PCI_EXP_LNKSTA_CLS;
+		cur_link_info->target_link_width =
+			(linkstat & PCI_EXP_LNKSTA_NLW) >>
+			PCI_EXP_LNKSTA_NLW_SHIFT;
+		mhi_cntrl->mhi_link_info = *cur_link_info;
 
 		mhi_driver_register(&mhi_bl_driver);
 	}
 
-	/* store the current bw info */
-	ret = pcie_capability_read_word(mhi_dev->pci_dev,
-					PCI_EXP_LNKSTA, &linkstat);
-	if (ret)
-		return ret;
-
-	cur_link_info = &mhi_cntrl->mhi_link_info;
-	cur_link_info->target_link_speed = linkstat & PCI_EXP_LNKSTA_CLS;
-	cur_link_info->target_link_width = (linkstat & PCI_EXP_LNKSTA_NLW) >>
-					    PCI_EXP_LNKSTA_NLW_SHIFT;
-
-	return mhi_arch_set_bus_request(mhi_cntrl,
-					cur_link_info->target_link_speed);
+	return mhi_arch_set_bus_request(mhi_cntrl, 1);
 }
 
 void mhi_arch_pcie_deinit(struct mhi_controller *mhi_cntrl)
@@ -699,16 +773,17 @@ static int __mhi_arch_link_resume(struct mhi_controller *mhi_cntrl)
 	struct mhi_dev *mhi_dev = mhi_controller_get_devdata(mhi_cntrl);
 	struct arch_info *arch_info = mhi_dev->arch_info;
 	struct pci_dev *pci_dev = mhi_dev->pci_dev;
-	struct mhi_link_info *cur_info = &mhi_cntrl->mhi_link_info;
+	struct mhi_link_info *cur_info = &arch_info->current_link_info;
 	int ret;
 
 	MHI_LOG("Entered\n");
 
-	/* request bus scale voting based on higher gen speed */
-	ret = mhi_arch_set_bus_request(mhi_cntrl,
-				       cur_info->target_link_speed);
-	if (ret)
-		MHI_LOG("Could not set bus frequency, ret:%d\n", ret);
+	/* request bus scale voting if we're on Gen 2 or higher speed */
+	if (cur_info->target_link_speed != PCI_EXP_LNKSTA_CLS_2_5GB) {
+		ret = mhi_arch_set_bus_request(mhi_cntrl, 1);
+		if (ret)
+			MHI_LOG("Could not set bus frequency, ret:%d\n", ret);
+	}
 
 	ret = msm_pcie_pm_control(MSM_PCIE_RESUME, mhi_cntrl->bus, pci_dev,
 				  NULL, 0);
@@ -742,7 +817,10 @@ static int __mhi_arch_link_resume(struct mhi_controller *mhi_cntrl)
 int mhi_arch_link_resume(struct mhi_controller *mhi_cntrl)
 {
 	struct mhi_dev *mhi_dev = mhi_controller_get_devdata(mhi_cntrl);
+	struct arch_info *arch_info = mhi_dev->arch_info;
 	struct pci_dev *pci_dev = mhi_dev->pci_dev;
+	struct mhi_link_info *cur_info = &arch_info->current_link_info;
+	struct mhi_link_info *updated_info = &mhi_cntrl->mhi_link_info;
 	int ret = 0;
 
 	MHI_LOG("Entered\n");
@@ -760,6 +838,14 @@ int mhi_arch_link_resume(struct mhi_controller *mhi_cntrl)
 	if (ret) {
 		MHI_ERR("Link training failed, ret:%d\n", ret);
 		return ret;
+	}
+
+	/* BW request from device doesn't match current link speed */
+	if (cur_info->target_link_speed != updated_info->target_link_speed ||
+	    cur_info->target_link_width != updated_info->target_link_width) {
+		ret = mhi_arch_pcie_scale_bw(mhi_cntrl, pci_dev, updated_info);
+		if (!ret)
+			*cur_info = *updated_info;
 	}
 
 	msm_pcie_l1ss_timeout_enable(pci_dev);

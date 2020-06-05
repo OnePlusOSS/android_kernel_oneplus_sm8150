@@ -396,14 +396,11 @@ static void ipa3_handle_mhi_vote_req(struct qmi_handle *qmi_handle,
 					IPA_QMI_ERR_NOT_SUPPORTED_V01;
 			}
 			resp = &resp2;
-		} else {
-			IPAWANERR("clk_rate_valid is false\n");
-			return;
 		}
 	} else {
 		resp = imp_handle_vote_req(vote_req->mhi_vote);
 		if (!resp) {
-			IPAWANERR("imp handle vote req fails\n");
+			IPAWANERR("imp handle allocate channel req fails");
 			return;
 		}
 		IPAWANDBG("start sending QMI_IPA_MHI_CLK_VOTE_RESP_V01\n");
@@ -1041,7 +1038,7 @@ int ipa3_qmi_rmv_offload_request_send(
 	}
 
 	/* check if the # of handles from IPACM is valid */
-	if (!req->clean_all_rules_valid && req->filter_handle_list_len == 0) {
+	if (req->filter_handle_list_len == 0) {
 		IPAWANDBG("IPACM deleted zero rules !\n");
 		return -EINVAL;
 	}
@@ -1051,7 +1048,7 @@ int ipa3_qmi_rmv_offload_request_send(
 	ipa3_qmi_ctx->num_ipa_offload_connection);
 
 	/*  max as num_ipa_offload_connection */
-	if (req->filter_handle_list_len >
+	if (req->filter_handle_list_len >=
 		ipa3_qmi_ctx->num_ipa_offload_connection) {
 		IPAWANDBG(
 		"cur(%d), req_rmv(%d)\n",
@@ -1090,15 +1087,6 @@ int ipa3_qmi_rmv_offload_request_send(
 		IPA_REMOVE_OFFLOAD_CONNECTION_REQ_MSG_V01_MAX_MSG_LEN;
 	req_desc.msg_id = QMI_IPA_REMOVE_OFFLOAD_CONNECTION_REQ_V01;
 	req_desc.ei_array = ipa_remove_offload_connection_req_msg_v01_ei;
-
-	/* clean the Dl rules  in the cache if flag is set */
-	if (req->clean_all_rules) {
-		for (i = 0; i < QMI_IPA_MAX_FILTERS_V01; i++)
-			if (ipa3_qmi_ctx->ipa_offload_cache[i].valid)
-				ipa3_qmi_ctx->ipa_offload_cache[i].valid =
-				false;
-	}
-
 
 	memset(&resp, 0, sizeof(struct
 		ipa_remove_offload_connection_resp_msg_v01));
@@ -1494,6 +1482,8 @@ static void ipa3_q6_clnt_svc_arrive(struct work_struct *work)
 		IPAWANERR("Couldnt connect Server\n");
 		return;
 	}
+	if (!send_qmi_init_q6)
+		return;
 
 	if (!send_qmi_init_q6)
 		return;
@@ -2246,22 +2236,6 @@ int ipa3_qmi_send_mhi_cleanup_request(struct ipa_mhi_cleanup_req_msg_v01 *req)
 	return ipa3_check_qmi_response(rc,
 		QMI_IPA_MHI_CLEANUP_REQ_V01, resp.resp.result,
 		resp.resp.error, "ipa_mhi_cleanup_req_msg");
-}
-
-int ipa3_qmi_send_rsc_pipe_indication(
-	struct ipa_endp_desc_indication_msg_v01 *req)
-{
-	IPAWANDBG("Sending QMI_IPA_ENDP_DESC_INDICATION_V01\n");
-
-	if (unlikely(!ipa3_svc_handle))
-		return -ETIMEDOUT;
-
-	return qmi_send_indication(ipa3_svc_handle,
-		&ipa3_qmi_ctx->client_sq,
-		QMI_IPA_ENDP_DESC_INDICATION_V01,
-		IPA_ENDP_DESC_INDICATION_MSG_V01_MAX_MSG_LEN,
-		ipa_endp_desc_indication_msg_v01_ei,
-		req);
 }
 
 void ipa3_qmi_init(void)

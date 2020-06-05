@@ -488,6 +488,9 @@ retry:
 		 * the mmap_sem because it would already be released
 		 * in __lock_page_or_retry in mm/filemap.c.
 		 */
+#ifdef CONFIG_MEMPLUS
+		count_vm_event(RETRYPAGE);
+#endif
 		if (fatal_signal_pending(current)) {
 			if (!user_mode(regs))
 				goto no_context;

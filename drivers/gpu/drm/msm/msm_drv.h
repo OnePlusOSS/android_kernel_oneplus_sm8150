@@ -103,6 +103,8 @@ enum msm_mdp_plane_property {
 
 	/* range properties */
 	PLANE_PROP_ZPOS = PLANE_PROP_BLOBCOUNT,
+	//xiaoxiaohuan@OnePlus.MultiMediaService,2018/08/04, add for fingerprint
+    PLANE_PROP_CUSTOM,
 	PLANE_PROP_ALPHA,
 	PLANE_PROP_COLOR_FILL,
 	PLANE_PROP_H_DECIMATE,
@@ -166,6 +168,7 @@ enum msm_mdp_crtc_property {
 	CRTC_PROP_IDLE_PC_STATE,
 
 	/* total # of properties */
+	CRTC_PROP_CUSTOM,
 	CRTC_PROP_COUNT
 };
 
@@ -199,6 +202,7 @@ enum msm_mdp_conn_property {
 	CONNECTOR_PROP_LP,
 	CONNECTOR_PROP_FB_TRANSLATION_MODE,
 	CONNECTOR_PROP_QSYNC_MODE,
+	CONNECTOR_PROP_CUSTOM,
 
 	/* total # of properties */
 	CONNECTOR_PROP_COUNT
@@ -446,7 +450,6 @@ struct msm_display_topology {
  * @mdp_transfer_time_us   Specifies the mdp transfer time for command mode
  *                         panels in microseconds.
  * @vpadding:        panel stacking height
- * @overlap_pixels:	overlap pixels for certain panels
  */
 struct msm_mode_info {
 	uint32_t frame_rate;
@@ -461,7 +464,6 @@ struct msm_mode_info {
 	bool wide_bus_en;
 	u32 mdp_transfer_time_us;
 	u32 vpadding;
-	u32 overlap_pixels;
 };
 
 /**
@@ -531,14 +533,6 @@ struct msm_roi_list {
 struct msm_display_kickoff_params {
 	struct msm_roi_list *rois;
 	struct drm_msm_ext_hdr_metadata *hdr_meta;
-};
-
-/**
- * struct - msm_display_conn_params - info of dpu display features
- * @qsync_mode: Qsync mode, where 0: disabled 1: continuous mode
- * @qsync_update: Qsync settings were changed/updated
- */
-struct msm_display_conn_params {
 	uint32_t qsync_mode;
 	bool qsync_update;
 };
@@ -611,7 +605,6 @@ struct msm_drm_private {
 
 	/* crtcs pending async atomic updates: */
 	uint32_t pending_crtcs;
-	uint32_t pending_planes;
 	wait_queue_head_t pending_crtcs_event;
 
 	unsigned int num_planes;
@@ -674,6 +667,7 @@ struct msm_drm_private {
 
 	/* update the flag when msm driver receives shutdown notification */
 	bool shutdown_in_progress;
+	ktime_t  commit_end_time;
 };
 
 /* get struct msm_kms * from drm_device * */

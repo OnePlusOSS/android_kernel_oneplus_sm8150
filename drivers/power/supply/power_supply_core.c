@@ -23,6 +23,9 @@
 #include <linux/thermal.h>
 #include "power_supply.h"
 
+// tedlin@ASTI 2019/06/12 add for CONFIG_HOUSTON
+#include <oneplus/houston/houston_helper.h>
+
 /* exported for the APM Power driver, APM emulation */
 struct class *power_supply_class;
 EXPORT_SYMBOL_GPL(power_supply_class);
@@ -33,6 +36,22 @@ EXPORT_SYMBOL_GPL(power_supply_notifier);
 static struct device_type power_supply_dev_type;
 
 #define POWER_SUPPLY_DEFERRED_REGISTER_TIME	msecs_to_jiffies(10)
+
+/* [OSP-3675]: ext4 fsync */
+static void power_supply_update_fsync(struct power_supply *psy)
+{
+	union power_supply_propval ret = {0, };
+
+	if (psy->desc->type == POWER_SUPPLY_TYPE_BATTERY) {
+		if (power_supply_get_property(psy, POWER_SUPPLY_PROP_CAPACITY, &ret))
+			return;
+		if (ret.intval < 5 && ext4_fsync_enable_status != 0) {
+			ext4_fsync_enable_status = 0;
+		} else if (ret.intval > 5 && ext4_fsync_enable_status != 1) {
+			ext4_fsync_enable_status = 1;
+		}
+	}
+}
 
 static bool __power_supply_is_supplied_by(struct power_supply *supplier,
 					 struct power_supply *supply)
@@ -95,6 +114,13 @@ static void power_supply_changed_work(struct work_struct *work)
 		class_for_each_device(power_supply_class, NULL, psy,
 				      __power_supply_changed_work);
 		power_supply_update_leds(psy);
+		/* [OSP-3675]: ext4 fsync */
+		if (sysctl_ext4_fsync_enable) {
+			power_supply_update_fsync(psy);
+		} else {
+			if (ext4_fsync_enable_status != 0)
+				ext4_fsync_enable_status = 0;
+		}
 		atomic_notifier_call_chain(&power_supply_notifier,
 				PSY_EVENT_PROP_CHANGED, psy);
 		kobject_uevent(&psy->dev.kobj, KOBJ_CHANGE);
@@ -932,6 +958,9 @@ __power_supply_register(struct device *parent,
 	queue_delayed_work(system_power_efficient_wq,
 			   &psy->deferred_register_work,
 			   POWER_SUPPLY_DEFERRED_REGISTER_TIME);
+
+// tedlin@ASTI 2019/06/12 add to register (CONFIG_HOUSTON)
+	ht_register_power_supply(psy);
 
 	return psy;
 

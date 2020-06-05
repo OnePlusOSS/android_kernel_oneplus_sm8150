@@ -204,6 +204,8 @@ int elevator_init(struct request_queue *q, char *name)
 		return 0;
 
 	INIT_LIST_HEAD(&q->queue_head);
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+	INIT_LIST_HEAD(&q->fg_head);
 	q->last_merge = NULL;
 	q->end_sector = 0;
 	q->boundary_rq = NULL;
@@ -415,6 +417,8 @@ void elv_dispatch_sort(struct request_queue *q, struct request *rq)
 	}
 
 	list_add(&rq->queuelist, entry);
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+	queue_throtl_add_request(q, rq, false);
 }
 EXPORT_SYMBOL(elv_dispatch_sort);
 
@@ -435,6 +439,8 @@ void elv_dispatch_add_tail(struct request_queue *q, struct request *rq)
 	q->end_sector = rq_end_sector(rq);
 	q->boundary_rq = rq;
 	list_add_tail(&rq->queuelist, &q->queue_head);
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+	queue_throtl_add_request(q, rq, false);
 }
 EXPORT_SYMBOL(elv_dispatch_add_tail);
 
@@ -663,12 +669,16 @@ void __elv_add_request(struct request_queue *q, struct request *rq, int where)
 	case ELEVATOR_INSERT_FRONT:
 		rq->rq_flags |= RQF_SOFTBARRIER;
 		list_add(&rq->queuelist, &q->queue_head);
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+		queue_throtl_add_request(q, rq, true);
 		break;
 
 	case ELEVATOR_INSERT_BACK:
 		rq->rq_flags |= RQF_SOFTBARRIER;
 		elv_drain_elevator(q);
 		list_add_tail(&rq->queuelist, &q->queue_head);
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+		queue_throtl_add_request(q, rq, false);
 		/*
 		 * We kick the queue here for the following reasons.
 		 * - The elevator might have returned NULL previously

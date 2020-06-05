@@ -5,3 +5,4 @@ config_data.h
 config_data.gz
 timeconst.h
 hz.bc
+panic_flush.c

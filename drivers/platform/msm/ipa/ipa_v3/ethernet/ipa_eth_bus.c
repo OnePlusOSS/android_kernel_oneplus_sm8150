@@ -16,12 +16,14 @@
 
 static bool ipa_eth_bus_is_ready;
 
+static struct dentry *ipa_eth_bus_debugfs;
+
 struct ipa_eth_bus_map {
 	struct bus_type *bus;
 	struct ipa_eth_bus *eth_bus;
-	int (*modinit)(void);
+	int (*modinit)(struct dentry *);
 	void (*modexit)(void);
-} static const bus_map[] = {
+} bus_map[] = {
 	{
 		&pci_bus_type,
 		&ipa_eth_pci_bus,
@@ -31,9 +33,31 @@ struct ipa_eth_bus_map {
 	{},
 };
 
+static int ipa_eth_bus_debugfs_init(struct dentry *dbgfs_root)
+{
+	if (!dbgfs_root)
+		return 0;
+
+	ipa_eth_bus_debugfs = debugfs_create_dir("bus", dbgfs_root);
+	if (IS_ERR_OR_NULL(ipa_eth_bus_debugfs)) {
+		int rc = ipa_eth_bus_debugfs ?
+			PTR_ERR(ipa_eth_bus_debugfs) : -EFAULT;
+
+		ipa_eth_bus_debugfs = NULL;
+		return rc;
+	}
+
+	return 0;
+}
+
+static void ipa_eth_bus_debugfs_cleanup(void)
+{
+	debugfs_remove_recursive(ipa_eth_bus_debugfs);
+}
+
 static struct ipa_eth_bus *lookup_eth_bus(struct bus_type *bus)
 {
-	const struct ipa_eth_bus_map *map;
+	struct ipa_eth_bus_map *map;
 
 	for (map = bus_map; map->bus != NULL; map++) {
 		if (map->bus == bus)
@@ -47,13 +71,18 @@ int ipa_eth_bus_register_driver(struct ipa_eth_net_driver *nd)
 {
 	struct ipa_eth_bus *eth_bus;
 
+	if (!nd->bus) {
+		ipa_eth_err("Missing bus info in net driver");
+		return -EINVAL;
+	}
+
 	eth_bus = lookup_eth_bus(nd->bus);
 	if (!eth_bus) {
 		ipa_eth_err("Unsupported bus %s", nd->bus->name);
 		return -ENOTSUPP;
 	}
 
-	return eth_bus->register_driver(nd);
+	return eth_bus->register_net_driver(nd);
 }
 
 void ipa_eth_bus_unregister_driver(struct ipa_eth_net_driver *nd)
@@ -65,7 +94,7 @@ void ipa_eth_bus_unregister_driver(struct ipa_eth_net_driver *nd)
 		return;
 	}
 
-	eth_bus->unregister_driver(nd);
+	eth_bus->unregister_net_driver(nd);
 }
 
 int ipa_eth_bus_enable_pc(struct ipa_eth_device *eth_dev)
@@ -100,14 +129,20 @@ int ipa_eth_bus_disable_pc(struct ipa_eth_device *eth_dev)
 	return -EFAULT;
 }
 
-int ipa_eth_bus_modinit(void)
+int ipa_eth_bus_modinit(struct dentry *dbgfs_root)
 {
 	int rc;
-	const struct ipa_eth_bus_map *map;
+	struct ipa_eth_bus_map *map;
+
+	rc = ipa_eth_bus_debugfs_init(dbgfs_root);
+	if (rc) {
+		ipa_eth_err("Unable to create debugfs root for bus");
+		return rc;
+	}
 
 	/* initialize all registered busses */
 	for (rc = 0, map = bus_map; map->bus != NULL; map++)
-		rc |= map->modinit();
+		rc |= map->modinit(ipa_eth_bus_debugfs);
 
 	if (rc) {
 		ipa_eth_err("Failed to initialize one or more busses");
@@ -124,12 +159,14 @@ err_init:
 	for (map = bus_map; map->bus != NULL; map++)
 		map->modexit();
 
+	ipa_eth_bus_debugfs_cleanup();
+
 	return rc;
 }
 
 void ipa_eth_bus_modexit(void)
 {
-	const struct ipa_eth_bus_map *map;
+	struct ipa_eth_bus_map *map;
 
 	ipa_eth_log("De-initing offload sub-system bus module");
 
@@ -140,4 +177,6 @@ void ipa_eth_bus_modexit(void)
 
 	for (map = bus_map; map->bus != NULL; map++)
 		map->modexit();
+
+	ipa_eth_bus_debugfs_cleanup();
 }

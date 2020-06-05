@@ -32,6 +32,7 @@
 #include <linux/ctype.h>
 #include <linux/mm.h>
 #include <linux/ion.h>
+#include <linux/log2.h>
 #include <asm/cacheflush.h>
 #include <uapi/linux/sched/types.h>
 
@@ -45,6 +46,7 @@
 #include "kgsl_sync.h"
 #include "kgsl_compat.h"
 #include "kgsl_pool.h"
+#include <linux/mm_types.h>
 
 #undef MODULE_PARAM_PREFIX
 #define MODULE_PARAM_PREFIX "kgsl."
@@ -70,6 +72,8 @@
 static char *kgsl_mmu_type;
 module_param_named(mmutype, kgsl_mmu_type, charp, 0000);
 MODULE_PARM_DESC(kgsl_mmu_type, "Type of MMU to be used for graphics");
+
+#define SIZE_10M 0xA00000
 
 /* Mutex used for the IOMMU sync quirk */
 DEFINE_MUTEX(kgsl_mmu_sync);
@@ -4598,6 +4602,7 @@ static unsigned long _get_svm_area(struct kgsl_process_private *private,
 	uint64_t align;
 	unsigned long result;
 	unsigned long addr;
+	uint64_t svm_start, svm_end;
 
 	if (align_shift >= ilog2(SZ_2M))
 		align = SZ_2M;
@@ -4614,6 +4619,9 @@ static unsigned long _get_svm_area(struct kgsl_process_private *private,
 	if (kgsl_mmu_svm_range(private->pagetable, &start, &end,
 				entry->memdesc.flags))
 		return -ERANGE;
+
+	svm_start = start;
+	svm_end = end;
 
 	/* now clamp the range based on the CPU's requirements */
 	start = max_t(uint64_t, start, mmap_min_addr);
@@ -4656,12 +4664,55 @@ static unsigned long _get_svm_area(struct kgsl_process_private *private,
 	 * Search downwards from the hint first. If that fails we
 	 * must try to search above it.
 	 */
+	if (current->mm->va_feature & 0x2) {
+		uint64_t lstart, lend;
+		unsigned long lresult;
+
+		switch (len) {
+		case 4096: case 8192: case 16384: case 32768:
+		case 65536: case 131072: case 262144:
+			lend = current->mm->va_feature_rnd - (SIZE_10M * (ilog2(len) - 12));
+			lstart = current->mm->va_feature_rnd - (SIZE_10M * 7);
+			if (lend <= svm_end && lstart >= svm_start) {
+				lresult = _search_range(private, entry, lstart, lend, len, align);
+				if (!IS_ERR_VALUE(lresult))
+					return lresult;
+			}
+		default:
+			break;
+		}
+	}
 	result = _search_range(private, entry, start, addr, len, align);
 	if (IS_ERR_VALUE(result) && hint != 0)
 		result = _search_range(private, entry, addr, end, len, align);
 
 	return result;
 }
+
+static void kgsl_send_uevent_notify(struct kgsl_device *desc, char *comm,
+			unsigned long len, unsigned long total_vm,
+			unsigned long largest_gap_cpu, unsigned long largest_gap_gpu)
+{
+	char *envp[6];
+
+	if (!desc)
+		return;
+
+	envp[0] = kasprintf(GFP_KERNEL, "COMM=%s", comm);
+	envp[1] = kasprintf(GFP_KERNEL, "LEN=%lu", len);
+	envp[2] = kasprintf(GFP_KERNEL, "TOTAL_VM=%lu", total_vm);
+	envp[3] = kasprintf(GFP_KERNEL, "LARGEST_GAP_CPU=%lu", largest_gap_cpu);
+	envp[4] = kasprintf(GFP_KERNEL, "LARGEST_GAP_GPU=%lu", largest_gap_gpu);
+	envp[5] = NULL;
+	kobject_uevent_env(&desc->dev->kobj, KOBJ_CHANGE, envp);
+	kfree(envp[4]);
+	kfree(envp[3]);
+	kfree(envp[2]);
+	kfree(envp[1]);
+	kfree(envp[0]);
+}
+
+static int current_pid = -1;
 
 static unsigned long
 kgsl_get_unmapped_area(struct file *file, unsigned long addr,
@@ -4696,11 +4747,34 @@ kgsl_get_unmapped_area(struct file *file, unsigned long addr,
 				private->pid, addr, pgoff, len, (int) val);
 	} else {
 		val = _get_svm_area(private, entry, addr, len, flags);
-		if (IS_ERR_VALUE(val))
+		if (IS_ERR_VALUE(val)) {
+			struct vm_area_struct *vma;
+			struct mm_struct *mm = current->mm;
+			unsigned long largest_gap_cpu = UINT_MAX;
+			unsigned long largest_gap_gpu = UINT_MAX;
+
 			KGSL_DRV_ERR_RATELIMIT(device,
 				"_get_svm_area: pid %d mmap_base %lx addr %lx pgoff %lx len %ld failed error %d\n",
 				private->pid, current->mm->mmap_base, addr,
 				pgoff, len, (int) val);
+
+			if (!RB_EMPTY_ROOT(&mm->mm_rb)) {
+				vma = rb_entry(mm->mm_rb.rb_node, struct vm_area_struct, vm_rb);
+				largest_gap_cpu = vma->rb_subtree_gap;
+				largest_gap_gpu = vma->rb_glfragment_gap;
+			}
+
+			if (private->pid != current_pid) {
+				current_pid = private->pid;
+				kgsl_send_uevent_notify(device, current->group_leader->comm,
+					len, mm->total_vm, largest_gap_cpu, largest_gap_gpu);
+			}
+
+			KGSL_DRV_ERR_RATELIMIT(device,
+				"kgsl additional info: %s VmSize %lu MaxGapCpu %lu MaxGapGpu %lu VA_rnd 0x%llx\n",
+				current->group_leader->comm, mm->total_vm, largest_gap_cpu,
+				largest_gap_gpu, mm->va_feature_rnd);
+		}
 	}
 
 put:

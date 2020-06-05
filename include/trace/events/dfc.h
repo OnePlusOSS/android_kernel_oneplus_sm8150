@@ -20,14 +20,15 @@
 
 TRACE_EVENT(dfc_qmi_tc,
 
-	TP_PROTO(const char *name, u8 bearer_id, u32 grant,
+	TP_PROTO(const char *name, u8 bearer_id, u32 flow_id, u32 grant,
 		 int qlen, u32 tcm_handle, int enable),
 
-	TP_ARGS(name, bearer_id, grant, qlen, tcm_handle, enable),
+	TP_ARGS(name, bearer_id, flow_id, grant, qlen, tcm_handle, enable),
 
 	TP_STRUCT__entry(
 		__string(dev_name, name)
 		__field(u8, bid)
+		__field(u32, fid)
 		__field(u32, grant)
 		__field(int, qlen)
 		__field(u32, tcm_handle)
@@ -37,15 +38,16 @@ TRACE_EVENT(dfc_qmi_tc,
 	TP_fast_assign(
 		__assign_str(dev_name, name);
 		__entry->bid = bearer_id;
+		__entry->fid = flow_id;
 		__entry->grant = grant;
 		__entry->qlen = qlen;
 		__entry->tcm_handle = tcm_handle;
 		__entry->enable = enable;
 	),
 
-	TP_printk("dev=%s bearer_id=%u grant=%u len=%d mq=%u %s",
+	TP_printk("dev=%s bearer_id=%u grant=%u len=%d flow_id=%u q=%d %s",
 		__get_str(dev_name),
-		__entry->bid, __entry->grant, __entry->qlen,
+		__entry->bid, __entry->grant, __entry->qlen, __entry->fid,
 		__entry->tcm_handle,
 		__entry->enable ? "enable" : "disable")
 );
@@ -88,16 +90,14 @@ TRACE_EVENT(dfc_flow_ind,
 
 TRACE_EVENT(dfc_flow_check,
 
-	TP_PROTO(const char *name, u8 bearer_id, unsigned int len,
-		 u32 mark, u32 grant),
+	TP_PROTO(const char *name, u8 bearer_id, unsigned int len, u32 grant),
 
-	TP_ARGS(name, bearer_id, len, mark, grant),
+	TP_ARGS(name, bearer_id, len, grant),
 
 	TP_STRUCT__entry(
 		__string(dev_name, name)
 		__field(u8, bearer_id)
 		__field(unsigned int, len)
-		__field(u32, mark)
 		__field(u32, grant)
 	),
 
@@ -105,13 +105,12 @@ TRACE_EVENT(dfc_flow_check,
 		__assign_str(dev_name, name)
 		__entry->bearer_id = bearer_id;
 		__entry->len = len;
-		__entry->mark = mark;
 		__entry->grant = grant;
 	),
 
-	TP_printk("dev=%s bearer_id=%u skb_len=%u mark=%u current_grant=%u",
-		__get_str(dev_name), __entry->bearer_id,
-		__entry->len, __entry->mark, __entry->grant)
+	TP_printk("dev=%s bearer_id=%u skb_len=%u current_grant=%u",
+		__get_str(dev_name),
+		__entry->bearer_id, __entry->len, __entry->grant)
 );
 
 TRACE_EVENT(dfc_flow_info,
@@ -139,7 +138,7 @@ TRACE_EVENT(dfc_flow_info,
 		__entry->action = add;
 	),
 
-	TP_printk("%s: dev=%s bearer_id=%u flow_id=%u ip_type=%d mq=%d",
+	TP_printk("%s: dev=%s bearer_id=%u flow_id=%u ip_type=%d q=%d",
 		__entry->action ? "add flow" : "delete flow",
 		__get_str(dev_name),
 		__entry->bid, __entry->fid, __entry->ip, __entry->handle)
@@ -244,29 +243,6 @@ TRACE_EVENT(dfc_tx_link_status_ind,
 	TP_printk("src=%d [%d]: status=%u mux_id=%u bearer_id=%u",
 		__entry->src, __entry->idx, __entry->status,
 		__entry->mid, __entry->bid)
-);
-
-TRACE_EVENT(dfc_qmap,
-
-	TP_PROTO(const void *data, size_t len, bool in),
-
-	TP_ARGS(data, len, in),
-
-	TP_STRUCT__entry(
-		__field(bool, in)
-		__field(size_t, len)
-		__dynamic_array(u8, data, len)
-	),
-
-	TP_fast_assign(
-		__entry->in = in;
-		__entry->len = len;
-		memcpy(__get_dynamic_array(data), data, len);
-	),
-
-	TP_printk("%s [%s]",
-		__entry->in ? "<--" : "-->",
-		__print_hex(__get_dynamic_array(data), __entry->len))
 );
 
 #endif /* _TRACE_DFC_H */

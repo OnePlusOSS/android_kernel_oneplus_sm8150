@@ -348,6 +348,9 @@ repeat:
 			return entry;
 	}
 
+	/* CONFIG_MEMPLUS add start by bin.zhong@ASTI */
+	__set_memplus_entry(entry, page_private(page));
+	/* add end */
 	get_swap_pages(1, false, &entry);
 
 	return entry;

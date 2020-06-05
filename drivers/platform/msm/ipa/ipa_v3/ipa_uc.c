@@ -225,14 +225,19 @@ const char *ipa_hw_error_str(enum ipa3_hw_errors err_type)
 
 static void ipa3_uc_save_dbg_stats(u32 size)
 {
-	u8 prot_id;
+	u8 protocol_id;
 	u32 addr_offset;
 	void __iomem *mmio;
 
-	prot_id = IPA_UC_DBG_STATS_GET_PROT_ID(
+	protocol_id = IPA_UC_DBG_STATS_GET_PROT_ID(
 		ipa3_ctx->uc_ctx.uc_sram_mmio->responseParams_1);
 	addr_offset = IPA_UC_DBG_STATS_GET_OFFSET(
 		ipa3_ctx->uc_ctx.uc_sram_mmio->responseParams_1);
+
+	// Add by bsp
+	if (protocol_id == IPA_HW_PROTOCOL_COMMON)
+		return;
+
 	mmio = ioremap(ipa3_ctx->ipa_wrapper_base +
 		addr_offset, sizeof(struct IpaHwRingStats_t) *
 		MAX_CH_STATS_SUPPORTED);
@@ -240,72 +245,36 @@ static void ipa3_uc_save_dbg_stats(u32 size)
 		IPAERR("unexpected NULL mmio\n");
 		return;
 	}
-	switch (prot_id) {
+	switch (protocol_id) {
 	case IPA_HW_PROTOCOL_AQC:
-		if (!ipa3_ctx->aqc_ctx.dbg_stats.uc_dbg_stats_mmio) {
-			ipa3_ctx->aqc_ctx.dbg_stats.uc_dbg_stats_size =
-				size;
-			ipa3_ctx->aqc_ctx.dbg_stats.uc_dbg_stats_ofst =
-				addr_offset;
-			ipa3_ctx->aqc_ctx.dbg_stats.uc_dbg_stats_mmio =
-				mmio;
-		} else
-			goto unmap;
 		break;
 	case IPA_HW_PROTOCOL_11ad:
 		break;
 	case IPA_HW_PROTOCOL_WDI:
-		if (!ipa3_ctx->wdi2_ctx.dbg_stats.uc_dbg_stats_mmio) {
-			ipa3_ctx->wdi2_ctx.dbg_stats.uc_dbg_stats_size =
-				size;
-			ipa3_ctx->wdi2_ctx.dbg_stats.uc_dbg_stats_ofst =
-				addr_offset;
-			ipa3_ctx->wdi2_ctx.dbg_stats.uc_dbg_stats_mmio =
-				mmio;
-		} else
-			goto unmap;
+		ipa3_ctx->wdi2_ctx.dbg_stats.uc_dbg_stats_size = size;
+		ipa3_ctx->wdi2_ctx.dbg_stats.uc_dbg_stats_ofst = addr_offset;
+		ipa3_ctx->wdi2_ctx.dbg_stats.uc_dbg_stats_mmio = mmio;
 		break;
 	case IPA_HW_PROTOCOL_WDI3:
-		if (!ipa3_ctx->wdi3_ctx.dbg_stats.uc_dbg_stats_mmio) {
-			ipa3_ctx->wdi3_ctx.dbg_stats.uc_dbg_stats_size =
-				size;
-			ipa3_ctx->wdi3_ctx.dbg_stats.uc_dbg_stats_ofst =
-				addr_offset;
-			ipa3_ctx->wdi3_ctx.dbg_stats.uc_dbg_stats_mmio =
-				mmio;
-		} else
-			goto unmap;
+		ipa3_ctx->wdi3_ctx.dbg_stats.uc_dbg_stats_size = size;
+		ipa3_ctx->wdi3_ctx.dbg_stats.uc_dbg_stats_ofst = addr_offset;
+		ipa3_ctx->wdi3_ctx.dbg_stats.uc_dbg_stats_mmio = mmio;
 		break;
 	case IPA_HW_PROTOCOL_ETH:
 		break;
 	case IPA_HW_PROTOCOL_MHIP:
-		if (!ipa3_ctx->mhip_ctx.dbg_stats.uc_dbg_stats_mmio) {
-			ipa3_ctx->mhip_ctx.dbg_stats.uc_dbg_stats_size =
-				size;
-			ipa3_ctx->mhip_ctx.dbg_stats.uc_dbg_stats_ofst =
-				addr_offset;
-			ipa3_ctx->mhip_ctx.dbg_stats.uc_dbg_stats_mmio =
-				mmio;
-		} else
-			goto unmap;
+		ipa3_ctx->mhip_ctx.dbg_stats.uc_dbg_stats_size = size;
+		ipa3_ctx->mhip_ctx.dbg_stats.uc_dbg_stats_ofst = addr_offset;
+		ipa3_ctx->mhip_ctx.dbg_stats.uc_dbg_stats_mmio = mmio;
 		break;
 	case IPA_HW_PROTOCOL_USB:
-		if (!ipa3_ctx->usb_ctx.dbg_stats.uc_dbg_stats_mmio) {
-			ipa3_ctx->usb_ctx.dbg_stats.uc_dbg_stats_size =
-				size;
-			ipa3_ctx->usb_ctx.dbg_stats.uc_dbg_stats_ofst =
-				addr_offset;
-			ipa3_ctx->usb_ctx.dbg_stats.uc_dbg_stats_mmio =
-				mmio;
-		} else
-			goto unmap;
+		ipa3_ctx->usb_ctx.dbg_stats.uc_dbg_stats_size = size;
+		ipa3_ctx->usb_ctx.dbg_stats.uc_dbg_stats_ofst = addr_offset;
+		ipa3_ctx->usb_ctx.dbg_stats.uc_dbg_stats_mmio = mmio;
 		break;
 	default:
-		IPAERR("unknown protocols %d\n", prot_id);
+		IPAERR("unknown protocols %d\n", protocol_id);
 	}
-	return;
-unmap:
-	iounmap(mmio);
 }
 
 static void ipa3_log_evt_hdlr(void)
@@ -1097,7 +1066,7 @@ cleanup:
 	return result;
 }
 
-int ipa3_uc_debug_stats_dealloc(uint32_t prot_id)
+int ipa3_uc_debug_stats_dealloc(uint32_t protocol)
 {
 	int result;
 	struct ipa_mem_buffer cmd;
@@ -1113,7 +1082,7 @@ int ipa3_uc_debug_stats_dealloc(uint32_t prot_id)
 	}
 	cmd_data = (struct IpaHwOffloadStatsDeAllocCmdData_t *)
 		cmd.base;
-	cmd_data->protocol = prot_id;
+	cmd_data->protocol = protocol;
 	command = IPA_CPU_2_HW_CMD_OFFLOAD_STATS_DEALLOC;
 
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
@@ -1126,10 +1095,8 @@ int ipa3_uc_debug_stats_dealloc(uint32_t prot_id)
 		IPAERR("fail to dealloc offload stats\n");
 		goto cleanup;
 	}
-	switch (prot_id) {
+	switch (protocol) {
 	case IPA_HW_PROTOCOL_AQC:
-		iounmap(ipa3_ctx->aqc_ctx.dbg_stats.uc_dbg_stats_mmio);
-		ipa3_ctx->aqc_ctx.dbg_stats.uc_dbg_stats_mmio = NULL;
 		break;
 	case IPA_HW_PROTOCOL_11ad:
 		break;
@@ -1144,7 +1111,7 @@ int ipa3_uc_debug_stats_dealloc(uint32_t prot_id)
 	case IPA_HW_PROTOCOL_ETH:
 		break;
 	default:
-		IPAERR("unknown protocols %d\n", prot_id);
+		IPAERR("unknown protocols %d\n", protocol);
 	}
 	result = 0;
 cleanup:

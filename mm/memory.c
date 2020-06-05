@@ -2878,7 +2878,9 @@ static int do_wp_page(struct vm_fault *vmf)
 	__releases(vmf->ptl)
 {
 	struct vm_area_struct *vma = vmf->vma;
-
+#ifdef CONFIG_MEMPLUS
+	count_vm_event(WPFAULT);
+#endif
 	vmf->page = __vm_normal_page(vma, vmf->address, vmf->orig_pte, false,
 				     vmf->vma_flags);
 	if (!vmf->page) {
@@ -3041,8 +3043,6 @@ int do_swap_page(struct vm_fault *vmf)
 	struct page *page = NULL, *swapcache;
 	struct mem_cgroup *memcg;
 	swp_entry_t entry;
-	struct swap_info_struct *si;
-	bool skip_swapcache = false;
 	pte_t pte;
 	int locked;
 	int exclusive = 0;
@@ -3084,24 +3084,15 @@ int do_swap_page(struct vm_fault *vmf)
 
 
 	delayacct_set_flag(DELAYACCT_PF_SWAPIN);
-
-	/*
-	 * lookup_swap_cache below can fail and before the SWP_SYNCHRONOUS_IO
-	 * check is made, another process can populate the swapcache, delete
-	 * the swap entry and decrement the swap count. So decide on taking
-	 * the SWP_SYNCHRONOUS_IO path before the lookup. In the event of the
-	 * race described, the victim process will find a swap_count > 1
-	 * and can then take the readahead path instead of SWP_SYNCHRONOUS_IO.
-	 */
-	si = swp_swap_info(entry);
-	if (si->flags & SWP_SYNCHRONOUS_IO && __swap_count(si, entry) == 1)
-		skip_swapcache = true;
-
 	page = lookup_swap_cache(entry, vma, vmf->address);
 	swapcache = page;
 
 	if (!page) {
-		if (skip_swapcache) {
+		struct swap_info_struct *si = swp_swap_info(entry);
+
+		if (si->flags & SWP_SYNCHRONOUS_IO &&
+				__swap_count(si, entry) == 1) {
+			/* skip swapcache */
 			page = alloc_page_vma(GFP_HIGHUSER_MOVABLE, vma,
 							vmf->address);
 			if (page) {
@@ -3149,6 +3140,9 @@ int do_swap_page(struct vm_fault *vmf)
 		/* Had to read the page from swap area: Major fault */
 		ret = VM_FAULT_MAJOR;
 		count_vm_event(PGMAJFAULT);
+#ifdef CONFIG_MEMPLUS
+		count_vm_event(SWAPMAJFAULT);
+#endif
 		count_memcg_event_mm(vma->vm_mm, PGMAJFAULT);
 	} else if (PageHWPoison(page)) {
 		/*
@@ -3168,6 +3162,9 @@ int do_swap_page(struct vm_fault *vmf)
 		goto out_release;
 	}
 
+#ifdef CONFIG_MEMPLUS
+	memplus_next_event(page);
+#endif
 	/*
 	 * Make sure try_to_free_swap or reuse_swap_page or swapoff did not
 	 * release the swapcache from under us.  The page pin, and pte_same
@@ -3302,6 +3299,10 @@ static int do_anonymous_page(struct vm_fault *vmf)
 	int ret = 0;
 	pte_t entry;
 
+#ifdef CONFIG_MEMPLUS
+	count_vm_event(ANONFAULT);
+#endif
+
 	/* File mapping without ->vm_ops ? */
 	if (vmf->vma_flags & VM_SHARED)
 		return VM_FAULT_SIGBUS;
@@ -3391,7 +3392,6 @@ static int do_anonymous_page(struct vm_fault *vmf)
 		put_page(page);
 		return handle_userfault(vmf, VM_UFFD_MISSING);
 	}
-
 	inc_mm_counter_fast(vma->vm_mm, MM_ANONPAGES);
 	__page_add_new_anon_rmap(page, vma, vmf->address, false);
 	mem_cgroup_commit_charge(page, memcg, false, false);
@@ -3997,13 +3997,22 @@ static int do_fault(struct vm_fault *vmf)
 
 			pte_unmap_unlock(vmf->pte, vmf->ptl);
 		}
-	} else if (!(vmf->flags & FAULT_FLAG_WRITE))
+	} else if (!(vmf->flags & FAULT_FLAG_WRITE)) {
 		ret = do_read_fault(vmf);
-	else if (!(vmf->vma_flags & VM_SHARED))
+#ifdef CONFIG_MEMPLUS
+		count_vm_event(READFAULT);
+#endif
+	} else if (!(vmf->vma_flags & VM_SHARED)) {
 		ret = do_cow_fault(vmf);
-	else
+#ifdef CONFIG_MEMPLUS
+		count_vm_event(COWFAULT);
+#endif
+	} else {
 		ret = do_shared_fault(vmf);
-
+#ifdef CONFIG_MEMPLUS
+		count_vm_event(SHAREDFAULT);
+#endif
+	}
 	/* preallocated pagetable is unused: free it */
 	if (vmf->prealloc_pte) {
 		pte_free(vma->vm_mm, vmf->prealloc_pte);
@@ -4245,9 +4254,12 @@ static int handle_pte_fault(struct vm_fault *vmf)
 			return do_fault(vmf);
 	}
 
-	if (!pte_present(vmf->orig_pte))
+	if (!pte_present(vmf->orig_pte)) {
+#ifdef CONFIG_MEMPLUS
+		count_vm_event(SWAPFAULT);
+#endif
 		return do_swap_page(vmf);
-
+	}
 	if (pte_protnone(vmf->orig_pte) && vma_is_accessible(vmf->vma))
 		return do_numa_page(vmf);
 
@@ -4582,6 +4594,10 @@ int __handle_speculative_fault(struct mm_struct *mm, unsigned long address,
 		put_vma(vmf.vma);
 		*vma = NULL;
 	}
+#ifdef CONFIG_MEMPLUS
+	else
+		count_vm_event(SPECRETRY);
+#endif
 
 	/*
 	 * The task may have entered a memcg OOM situation but

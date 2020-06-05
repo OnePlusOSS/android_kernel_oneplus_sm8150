@@ -3,7 +3,7 @@
  * drivers/staging/android/ion/ion.c
  *
  * Copyright (C) 2011 Google, Inc.
- * Copyright (c) 2011-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2018, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -43,6 +43,9 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/ion.h>
 #include <soc/qcom/secure_buffer.h>
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+#include <linux/module.h>
+#endif
 
 #include "ion.h"
 #include "ion_secure_util.h"
@@ -102,6 +105,17 @@ static void ion_buffer_add(struct ion_device *dev,
 	rb_link_node(&buffer->node, parent, p);
 	rb_insert_color(&buffer->node, &dev->buffers);
 }
+
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+static atomic_long_t ion_total_size;
+static bool ion_cnt_enable = true;
+unsigned long ion_total(void)
+{
+	if (!ion_cnt_enable)
+		return 0;
+	return (unsigned long)atomic_long_read(&ion_total_size);
+}
+#endif
 
 /* this function should only be called while dev->lock is held */
 static struct ion_buffer *ion_buffer_create(struct ion_heap *heap,
@@ -172,6 +186,10 @@ static struct ion_buffer *ion_buffer_create(struct ion_heap *heap,
 	ion_buffer_add(dev, buffer);
 	mutex_unlock(&dev->buffer_lock);
 	atomic_long_add(len, &heap->total_allocated);
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+	if (ion_cnt_enable)
+		atomic_long_add(buffer->size, &ion_total_size);
+#endif
 	return buffer;
 
 err1:
@@ -187,6 +205,10 @@ void ion_buffer_destroy(struct ion_buffer *buffer)
 		pr_warn_ratelimited("ION client likely missing a call to dma_buf_kunmap or dma_buf_vunmap\n");
 		buffer->heap->ops->unmap_kernel(buffer->heap, buffer);
 	}
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+	if (ion_cnt_enable)
+		atomic_long_sub(buffer->size, &ion_total_size);
+#endif
 	buffer->heap->ops->free(buffer);
 	kfree(buffer);
 }
@@ -577,8 +599,7 @@ static int ion_sgl_sync_range(struct device *dev, struct scatterlist *sgl,
 			break;
 
 		if (i > 0) {
-			pr_warn_ratelimited(
-				"Partial cmo only supported with 1 segment\n"
+			pr_warn("Partial cmo only supported with 1 segment\n"
 				"is dma_set_max_seg_size being set on dev:%s\n",
 				dev_name(dev));
 			return -EINVAL;

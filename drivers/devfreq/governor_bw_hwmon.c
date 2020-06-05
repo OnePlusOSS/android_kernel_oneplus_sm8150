@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -617,8 +617,7 @@ static int gov_start(struct devfreq *df)
 	node->orig_data = df->data;
 	df->data = node;
 
-	ret = start_monitor(df, true);
-	if (ret)
+	if (start_monitor(df, true))
 		goto err_start;
 
 	ret = sysfs_create_group(&df->dev.kobj, node->attr_grp);
@@ -690,6 +689,11 @@ static int gov_resume(struct devfreq *df)
 
 	if (!node->hw->resume_hwmon)
 		return -EPERM;
+
+	if (!node->resume_freq) {
+		dev_warn(df->dev.parent, "Governor already resumed!\n");
+		return -EBUSY;
+	}
 
 	mutex_lock(&df->lock);
 	update_devfreq(df);

@@ -1202,6 +1202,19 @@ int do_send_sig_info(int sig, struct siginfo *info, struct task_struct *p,
 	unsigned long flags;
 	int ret = -ESRCH;
 
+        /* huruihuan add for kill task in D status */
+	if(sig == SIGKILL) {
+		if(p && p->flags & PF_FROZEN) {
+			struct task_struct *child = p;
+			rcu_read_lock();
+			do {
+				child = next_thread(child);
+				child->kill_flag = 1;
+				__thaw_task(child);
+			} while(child !=p);
+			rcu_read_unlock();
+		}
+	}
 	if (lock_task_sighand(p, &flags)) {
 		ret = send_signal(sig, info, p, group);
 		unlock_task_sighand(p, &flags);
@@ -3031,12 +3044,19 @@ COMPAT_SYSCALL_DEFINE4(rt_sigtimedwait, compat_sigset_t __user *, uthese,
 SYSCALL_DEFINE2(kill, pid_t, pid, int, sig)
 {
 	struct siginfo info;
+	struct task_struct *p;
 
 	info.si_signo = sig;
 	info.si_errno = 0;
 	info.si_code = SI_USER;
 	info.si_pid = task_tgid_vnr(current);
 	info.si_uid = from_kuid_munged(current_user_ns(), current_uid());
+
+	if (sig == SIGQUIT || sig == SIGSEGV ||  sig == SIGABRT) {
+		p = pid_task(find_vpid(pid), PIDTYPE_PID);
+		if (p)
+			unfreezer_fork(p);
+	}
 
 	return kill_something_info(sig, &info, pid);
 }

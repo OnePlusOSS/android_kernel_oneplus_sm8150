@@ -386,11 +386,7 @@ static int pil_do_minidump(struct pil_desc *desc, void *ramdump_dev)
 					      &ss_valid_seg_cnt,
 					      desc->num_aux_minidump_ids);
 
-	if (desc->minidump_as_elf32)
-		ret = do_elf_ramdump(ramdump_dev, ramdump_segs,
-				     ss_valid_seg_cnt);
-	else
-		ret = do_minidump(ramdump_dev, ramdump_segs, ss_valid_seg_cnt);
+	ret = do_minidump(ramdump_dev, ramdump_segs, ss_valid_seg_cnt);
 	if (ret)
 		pil_err(desc, "%s: Minidump collection failed for subsys %s rc:%d\n",
 			__func__, desc->name, ret);
@@ -1596,9 +1592,6 @@ int pil_desc_init(struct pil_desc *desc)
 
 	if (!desc->unmap_fw_mem)
 		desc->unmap_fw_mem = unmap_fw_mem;
-
-	desc->minidump_as_elf32 = of_property_read_bool(
-					ofnode, "qcom,minidump-as-elf32");
 
 	return 0;
 err_parse_dt:

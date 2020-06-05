@@ -79,8 +79,6 @@
 #define FG_PARALLEL_EN_VOTER	"fg_parallel_en"
 #define MEM_ATTN_IRQ_VOTER	"fg_mem_attn_irq"
 
-#define DEBUG_BOARD_VOTER	"fg_debug_board"
-
 #define BUCKET_COUNT			8
 #define BUCKET_SOC_PCT			(256 / BUCKET_COUNT)
 
@@ -453,6 +451,9 @@ struct fg_dev {
 	bool			profile_available;
 	enum prof_load_status	profile_load_status;
 	bool			battery_missing;
+/* @bsp, 2018/07/14 Battery & Charging porting */
+	bool			use_external_fg;
+	bool			delta_bsoc_irq_en;
 	bool			fg_restarting;
 	bool			charge_full;
 	bool			recharge_soc_adjusted;

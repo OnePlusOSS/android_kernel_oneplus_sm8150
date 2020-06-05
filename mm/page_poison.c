@@ -86,6 +86,7 @@ static void check_poison_mem(struct page *page,
 		pr_err("pagealloc: memory corruption on page with phys start 0x%lx\n",
 			(unsigned long)page_to_phys(page));
 
+	pr_err("virt: %p, phys: 0x%llx\n", start, virt_to_phys(start));
 	print_hex_dump(KERN_ERR, "", DUMP_PREFIX_ADDRESS, 16, 1, start,
 			end - start + 1, 1);
 	BUG_ON(PANIC_CORRUPTION);

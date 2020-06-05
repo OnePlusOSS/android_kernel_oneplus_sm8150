@@ -32,6 +32,7 @@
 #include <linux/highmem.h>
 #include "binder_alloc.h"
 #include "binder_trace.h"
+#include <../coretech/uxcore/opchain_helper.h>
 
 struct list_lru binder_alloc_lru;
 
@@ -219,6 +220,11 @@ static int binder_update_page_range(struct binder_alloc *alloc, int allocate,
 
 	if (mm) {
 		down_read(&mm->mmap_sem);
+		if (!mmget_still_valid(mm)) {
+			if (allocate == 0)
+				goto free_range;
+			goto err_no_vma;
+		}
 		vma = alloc->vma;
 	}
 
@@ -1115,6 +1121,21 @@ binder_alloc_copy_user_to_buffer(struct binder_alloc *alloc,
 		buffer_offset += size;
 	}
 	return 0;
+}
+
+void binder_alloc_pass_binder_buffer(struct binder_alloc *alloc,
+				struct binder_buffer *buffer,
+				binder_size_t buffer_size)
+{
+	struct page *page;
+	pgoff_t pgoff;
+	void *kptr;
+
+	page = binder_alloc_get_page(alloc, buffer,
+						0, &pgoff);
+	kptr = kmap_atomic(page) + pgoff;
+	opc_binder_pass(buffer_size, kptr, 1);
+	kunmap_atomic(kptr);
 }
 
 static void binder_alloc_do_buffer_copy(struct binder_alloc *alloc,

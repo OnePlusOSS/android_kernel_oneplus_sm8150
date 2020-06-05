@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -201,8 +201,6 @@ struct kgsl_memdesc_ops {
 #define KGSL_MEMDESC_CONTIG BIT(8)
 /* This is an instruction buffer */
 #define KGSL_MEMDESC_UCODE BIT(9)
-/* For global buffers, randomly assign an address from the region */
-#define KGSL_MEMDESC_RANDOM BIT(10)
 
 /**
  * struct kgsl_memdesc - GPU memory object descriptor
@@ -321,7 +319,7 @@ struct kgsl_event {
 	void *priv;
 	struct list_head node;
 	unsigned int created;
-	struct work_struct work;
+	struct kthread_work work;
 	int result;
 	struct kgsl_event_group *group;
 };

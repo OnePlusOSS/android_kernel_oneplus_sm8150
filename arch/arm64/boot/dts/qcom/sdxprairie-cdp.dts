@@ -14,8 +14,6 @@
 
 #include "sdxprairie.dtsi"
 #include "sdxprairie-cdp.dtsi"
-#include "sdxprairie-display.dtsi"
-#include "qpic-panel-ili-hvga.dtsi"
 
 / {
 	model = "Qualcomm Technologies, Inc. SDXPRAIRIE CDP";

@@ -425,7 +425,7 @@ static void ipa3_uc_wdi_event_handler(struct IpaHwSharedMemCommonMapping_t
  * @note Cannot be called from atomic context
  *
  */
-int ipa3_get_wdi_gsi_stats(struct ipa_uc_dbg_ring_stats *stats)
+int ipa3_get_wdi_gsi_stats(struct ipa3_uc_dbg_ring_stats *stats)
 {
 	int i;
 
@@ -3026,7 +3026,7 @@ int ipa3_create_wdi_mapping(u32 num_buffers, struct ipa_wdi_buffer_info *info)
 	}
 
 	for (i = 0; i < num_buffers; i++) {
-		IPADBG_LOW("i=%d pa=0x%pa iova=0x%lx sz=0x%zx\n", i,
+		IPADBG("i=%d pa=0x%pa iova=0x%lx sz=0x%zx\n", i,
 			&info[i].pa, info[i].iova, info[i].size);
 		info[i].result = ipa3_iommu_map(cb->iommu,
 			rounddown(info[i].iova, PAGE_SIZE),
@@ -3056,7 +3056,7 @@ int ipa3_release_wdi_mapping(u32 num_buffers, struct ipa_wdi_buffer_info *info)
 	}
 
 	for (i = 0; i < num_buffers; i++) {
-		IPADBG_LOW("i=%d pa=0x%pa iova=0x%lx sz=0x%zx\n", i,
+		IPADBG("i=%d pa=0x%pa iova=0x%lx sz=0x%zx\n", i,
 			&info[i].pa, info[i].iova, info[i].size);
 		info[i].result = iommu_unmap(cb->iommu,
 			rounddown(info[i].iova, PAGE_SIZE),

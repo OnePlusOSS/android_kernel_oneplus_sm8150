@@ -8,7 +8,6 @@
  */
 
 #include <linux/interrupt.h>
-#include <linux/pm_runtime.h>
 
 #include "atl_common.h"
 #include "atl_hw.h"
@@ -101,22 +100,10 @@ static inline void atl_glb_soft_reset_full(struct atl_hw *hw)
 	atl_glb_soft_reset(hw);
 }
 
-static inline void atl_enable_dma_net_lpb_mode(struct atl_nic *nic)
-{
-	struct atl_hw *hw = &nic->hw;
-
-	atl_set_vlan_promisc(hw, 1);
-	atl_write_bit(hw, ATL_RX_FLT_CTRL1, 3, 1);
-	atl_write_bit(hw, ATL_TX_PBUF_CTRL1, 4, 0);
-	atl_write_bit(hw, ATL_TX_CTRL1, 4, 1);
-	atl_write_bit(hw, ATL_RX_CTRL1, 4, 1);
-}
-/* entered with fw lock held */
 static int atl_hw_reset_nonrbl(struct atl_hw *hw)
 {
 	uint32_t tries;
 	uint32_t reg = atl_read(hw, ATL_GLOBAL_DAISY_CHAIN_STS1);
-	int ret;
 
 	bool daisychain_running = (reg & 0x30) != 0x30;
 
@@ -144,50 +131,25 @@ static int atl_hw_reset_nonrbl(struct atl_hw *hw)
 		!(reg & 0x10));
 	if (!(reg & 0x10)) {
 		atl_dev_err("FLB kickstart timed out: %#x\n", reg);
-		ret = -EIO;
-		goto unlock;
+		return -EIO;
 	}
 	atl_dev_dbg("FLB kickstart took %d ms\n", tries);
 
-	atl_write(hw, 0x404, 0x40e1);
+	atl_write(hw, 0x404, 0x80e0);
 	mdelay(50);
 	atl_write(hw, 0x3a0, 1);
 
 	atl_glb_soft_reset_full(hw);
 
-	if (hw->mcp.ops)
-		hw->mcp.ops->restore_cfg(hw);
-
-	/* unstall FW*/
-	atl_write(hw, 0x404, 0x40e0);
-
-	ret = atl_fw_init(hw);
-
-unlock:
-	atl_unlock_fw(hw);
-
-	if (ret)
-		set_bit(ATL_ST_RESET_NEEDED, &hw->state);
-	else
-		set_bit(ATL_ST_GLOBAL_CONF_NEEDED, &hw->state);
-
-	return ret;
+	return atl_fw_init(hw);
 }
 
-/* Must be called either during early init when netdev isn't yet
- * registered, or with RTNL lock held */
 int atl_hw_reset(struct atl_hw *hw)
 {
-	uint32_t reg;
-	uint32_t flb_stat;
+	uint32_t reg = atl_read(hw, ATL_MCP_SCRATCH(RBL_STS));
+	uint32_t flb_stat = atl_read(hw, ATL_GLOBAL_DAISY_CHAIN_STS1);
 	int tries = 0;
 	/* bool host_load_done = false; */
-	int ret;
-
-	atl_lock_fw(hw);
-
-	reg = atl_read(hw, ATL_MCP_SCRATCH(RBL_STS));
-	flb_stat = atl_read(hw, ATL_GLOBAL_DAISY_CHAIN_STS1);
 
 	while (!reg && flb_stat == 0x6000000 && tries++ < 1000) {
 		mdelay(1);
@@ -198,12 +160,10 @@ int atl_hw_reset(struct atl_hw *hw)
 	atl_dev_dbg("0x388: %#x 0x704: %#x\n", reg, flb_stat);
 	if (tries >= 1000) {
 		atl_dev_err("Timeout waiting to choose RBL or FLB path\n");
-		ret = -EIO;
-		goto unlock;
+		return -EIO;
 	}
 
 	if (!reg)
-		/* atl_hw_reset_nonrbl() releases the fw lock */
 		return atl_hw_reset_nonrbl(hw);
 
 	atl_write(hw, 0x404, 0x40e1);
@@ -214,28 +174,36 @@ int atl_hw_reset(struct atl_hw *hw)
 
 	atl_glb_soft_reset_full(hw);
 
-	if (hw->mcp.ops)
-		hw->mcp.ops->restore_cfg(hw);
-
 	atl_write(hw, ATL_GLOBAL_CTRL2, 0x40e0);
 
 	for (tries = 0; tries < 10000; mdelay(1)) {
 		tries++;
 		reg = atl_read(hw, ATL_MCP_SCRATCH(RBL_STS)) & 0xffff;
 
-		if (reg && reg != 0xdead)
+		if (!reg || reg == 0xdead)
+			continue;
+
+		/* if (reg != 0xf1a7) */
 			break;
+
+		/* if (host_load_done) */
+		/* 	continue; */
+
+		/* ret = atl_load_mac_fw(hw); */
+		/* if (ret) { */
+		/* 	atl_dev_err("MAC FW host load failed\n"); */
+		/* 	return ret; */
+		/* } */
+		/* host_load_done = true; */
 	}
 
 	if (reg == 0xf1a7) {
 		atl_dev_err("MAC FW Host load not supported yet\n");
-		ret = -EIO;
-		goto unlock;
+		return -EIO;
 	}
 	if (!reg || reg == 0xdead) {
 		atl_dev_err("RBL restart timeout: %#x\n", reg);
-		ret = -EIO;
-		goto unlock;
+		return -EIO;
 	}
 	atl_dev_dbg("RBL restart took %d ms result %#x\n", tries, reg);
 
@@ -252,17 +220,7 @@ int atl_hw_reset(struct atl_hw *hw)
 	/* 	} */
 	/* } */
 
-	ret = atl_fw_init(hw);
-
-unlock:
-	atl_unlock_fw(hw);
-
-	if (ret)
-		set_bit(ATL_ST_RESET_NEEDED, &hw->state);
-	else
-		set_bit(ATL_ST_GLOBAL_CONF_NEEDED, &hw->state);
-
-	return ret;
+	return atl_fw_init(hw);
 }
 
 static int atl_get_mac_addr(struct atl_hw *hw, uint8_t *buf)
@@ -282,15 +240,14 @@ static int atl_get_mac_addr(struct atl_hw *hw, uint8_t *buf)
 	return ret;
 }
 
-int atl_hwinit(struct atl_hw *hw, enum atl_board brd_id)
+int atl_hwinit(struct atl_nic *nic, enum atl_board brd_id)
 {
+	struct atl_hw *hw = &nic->hw;
 	struct atl_board_info *brd = &atl_boards[brd_id];
 	int ret;
 
 	/* Default supported speed set based on device id. */
 	hw->link_state.supported = brd->link_mask;
-
-	hw->thermal = atl_def_thermal;
 
 	ret = atl_hw_reset(hw);
 
@@ -303,14 +260,18 @@ int atl_hwinit(struct atl_hw *hw, enum atl_board brd_id)
 		return ret;
 
 	ret = atl_get_mac_addr(hw, hw->mac_addr);
-	if (ret)
+	if (ret) {
 		atl_dev_err("couldn't read MAC address\n");
+		return ret;
+	}
 
-	return ret;
+	return hw->mcp.ops->get_link_caps(hw);
 }
 
-static void atl_rx_xoff_set(struct atl_hw *hw, bool fc)
+static void atl_rx_xoff_set(struct atl_nic *nic, bool fc)
 {
+	struct atl_hw *hw = &nic->hw;
+
 	atl_write_bit(hw, ATL_RX_PBUF_REG2(0), 31, fc);
 }
 
@@ -319,37 +280,26 @@ void atl_refresh_link(struct atl_nic *nic)
 	struct atl_hw *hw = &nic->hw;
 	struct atl_link_type *link, *prev_link = hw->link_state.link;
 
-	if (test_bit(ATL_ST_RESETTING, &hw->state) ||
-	    !test_bit(ATL_ST_ENABLED, &hw->state) ||
-	    !test_and_clear_bit(ATL_ST_UPDATE_LINK, &hw->state))
-		return;
-
 	link = hw->mcp.ops->check_link(hw);
 
 	if (link) {
-		if (link != prev_link) {
+		if (link != prev_link)
 			atl_nic_info("Link up: %s\n", link->name);
-			netif_carrier_on(nic->ndev);
-			pm_runtime_get_sync(&nic->hw.pdev->dev);
-		}
+		netif_carrier_on(nic->ndev);
 	} else {
-		if (link != prev_link) {
+		if (link != prev_link)
 			atl_nic_info("Link down\n");
-			netif_carrier_off(nic->ndev);
-			pm_runtime_put_sync(&nic->hw.pdev->dev);
-		}
+		netif_carrier_off(nic->ndev);
 	}
-	atl_rx_xoff_set(hw, !!(hw->link_state.fc.cur & atl_fc_rx));
-
-	atl_intr_enable_non_ring(nic);
+	atl_rx_xoff_set(nic, !!(hw->link_state.fc.cur & atl_fc_rx));
 }
 
 static irqreturn_t atl_link_irq(int irq, void *priv)
 {
 	struct atl_nic *nic = (struct atl_nic *)priv;
 
-	set_bit(ATL_ST_UPDATE_LINK, &nic->hw.state);
 	atl_schedule_work(nic);
+	atl_intr_enable(&nic->hw, BIT(0));
 	return IRQ_HANDLED;
 }
 
@@ -357,7 +307,7 @@ static irqreturn_t atl_legacy_irq(int irq, void *priv)
 {
 	struct atl_nic *nic = priv;
 	struct atl_hw *hw = &nic->hw;
-	uint32_t mask = hw->non_ring_intr_mask | BIT(atl_qvec_intr(nic->qvecs));
+	uint32_t mask = hw->intr_mask | BIT(atl_qvec_intr(nic->qvecs));
 	uint32_t stat;
 
 
@@ -491,17 +441,9 @@ unsigned int atl_fwd_tx_buf_reserve =
 module_param_named(fwd_tx_buf_reserve, atl_fwd_tx_buf_reserve, uint, 0444);
 module_param_named(fwd_rx_buf_reserve, atl_fwd_rx_buf_reserve, uint, 0444);
 
-/* Must be called either during early init when netdev isn't yet
- * registered, or with RTNL lock held */
 void atl_start_hw_global(struct atl_nic *nic)
 {
 	struct atl_hw *hw = &nic->hw;
-
-	if (!test_and_clear_bit(ATL_ST_GLOBAL_CONF_NEEDED, &hw->state))
-		return;
-
-	if (nic->priv_flags & ATL_PF_BIT(LPB_NET_DMA))
-		atl_enable_dma_net_lpb_mode(nic);
 
 	/* Enable TPO2 */
 	atl_write(hw, 0x7040, 0x10000);
@@ -598,6 +540,9 @@ void atl_start_hw_global(struct atl_nic *nic)
 	/* Reset Rx/Tx on unexpected PERST# */
 	atl_write_bit(hw, 0x1000, 29, 0);
 	atl_write(hw, 0x448, 3);
+
+	/* Enable non-ring interrupts */
+	atl_intr_enable_non_ring(nic);
 }
 
 #define atl_vlan_flt_val(vid) ((uint32_t)(vid) | 1 << 16 | 1 << 31)
@@ -709,17 +654,10 @@ void atl_set_loopback(struct atl_nic *nic, int idx, bool on)
 		atl_write_bit(hw, ATL_TX_CTRL1, 7, on);
 		atl_write_bit(hw, ATL_RX_CTRL1, 8, on);
 		break;
-	case ATL_PF_LPB_INT_PHY:
-	case ATL_PF_LPB_EXT_PHY:
-		hw->mcp.ops->set_phy_loopback(nic, idx);
-		break;
-	case ATL_PF_LPB_NET_DMA:
-		/* To switch DMANetworkLoopback mode
-		 * you need a reset datapath
-		 */
-		set_bit(ATL_ST_GLOBAL_CONF_NEEDED, &hw->state);
-		atl_reconfigure(nic);
-		break;
+	/* case ATL_PF_LPB_NET_DMA: */
+	/* 	atl_write_bit(hw, ATL_TX_CTRL1, 4, on); */
+	/* 	atl_write_bit(hw, ATL_RX_CTRL1, 4, on); */
+	/* 	break; */
 	}
 }
 
@@ -1000,15 +938,9 @@ int atl_update_eth_stats(struct atl_nic *nic)
 	uint32_t reg = 0, reg2 = 0;
 	int ret;
 
-	if (!test_bit(ATL_ST_ENABLED, &nic->hw.state) ||
-	    test_bit(ATL_ST_RESETTING, &nic->hw.state))
-		return 0;
-
-	atl_lock_fw(hw);
-
 	ret = atl_hwsem_get(hw, ATL_MCP_SEM_MSM);
 	if (ret)
-		goto unlock_fw;
+		return ret;
 
 	__READ_MSM_OR_GOTO(ret, hw, ATL_MSM_CTR_TX_PAUSE, &reg, hwsem_put);
 	stats.tx_pause = reg;
@@ -1058,8 +990,6 @@ int atl_update_eth_stats(struct atl_nic *nic)
 
 hwsem_put:
 	atl_hwsem_put(hw, ATL_MCP_SEM_MSM);
-unlock_fw:
-	atl_unlock_fw(hw);
 	return ret;
 }
 #undef __READ_MSM_OR_GOTO
@@ -1079,13 +1009,13 @@ int atl_get_lpi_timer(struct atl_nic *nic, uint32_t *lpi_delay)
 	return ret;
 }
 
-static uint32_t atl_mcp_mbox_wait(struct atl_hw *hw, enum mcp_area area, int loops)
+static uint32_t atl_mcp_mbox_wait(struct atl_hw *hw, int loops)
 {
 	uint32_t stat;
 
 	busy_wait(loops, cpu_relax(), stat,
-		(atl_read(hw, ATL_MCP_SCRATCH(FW2_MBOX_CMD)) & (0xf << 28)),
-		stat == area);
+		(atl_read(hw, ATL_MCP_SCRATCH(FW2_MBOX_CMD)) >> 28) & 0xf,
+		stat == 8);
 
 	return stat;
 }
@@ -1104,21 +1034,21 @@ int atl_write_mcp_mem(struct atl_hw *hw, uint32_t offt, void *host_addr,
 		atl_write(hw, ATL_MCP_SCRATCH(FW2_MBOX_DATA), *addr++);
 		atl_write(hw, ATL_MCP_SCRATCH(FW2_MBOX_CMD), area | offt);
 		ndelay(750);
-		stat = atl_mcp_mbox_wait(hw, area, 5);
+		stat = atl_mcp_mbox_wait(hw, 5);
 
-		if (stat == area) {
+		if (stat == 8) {
 			/* Send MCP mbox interrupt */
 			atl_set_bits(hw, ATL_GLOBAL_CTRL2, BIT(1));
 			ndelay(1200);
-			stat = atl_mcp_mbox_wait(hw, area, 10000);
+			stat = atl_mcp_mbox_wait(hw, 10000);
 		}
 
-		if (stat == area) {
+		if (stat == 8) {
 			atl_dev_err("FW mbox timeout offt %x, remaining %zx\n",
 				offt, size);
 			return -ETIME;
-		} else if (stat != BIT(0x1E)) {
-			atl_dev_err("FW mbox error status 0x%x, offt 0x%x, remaining %zx\n",
+		} else if (stat != 4) {
+			atl_dev_err("FW mbox error status %x, offt %x, remaining %zx\n",
 				stat, offt, size);
 			return -EIO;
 		}

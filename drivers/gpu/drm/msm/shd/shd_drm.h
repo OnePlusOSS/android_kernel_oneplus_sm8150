@@ -20,7 +20,6 @@
 #include <drm/drm_crtc.h>
 #include <drm/drm_crtc_helper.h>
 #include "msm_drv.h"
-#include "dsi_display.h"
 
 struct shd_mode_info {
 	int x_offset;
@@ -49,14 +48,11 @@ struct shd_display_base {
 	int connector_type;
 	bool mst_port;
 	bool enabled;
-	bool enable_changed;
 };
 
 struct shd_display {
-	struct dsi_display dsi_base;
 	struct drm_device *drm_dev;
 	const char *name;
-	const char *display_type;
 
 	struct shd_display_base *base;
 	struct drm_bridge *bridge;
@@ -71,7 +67,6 @@ struct shd_display {
 	struct list_head head;
 
 	bool enabled;
-	bool enable_changed;
 };
 
 /* drm internal header */

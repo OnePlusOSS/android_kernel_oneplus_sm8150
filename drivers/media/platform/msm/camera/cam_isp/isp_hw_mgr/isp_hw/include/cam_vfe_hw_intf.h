@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -200,7 +200,6 @@ struct cam_vfe_bw_update_args {
 	struct cam_isp_resource_node      *node_res;
 	uint64_t                           camnoc_bw_bytes;
 	uint64_t                           external_bw_bytes;
-	uint64_t                           external_bw_bytes_ab;
 };
 
 /*
@@ -244,7 +243,6 @@ struct cam_vfe_bw_control_args {
  * @irq_reg_val:             IRQ and Error register values, read when IRQ was
  *                           handled
  * @error_type:              Identify different errors
- * @enable_reg_dump:         enable register dump on error
  * @ts:                      Timestamp
  */
 struct cam_vfe_top_irq_evt_payload {
@@ -254,7 +252,6 @@ struct cam_vfe_top_irq_evt_payload {
 	uint32_t                   evt_id;
 	uint32_t                   irq_reg_val[CAM_IFE_IRQ_REGISTERS_MAX];
 	uint32_t                   error_type;
-	bool                       enable_reg_dump;
 	struct cam_isp_timestamp   ts;
 };
 

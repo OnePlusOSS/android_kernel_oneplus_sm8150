@@ -253,8 +253,7 @@ static void usb_disconnect_work_fn(struct work_struct *work)
 	ch->name, atomic_read(&ch->disconnected), atomic_read(&ch->connected));
 
 	if (!atomic_read(&ch->connected) &&
-		driver->usb_connected && diag_mask_param() &&
-		ch->id == DIAG_USB_LOCAL)
+		driver->usb_connected && diag_mask_param())
 		diag_clear_masks(0);
 
 	usb_disconnect(ch);

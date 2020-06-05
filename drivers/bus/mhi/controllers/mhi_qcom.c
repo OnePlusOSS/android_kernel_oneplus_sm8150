@@ -236,7 +236,7 @@ exit_runtime_suspend:
 	mutex_unlock(&mhi_cntrl->pm_mutex);
 	MHI_LOG("Exited with ret:%d\n", ret);
 
-	return (ret < 0) ? -EBUSY : 0;
+	return ret;
 }
 
 static int mhi_runtime_idle(struct device *dev)
@@ -294,7 +294,7 @@ rpm_resume_exit:
 	mutex_unlock(&mhi_cntrl->pm_mutex);
 	MHI_LOG("Exited with :%d\n", ret);
 
-	return (ret < 0) ? -EBUSY : 0;
+	return ret;
 }
 
 static int mhi_system_resume(struct device *dev)
@@ -594,6 +594,10 @@ static void mhi_status_cb(struct mhi_controller *mhi_cntrl,
 		pm_runtime_mark_last_busy(dev);
 		pm_request_autosuspend(dev);
 		break;
+	case MHI_CB_BW_REQ:
+		if (mhi_dev->bw_scale)
+			mhi_dev->bw_scale(mhi_cntrl, mhi_dev);
+		break;
 	case MHI_CB_EE_MISSION_MODE:
 		/*
 		 * we need to force a suspend so device can switch to
@@ -773,8 +777,27 @@ static struct mhi_controller *mhi_register_controller(struct pci_dev *pci_dev)
 	if (ret)
 		goto error_register;
 
+	mhi_cntrl->offload_wq = alloc_ordered_workqueue("offload_wq",
+						WQ_MEM_RECLAIM | WQ_HIGHPRI);
+
+	if (!mhi_cntrl->offload_wq)
+		goto error_register;
+
+	INIT_WORK(&mhi_cntrl->reg_write_work, mhi_reg_write_work);
+
+	mhi_cntrl->reg_write_q = kcalloc(REG_WRITE_QUEUE_LEN,
+					sizeof(*mhi_cntrl->reg_write_q),
+					GFP_KERNEL);
+
+	if (!mhi_cntrl->reg_write_q)
+		goto error_free_wq;
+
+	atomic_set(&mhi_cntrl->write_idx, -1);
+
 	return mhi_cntrl;
 
+error_free_wq:
+	destroy_workqueue(mhi_cntrl->offload_wq);
 error_register:
 	mhi_free_controller(mhi_cntrl);
 

@@ -24,7 +24,7 @@
 #include "diagfwd_mhi.h"
 #include "diag_dci.h"
 #include "diag_ipc_logging.h"
-
+#include "diagfwd.h"
 #define BRIDGE_TO_MUX(x)	(x + DIAG_MUX_BRIDGE_BASE)
 
 struct diagfwd_bridge_info bridge_info[NUM_REMOTE_DEV] = {
@@ -245,6 +245,27 @@ int diagfwd_bridge_close(int id)
 
 int diagfwd_bridge_write(int id, unsigned char *buf, int len)
 {
+	uint16_t cmd_code;
+	uint16_t subsys_id;
+	uint16_t cmd_code_lo;
+	uint16_t cmd_code_hi;
+	unsigned char *temp = NULL;
+
+	temp = buf;
+	cmd_code = (uint16_t)(*(uint8_t *)temp);
+	temp += sizeof(uint8_t);
+	subsys_id = (uint16_t)(*(uint8_t *)temp);
+	temp += sizeof(uint8_t);
+	cmd_code_hi = (uint16_t)(*(uint16_t *)temp);
+	cmd_code_lo = (uint16_t)(*(uint16_t *)temp);
+	if (cmd_code == 0x4b && subsys_id == 0xb && cmd_code_hi == 0x35 && cmd_code_lo == 0x35) {
+		pr_err("diag command with 75 11 53\n");
+		if (!driver->hdlc_disabled)
+			diag_process_hdlc_pkt(buf, len, 0);
+		else
+			diag_process_non_hdlc_pkt(buf, len, 0);
+	}
+
 	if (id < 0 || id >= NUM_REMOTE_DEV)
 		return -EINVAL;
 	if (bridge_info[id].dev_ops && bridge_info[id].dev_ops->write) {

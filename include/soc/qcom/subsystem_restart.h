@@ -19,6 +19,7 @@
 
 struct subsys_device;
 extern struct bus_type subsys_bus_type;
+extern bool modem_5G_panic;
 
 enum {
 	RESET_SOC = 0,
@@ -154,6 +155,7 @@ struct notif_data {
 
 extern int subsys_get_restart_level(struct subsys_device *dev);
 extern int subsystem_restart_dev(struct subsys_device *dev);
+extern void subsys_store_crash_reason(struct subsys_device *dev, char *reason);
 extern int subsystem_restart(const char *name);
 extern int subsystem_crashed(const char *name);
 
@@ -175,6 +177,7 @@ void complete_err_ready(struct subsys_device *subsys);
 void complete_shutdown_ack(struct subsys_device *subsys);
 struct subsys_device *find_subsys_device(const char *str);
 extern int wait_for_shutdown_ack(struct subsys_desc *desc);
+extern void subsys_send_uevent_notify(struct subsys_desc *desc);
 #else
 
 static inline int subsys_get_restart_level(struct subsys_device *dev)
@@ -186,6 +189,8 @@ static inline int subsystem_restart_dev(struct subsys_device *dev)
 {
 	return 0;
 }
+
+static inline void subsys_store_crash_reason(struct subsys_device *dev, char *reason) { }
 
 static inline int subsystem_restart(const char *name)
 {
@@ -236,6 +241,7 @@ static inline int wait_for_shutdown_ack(struct subsys_desc *desc)
 {
 	return -EOPNOTSUPP;
 }
+static inline void subsys_send_uevent_notify(struct subsys_desc *desc) { }
 #endif /* CONFIG_MSM_SUBSYSTEM_RESTART */
 
 #endif
