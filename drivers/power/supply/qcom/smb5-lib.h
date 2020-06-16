@@ -66,6 +66,7 @@ enum print_reason {
 #define SKIN_THERMAL_HIGH 40
 #define SKIN_THERMAL_NORMAL 37
 #define FULL_COUNT_SW_NUM 1
+#define HOT_PROTECT_VOTER		"HOT_PROTECT_VOTER"
 #define DEFAULT_VOTER			"DEFAULT_VOTER"
 #define USER_VOTER			"USER_VOTER"
 /* @bsp, 2019/04/17 Battery & Charging porting */
@@ -520,6 +521,7 @@ struct smb_charger {
 	struct delayed_work	op_check_apsd_work;
 	struct work_struct	get_aicl_work;
 	struct delayed_work connecter_check_work;
+	struct delayed_work connecter_recovery_work;
 	struct work_struct	otg_switch_work;
 	struct wakeup_source	chg_wake_lock;
 

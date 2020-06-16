@@ -6709,7 +6709,7 @@ static void op_get_aicl_work(struct work_struct *work)
 #define THIRD_LOOP_ENTER_MAX_THRESHOLD 60
 #define THIRD_INTERVAL_MINI_THRESHOLD 8
 #define THIRD_INTERVAL_MAX_THRESHOLD 20
-static void op_connect_temp_check_work(struct work_struct *work)
+static void op_connecter_temp_check_work(struct work_struct *work)
 {
 	struct delayed_work *dwork = to_delayed_work(work);
 	struct smb_charger *chg = container_of(dwork,
@@ -6784,8 +6784,7 @@ static void op_connect_temp_check_work(struct work_struct *work)
 		return; /*rerun check again*/
 	}
 
-	if ((chg->connecter_temp >= chg->first_protect_connecter_temp)
-			|| chg->connector_short) { /* >=60 */
+	if (chg->connecter_temp >= chg->first_protect_connecter_temp) { /* >=60 */
 		pr_info("connecter_temp=%d,connector_short=%d\n",
 				chg->connecter_temp,
 				chg->connector_short);
@@ -6852,6 +6851,35 @@ static void op_connect_temp_check_work(struct work_struct *work)
 	else
 		smblib_dbg(chg, PR_FAST_DEBUG, "connecter_temp:%d\n",
 				chg->connecter_temp);
+}
+
+#define CONNECTER_RECOVERY_CHECK_INTERVAL 3000 //ms
+static void op_connecter_recovery_charge_work(struct work_struct *work)
+{
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct smb_charger *chg = container_of(dwork,
+				struct smb_charger, connecter_recovery_work);
+	int batt_temp = 0, interval_temp = 0;
+
+	if (!chg->disconnect_vbus)
+		return;
+
+	chg->connecter_temp = get_usb_temp(chg);
+	batt_temp = get_prop_batt_temp(chg)/10;
+	interval_temp = chg->connecter_temp - batt_temp;
+
+	pr_info("disconnect_vbus=%d, hw_detect=%d, connecter_temp=%d, interval_temp=%d",
+			chg->disconnect_vbus, chg->hw_detect, chg->connecter_temp, interval_temp);
+
+	if ((chg->hw_detect == 0) && (chg->connecter_temp <= 50) && (interval_temp <= 10)) {
+		pr_info("Recovery Charge!\n");
+		op_disconnect_vbus(chg, false);
+		chg->connector_short = false;
+		return;
+	}
+
+	schedule_delayed_work(&chg->connecter_recovery_work,
+		msecs_to_jiffies(CONNECTER_RECOVERY_CHECK_INTERVAL));
 }
 
 irqreturn_t smblib_handle_aicl_done(int irq, void *data)
@@ -9090,6 +9118,9 @@ static int get_usb_temp(struct smb_charger *chg)
 
 void op_disconnect_vbus(struct smb_charger *chg, bool enable)
 {
+	char *recovered[2] = { "USB_CONTAMINANT=RECOVERED", NULL };
+	char *detected[2] = { "USB_CONTAMINANT=DETECTED", NULL };
+
 	if (*chg->disable_connector_protect) {
 		pr_info("disable usb connector protect, return!\n");
 		return;
@@ -9106,19 +9137,30 @@ void op_disconnect_vbus(struct smb_charger *chg, bool enable)
 	if (!enable) {
 		gpio_set_value(chg->vbus_ctrl, 0);
 		chg->disconnect_vbus = false;
-		pr_info("usb connecter connectd!");
+		kobject_uevent_env(&chg->dev->kobj, KOBJ_CHANGE, recovered);
+		pr_info("usb connecter cool(%d), Vbus connected! Sent uevent %s\n",
+				chg->connecter_temp, recovered[0]);
 		return;
 	}
-	pr_info("usb connecter hot(%d),Vbus disconnected!\n",
-			chg->connecter_temp);
+	kobject_uevent_env(&chg->dev->kobj, KOBJ_CHANGE, detected);
+	pr_info("usb connecter hot(%d),Vbus disconnected! Sent uevent %s\n",
+			chg->connecter_temp, detected[0]);
 	chg->dash_on = get_prop_fast_chg_started(chg);
 	if (chg->dash_on) {
 		switch_mode_to_normal();
 		op_set_fast_chg_allow(chg, false);
 	}
 	smblib_set_usb_suspend(chg, true);
+	msleep(20);
 	gpio_set_value(chg->vbus_ctrl, 1);
 	chg->disconnect_vbus = true;
+
+	/* CC set sink only mode */
+	vote(chg->otg_toggle_votable, HOT_PROTECT_VOTER, 0, 0);
+
+	/* Charge recovery monitor */
+	schedule_delayed_work(&chg->connecter_recovery_work,
+		msecs_to_jiffies(1000));
 }
 
 /*usb connector hw auto detection*/
@@ -10551,7 +10593,9 @@ int smblib_init(struct smb_charger *chg)
 	/*usb connector hw auto detection*/
 	INIT_WORK(&chg->otg_switch_work, op_otg_switch);
 	INIT_DELAYED_WORK(&chg->connecter_check_work,
-			op_connect_temp_check_work);
+			op_connecter_temp_check_work);
+	INIT_DELAYED_WORK(&chg->connecter_recovery_work,
+			op_connecter_recovery_charge_work);
 	schedule_delayed_work(&chg->heartbeat_work,
 			msecs_to_jiffies(HEARTBEAT_INTERVAL_MS));
 	if (gpio_is_valid(chg->vbus_ctrl))
