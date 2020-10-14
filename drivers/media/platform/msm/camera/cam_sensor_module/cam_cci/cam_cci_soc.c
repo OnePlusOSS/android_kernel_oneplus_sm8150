@@ -421,7 +421,10 @@ int cam_cci_soc_release(struct cci_device *cci_dev)
 	cci_dev->cci_state = CCI_STATE_DISABLED;
 	cci_dev->cycles_per_us = 0;
 
-	cam_cpas_stop(cci_dev->cpas_handle);
+	rc = cam_cpas_stop(cci_dev->cpas_handle);
+	if (rc)
+		CAM_ERR(CAM_CCI, "cpas stop failed %d", rc);
+
 	CAM_INFO(CAM_CCI, "End release ref_count %d dev=%s", cci_dev->ref_count,cci_dev->device_name);
 
 	return rc;
