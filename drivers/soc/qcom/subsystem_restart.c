@@ -1228,7 +1228,8 @@ void *__subsystem_get(const char *name, const char *fw_name)
 
 	if (!name)
 		return NULL;
-
+	if (fw_name && !strcmp(fw_name, "modem"))
+		msleep(3000);
 	subsys = retval = find_subsys_device(name);
 	if (!subsys)
 		return ERR_PTR(-ENODEV);
