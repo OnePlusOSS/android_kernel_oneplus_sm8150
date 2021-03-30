@@ -1576,6 +1576,9 @@ static void ipa3_q6_clnt_svc_arrive(struct work_struct *work)
 	if (!send_qmi_init_q6)
 		return;
 
+	if (!send_qmi_init_q6)
+		return;
+
 	IPAWANDBG("Q6 QMI service available now\n");
 	if (ipa3_is_apq()) {
 		ipa3_qmi_modem_init_fin = true;

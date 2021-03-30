@@ -842,7 +842,17 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 		}
 
 		spin_unlock(&lock->wait_lock);
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+/*2020-06-17, add for stuck monitor*/
+		if (state & TASK_UNINTERRUPTIBLE)
+			current->in_mutex = 1;
+#endif /*CONFIG_ONEPLUS_HEALTHINFO*/
 		schedule_preempt_disabled();
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+/*2020-06-17, add for stuck monitor*/
+		if (state & TASK_UNINTERRUPTIBLE)
+			current->in_mutex = 0;
+#endif /*CONFIG_ONEPLUS_HEALTHINFO*/
 
 		/*
 		 * ww_mutex needs to always recheck its position since its waiter

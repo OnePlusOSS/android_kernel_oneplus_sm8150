@@ -29,6 +29,7 @@
 #define FREQ_REPORT_MAX_CPU_LOAD_TOP_TASK	0
 #define FREQ_REPORT_CPU_LOAD			1
 #define FREQ_REPORT_TOP_TASK			2
+#define DEFAULT_CGROUP_COLOC_ID			1
 
 #define for_each_related_thread_group(grp) \
 	list_for_each_entry(grp, &active_related_thread_groups, list)

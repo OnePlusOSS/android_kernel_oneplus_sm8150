@@ -60,6 +60,12 @@ source "drivers/nfc/s3fwrn5/Kconfig"
 source "drivers/nfc/st95hf/Kconfig"
 endmenu
 
+config NXP_NFC_ESE_DEVICE
+	tristate "NXP NFC ESE Driver Controller"
+
+source "drivers/nfc/nxp/ese/Kconfig"
+source "drivers/nfc/nxp/nfc/Kconfig"
+
 config NFC_NQ
         tristate "QTI NCI based NFC Controller Driver for NQx"
         depends on I2C
@@ -75,3 +81,18 @@ config NTAG_NQ
           This enables NTAG driver for NTx based devices.
           NTAG is NFC tags that combine passive NFC interface with contact i2c interface.
           This is for i2c connected version.
+
+config NFC_PN5XX
+        tristate "NXP NFC Driver"
+        depends on I2C
+        help
+          This enables the NFC driver for NXP NFC based devices.
+
+config NFC_PN80T
+        tristate "NFC eSE driver for NXP PN80T using NFC_PN5XX"
+        depends on I2C
+        depends on SPI
+        depends on NFC_PN5XX
+        help
+          This enables the SPI driver for the NXP PN80T-based embedded
+          secure element using the NFC_PN5XX driver to control the power.

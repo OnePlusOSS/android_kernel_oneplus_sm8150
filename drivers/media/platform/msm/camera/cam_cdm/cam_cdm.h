@@ -251,17 +251,6 @@ struct cam_cdm_intf_mgr {
 	int32_t refcount;
 };
 
-/**
- * struct cam_cdm_debugfs_entry : debugfs entry struct
- *
- * @dentry                       : entry of debugfs
- * @dump_register                : flag to dump registers
- */
-struct cam_cdm_debugfs_entry {
-	struct dentry   *dentry;
-	bool             dump_register;
-};
-
 int cam_cdm_intf_register_hw_cdm(struct cam_hw_intf *hw,
 	struct cam_cdm_private_dt_data *data, enum cam_cdm_type type,
 	uint32_t *index);

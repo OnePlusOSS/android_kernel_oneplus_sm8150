@@ -15,6 +15,11 @@
 #include <linux/ftrace.h>
 #include <linux/sched/clock.h>
 #include <linux/sched/sysctl.h>
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+/*2020-05-01**/
+#include <linux/oem/oneplus_healthinfo.h>
+#include <../sched/sched.h>
+#endif
 
 #include "trace.h"
 
@@ -485,6 +490,13 @@ struct irqsoff_store {
 DEFINE_PER_CPU(struct irqsoff_store, the_irqsoff);
 #endif /* CONFIG_PREEMPTIRQ_EVENTS */
 
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+/*2020-05-01*/
+unsigned int ohm_irqsoff_stat_thresh = 1000000UL;
+
+DEFINE_PER_CPU(u64, irqsoff_stime);
+#endif
+
 /*
  * We are only interested in hardirq on/off events:
  */
@@ -499,6 +511,16 @@ static inline void tracer_hardirqs_on(void)
 		trace_irqs_disable(delta, is->caddr[0], is->caddr[1],
 						is->caddr[2], is->caddr[3]);
 #endif /* CONFIG_PREEMPTIRQ_EVENTS */
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+	/*2020-05-01*/
+	if (ohm_irqsoff_ctrl) {
+		u64 stime = per_cpu(irqsoff_stime, raw_smp_processor_id());
+		u64 delta = sched_clock() - stime;
+
+		if (delta > ohm_irqsoff_stat_thresh)
+			ohm_irqsoff_record(delta / 1000000UL, raw_smp_processor_id());
+	}
+#endif/*CONFIG_ONEPLUS_HEALTHINFO*/
 
 	if (!preempt_trace() && irq_trace())
 		stop_critical_timing(CALLER_ADDR0, CALLER_ADDR1);
@@ -516,6 +538,12 @@ static inline void tracer_hardirqs_off(void)
 	is->caddr[2] = CALLER_ADDR2;
 	is->caddr[3] = CALLER_ADDR3;
 #endif /* CONFIG_PREEMPTIRQ_EVENTS */
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+	if (ohm_irqsoff_ctrl) {
+		u64 *stime = &per_cpu(irqsoff_stime, raw_smp_processor_id());
+		*stime = sched_clock();
+	}
+#endif/* CONFIG_ONEPLUS_HEALTHINFO*/
 
 	if (!preempt_trace() && irq_trace())
 		start_critical_timing(CALLER_ADDR0, CALLER_ADDR1);
@@ -536,17 +564,39 @@ static inline void tracer_hardirqs_off_caller(unsigned long caller_addr)
 #endif /* CONFIG_PROVE_LOCKING */
 #endif /*  CONFIG_IRQSOFF_TRACER */
 
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+unsigned int ohm_preempt_stat_thresh = 1000000UL;
+DEFINE_PER_CPU(u64, preempt_stime);
+#endif
+
 #ifdef CONFIG_PREEMPT_TRACER
 static inline void tracer_preempt_on(unsigned long a0, unsigned long a1)
 {
 	if (preempt_trace() && !irq_trace())
 		stop_critical_timing(a0, a1);
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+	//2020-05-27, add for preempt record
+	if (ohm_preempt_ctrl) {
+		u64 *stime = &per_cpu(preempt_stime, raw_smp_processor_id());
+		u64 delta = sched_clock() - *stime;
+
+		if (delta > ohm_preempt_stat_thresh)
+			ohm_preempt_record(delta / 1000000UL, raw_smp_processor_id());
+	}
+#endif
 }
 
 static inline void tracer_preempt_off(unsigned long a0, unsigned long a1)
 {
 	if (preempt_trace() && !irq_trace())
 		start_critical_timing(a0, a1);
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+	//2020-05-27, add for preempt record
+	if (ohm_preempt_ctrl) {
+		u64 *stime = &per_cpu(preempt_stime, raw_smp_processor_id());
+		*stime = sched_clock();
+	}
+#endif
 }
 #endif /* CONFIG_PREEMPT_TRACER */
 

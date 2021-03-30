@@ -608,6 +608,37 @@ static void pstore_console_write(struct console *con, const char *s, unsigned c)
 	psinfo->write(&record);
 }
 
+/* pstore memset befor use */
+static void  pstore_console_init(void )
+{
+    size_t oldsize;
+    size_t size =0;
+    struct ramoops_context *cxt = psinfo->data;
+    struct pstore_record record;
+
+    if (psinfo == NULL)
+        return;
+
+    size = cxt->console_size;
+
+	pstore_record_init(&record, psinfo);
+	record.type = PSTORE_TYPE_CONSOLE;
+    record.buf = psinfo->buf;
+    record.size = size;
+
+    oldsize = psinfo->bufsize;
+
+
+    if (size > psinfo->bufsize)
+        size = psinfo->bufsize;
+
+    memset(record.buf, ' ', size);
+
+    psinfo->write(&record);
+
+    psinfo->bufsize = oldsize ;
+}
+
 static struct console pstore_console = {
 	.name	= "pstore",
 	.write	= pstore_console_write,
@@ -617,6 +648,8 @@ static struct console pstore_console = {
 
 static void pstore_register_console(void)
 {
+	/*pstore memset befor use*/
+	pstore_console_init();
 	register_console(&pstore_console);
 }
 
@@ -848,6 +881,7 @@ void pstore_get_backend_records(struct pstore_info *psi,
 		/* No more records left in backend? */
 		if (record->size <= 0) {
 			kfree(record);
+			record = NULL;
 			break;
 		}
 
@@ -857,6 +891,8 @@ void pstore_get_backend_records(struct pstore_info *psi,
 			/* pstore_mkfile() did not take record, so free it. */
 			kfree(record->buf);
 			kfree(record);
+			record->buf = NULL;
+			record = NULL;
 			if (rc != -EEXIST || !quiet)
 				failed++;
 		}

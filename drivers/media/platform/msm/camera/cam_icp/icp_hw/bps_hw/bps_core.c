@@ -165,7 +165,7 @@ static int cam_bps_handle_pc(struct cam_hw_info *bps_dev)
 			hw_info->pwr_ctrl, true, 0x1);
 
 		if ((pwr_status >> BPS_PWR_ON_MASK))
-			CAM_WARN(CAM_ICP, "BPS: pwr_status(%x):pwr_ctrl(%x)",
+			CAM_ERR(CAM_ICP, "BPS: pwr_status(%x):pwr_ctrl(%x)",
 				pwr_status, pwr_ctrl);
 	}
 	cam_bps_get_gdsc_control(soc_info);
@@ -224,13 +224,6 @@ static int cam_bps_cmd_reset(struct cam_hw_soc_info *soc_info,
 	bool reset_bps_top_fail = false;
 
 	CAM_DBG(CAM_ICP, "CAM_ICP_BPS_CMD_RESET");
-
-	if (!core_info->clk_enable || !core_info->cpas_start) {
-		CAM_ERR(CAM_ICP, "BPS reset failed. clk_en %d cpas_start %d",
-				core_info->clk_enable, core_info->cpas_start);
-		return -EINVAL;
-	}
-
 	/* Reset BPS CDM core*/
 	cam_io_w_mb((uint32_t)0xF,
 		soc_info->reg_map[0].mem_base + BPS_CDM_RST_CMD);
@@ -347,11 +340,7 @@ int cam_bps_process_cmd(void *device_priv, uint32_t cmd_type,
 
 	case CAM_ICP_BPS_CMD_CPAS_STOP:
 		if (core_info->cpas_start) {
-			rc = cam_cpas_stop(core_info->cpas_handle);
-			if (rc) {
-				CAM_ERR(CAM_ICP, "cpas stop failed %d", rc);
-				return rc;
-			}
+			cam_cpas_stop(core_info->cpas_handle);
 			core_info->cpas_start = false;
 		}
 		break;
@@ -393,16 +382,12 @@ int cam_bps_process_cmd(void *device_priv, uint32_t cmd_type,
 		}
 		break;
 	case CAM_ICP_BPS_CMD_DISABLE_CLK:
-		mutex_lock(&bps_dev->hw_mutex);
 		if (core_info->clk_enable == true)
 			cam_bps_toggle_clk(soc_info, false);
 		core_info->clk_enable = false;
-		mutex_unlock(&bps_dev->hw_mutex);
 		break;
 	case CAM_ICP_BPS_CMD_RESET:
-		mutex_lock(&bps_dev->hw_mutex);
 		rc = cam_bps_cmd_reset(soc_info, core_info);
-		mutex_unlock(&bps_dev->hw_mutex);
 		break;
 	default:
 		CAM_ERR(CAM_ICP, "Invalid Cmd Type:%u", cmd_type);

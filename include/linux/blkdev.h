@@ -132,6 +132,7 @@ typedef __u32 __bitwise req_flags_t;
  */
 struct request {
 	struct list_head queuelist;
+	struct list_head fg_list;
 	union {
 		struct __call_single_data csd;
 		u64 fifo_time;
@@ -143,6 +144,13 @@ struct request {
 	int cpu;
 	unsigned int cmd_flags;		/* op and common flags */
 	req_flags_t rq_flags;
+
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+	/* Add some info in each request */
+	ktime_t block_io_start;  //save block io start ktime
+	ktime_t ufs_io_start; //save ufs io start ktime
+	u64 flash_io_latency; //save mmc host command latency
+#endif
 
 	int internal_tag;
 
@@ -407,6 +415,11 @@ struct request_queue {
 	 * Together with queue_head for cacheline sharing
 	 */
 	struct list_head	queue_head;
+	struct list_head	fg_head;
+	int fg_count;
+	int both_count;
+	int fg_count_max;
+	int both_count_max;
 	struct request		*last_merge;
 	struct elevator_queue	*elevator;
 	int			nr_rqs[2];	/* # allocated [a]sync rqs */
@@ -733,6 +746,23 @@ static inline void queue_flag_clear(unsigned int flag, struct request_queue *q)
 {
 	queue_lockdep_assert_held(q);
 	__clear_bit(flag, &q->queue_flags);
+}
+
+extern unsigned int sysctl_fg_io_opt;
+static inline void queue_throtl_add_request(struct request_queue *q,
+					    struct request *rq, bool front)
+{
+	struct list_head *head;
+
+	if (!sysctl_fg_io_opt)
+		return;
+	if (rq->cmd_flags & REQ_FG) {
+		head = &q->fg_head;
+		if (front)
+			list_add(&rq->fg_list, head);
+		else
+			list_add_tail(&rq->fg_list, head);
+	}
 }
 
 #define blk_queue_tagged(q)	test_bit(QUEUE_FLAG_QUEUED, &(q)->queue_flags)

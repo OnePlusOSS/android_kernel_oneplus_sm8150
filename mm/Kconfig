@@ -829,7 +829,7 @@ config HAVE_LOW_MEMORY_KILLER
 config PROCESS_RECLAIM
 	bool "Enable process reclaim"
 	depends on PROC_FS
-	default y
+	default n
 	help
 	 It allows to reclaim pages of the process by /proc/pid/reclaim.
 
@@ -851,3 +851,17 @@ config FORCE_ALLOC_FROM_DMA_ZONE
 	  always using ZONE_DMA memory.
 
 	  If unsure, say "n".
+config DIRECT_SWAPPINESS
+	bool "direct swappiness"
+	default n
+	help
+	  set direct swappiness rate, higher means more swap and slowly.
+	  echo ratio > proc/sys/vm/direct_swapiness  default_value 60
+	  cat /sys/module/memplus_core/parameters/memory_plus_enabled
+	  default_value 0
+
+config ONEPLUS_MEM_MONITOR
+	bool "memory monitor "
+	default n
+	help
+	 memory monitor.

@@ -280,7 +280,6 @@ int cam_cdm_stream_ops_internal(void *hw_priv,
 			ahb_vote.type = CAM_VOTE_ABSOLUTE;
 			ahb_vote.vote.level = CAM_SVS_VOTE;
 			axi_vote.compressed_bw = CAM_CPAS_DEFAULT_AXI_BW;
-			axi_vote.compressed_bw_ab = CAM_CPAS_DEFAULT_AXI_BW;
 			axi_vote.uncompressed_bw = CAM_CPAS_DEFAULT_AXI_BW;
 
 			rc = cam_cpas_start(core->cpas_handle,

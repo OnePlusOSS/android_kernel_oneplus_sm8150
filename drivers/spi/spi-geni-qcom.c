@@ -1738,6 +1738,8 @@ static int spi_geni_probe(struct platform_device *pdev)
 		goto spi_geni_probe_err;
 	}
 
+	pinctrl_select_state(rsc->geni_pinctrl, rsc->geni_gpio_sleep);
+
 	geni_mas->disable_dma_mode = of_property_read_bool(pdev->dev.of_node,
 			"qcom,disable-dma");
 	if (!geni_mas->disable_dma_mode) {

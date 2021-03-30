@@ -11,6 +11,7 @@
  */
 
 #include "esoc-mdm.h"
+#include <linux/oneplus/boot_mode.h>
 
 /* This function can be called from atomic context. */
 static int mdm9x55_toggle_soft_reset(struct mdm_ctrl *mdm, bool atomic)
@@ -243,7 +244,11 @@ static int mdm9x55_pon_dt_init(struct mdm_ctrl *mdm)
 	struct device_node *node = mdm->dev->of_node;
 	enum of_gpio_flags flags = OF_GPIO_ACTIVE_LOW;
 
-
+	if (get_second_board_absent() == 1) {
+		pr_err("%s second board absent, don't probe esoc-mdm-pon",
+		__func__);
+		return false;
+	}
 	val = of_property_read_u32(node, "qcom,reset-time-ms",
 				   &mdm->reset_time_ms);
 	if (val)
@@ -266,6 +271,11 @@ static int mdm4x_pon_dt_init(struct mdm_ctrl *mdm)
 	struct device_node *node = mdm->dev->of_node;
 	enum of_gpio_flags flags = OF_GPIO_ACTIVE_LOW;
 
+	if (get_second_board_absent() == 1) {
+		pr_err("%s second board absent, don't probe esoc-mdm-pon",
+		__func__);
+		return false;
+	}
 	val = of_get_named_gpio_flags(node, "qcom,ap2mdm-soft-reset-gpio",
 						0, &flags);
 	if (val >= 0) {

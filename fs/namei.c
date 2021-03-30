@@ -40,6 +40,10 @@
 #include <linux/init_task.h>
 #include <linux/uaccess.h>
 
+#ifdef CONFIG_FSC
+#include <linux/oem/fsc.h>
+#endif
+
 #include "internal.h"
 #include "mount.h"
 
@@ -2466,18 +2470,43 @@ static int filename_lookup(int dfd, struct filename *name, unsigned flags,
 {
 	int retval;
 	struct nameidata nd;
+#ifdef CONFIG_FSC
+	unsigned int hidx = 0;
+	size_t len = 0;
+	bool is_fsc_path_candidate = false;
+#endif
 	if (IS_ERR(name))
 		return PTR_ERR(name);
 	if (unlikely(root)) {
 		nd.root = *root;
 		flags |= LOOKUP_ROOT;
 	}
+#ifdef CONFIG_FSC
+	is_fsc_path_candidate = fsc_enable && fsc_allow_list_cur && fsc_path_check(name, &len);
+	if (is_fsc_path_candidate && fsc_absence_check(name->name, len)) {
+		putname(name);
+		return -ENOENT;
+	}
+#endif
+
 	set_nameidata(&nd, dfd, name);
 	retval = path_lookupat(&nd, flags | LOOKUP_RCU, path);
 	if (unlikely(retval == -ECHILD))
 		retval = path_lookupat(&nd, flags, path);
 	if (unlikely(retval == -ESTALE))
 		retval = path_lookupat(&nd, flags | LOOKUP_REVAL, path);
+
+#ifdef CONFIG_FSC
+	if (is_fsc_path_candidate) {
+		hidx = fsc_get_hidx(name->name, len);
+		fsc_spin_lock(hidx);
+		if (retval == -ENOENT)
+			fsc_insert_absence_path_locked(name->name, len, hidx);
+		else
+			fsc_delete_absence_path_locked(name->name, len, hidx);
+		fsc_spin_unlock(hidx);
+	}
+#endif
 
 	if (likely(!retval))
 		audit_inode(name, path->dentry, flags & LOOKUP_PARENT);
@@ -3835,6 +3864,10 @@ EXPORT_SYMBOL(kern_path_create);
 
 void done_path_create(struct path *path, struct dentry *dentry)
 {
+#ifdef CONFIG_FSC
+	if (fsc_enable && fsc_allow_list_cur)
+		fsc_delete_absence_path_dentry(path, dentry);
+#endif
 	dput(dentry);
 	inode_unlock(path->dentry->d_inode);
 	mnt_drop_write(path->mnt);
@@ -4805,6 +4838,12 @@ retry_deleg:
 	error = vfs_rename2(old_path.mnt, old_path.dentry->d_inode, old_dentry,
 			   new_path.dentry->d_inode, new_dentry,
 			   &delegated_inode, flags);
+
+#ifdef CONFIG_FSC
+	if (fsc_enable && fsc_allow_list_cur && !error)
+		fsc_delete_absence_path_dentry(&new_path, new_dentry);
+#endif
+
 exit5:
 	dput(new_dentry);
 exit4:

@@ -14,6 +14,9 @@ struct device;
 struct device_type;
 struct power_supply;
 
+extern int sysctl_ext4_fsync_enable;
+extern int ext4_fsync_enable_status;
+
 #ifdef CONFIG_SYSFS
 
 extern void power_supply_init_attrs(struct device_type *dev_type);

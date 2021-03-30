@@ -106,7 +106,7 @@ int cam_vfe_init_soc_resources(struct cam_hw_soc_info *soc_info,
 		CAM_VFE_DSP_CLK_NAME, &soc_private->dsp_clk,
 		&soc_private->dsp_clk_index, &soc_private->dsp_clk_rate);
 	if (rc)
-		CAM_WARN(CAM_ISP, "Option clk get failed with rc %d", rc);
+		CAM_WARN(CAM_ISP, "option clk get failed");
 
 	rc = cam_vfe_request_platform_resource(soc_info, vfe_irq_handler,
 		irq_data);
@@ -235,7 +235,6 @@ int cam_vfe_enable_soc_resources(struct cam_hw_soc_info *soc_info)
 	ahb_vote.vote.level = CAM_SVS_VOTE;
 
 	axi_vote.compressed_bw   = 10640000000L;
-	axi_vote.compressed_bw_ab   = 10640000000L;
 	axi_vote.uncompressed_bw = 10640000000L;
 
 	rc = cam_cpas_start(soc_private->cpas_handle[0], &ahb_vote, &axi_vote);

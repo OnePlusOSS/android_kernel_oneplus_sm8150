@@ -37,6 +37,22 @@
 
 #define DSI_MODE_MAX 5
 
+#define EVT2_113MHZ_OSC 0x99
+#define PVT_113MHZ_OSC 0x10
+#define PVT_113MHZ_OSC_XTALK 0x11
+
+#define GAMMA_READ_SUCCESS 1
+#define GAMMA_READ_ERROR 0
+
+extern u32 mode_fps;
+extern int gamma_read_flag;
+extern int tp_1v8_power;
+
+enum dsi_gamma_cmd_set_type {
+	DSI_GAMMA_CMD_SET_SWITCH_60HZ = 0,
+	DSI_GAMMA_CMD_SET_SWITCH_90HZ,
+	DSI_GAMMA_CMD_SET_MAX
+};
 enum dsi_panel_rotation {
 	DSI_PANEL_ROTATE_NONE = 0,
 	DSI_PANEL_ROTATE_HV_FLIP,
@@ -125,6 +141,9 @@ struct dsi_backlight_config {
 	bool pwm_enabled;
 	u32 pwm_period_usecs;
 
+	bool bl_high2bit;
+	u32 bl_def_val;
+
 	/* WLED params */
 	struct led_trigger *wled;
 	struct backlight_device *raw_bd;
@@ -200,7 +219,58 @@ struct dsi_panel {
 	struct drm_panel_esd_config esd_config;
 
 	struct dsi_parser_utils utils;
+	char buf_id[32];
+	int panel_year;
+	int panel_mon;
+	int panel_day;
+	int panel_hour;
+	int panel_min;
+	int panel_sec;
+	int panel_year_index;
+	int panel_mon_index;
+	int panel_day_index;
+	int panel_hour_index;
+	int panel_min_index;
+	int panel_sec_index;
+	int panel_code_info;
+	int panel_stage_info;
+	int panel_production_info;
+	int acl_mode;
+	int acl_cmd_index;
+	int acl_mode_index;
+	int hbm_mode;
+	int hbm_brightness;
+	int aod_mode;
+	int aod_status;
+	int aod_curr_mode;
+	int aod_disable;
+	int srgb_mode;
+	int dci_p3_mode;
+	int night_mode;
+	int oneplus_mode;
+	int adaption_mode;
+	int status_value;
+	int panel_mismatch_check;
+	int panel_mismatch;
+	int hbm_backlight;
+	int naive_display_p3_mode;
+	int naive_display_wide_color_mode;
+	int naive_display_srgb_color_mode;
+	int naive_display_loading_effect_mode;
+	int naive_display_customer_srgb_mode;
+	int naive_display_customer_p3_mode;
+	bool need_power_on_backlight;
+	struct delayed_work gamma_read_work;
+	int tp1v8_gpio;
+	int vddd_gpio;
+	int err_flag_gpio;
+	bool is_err_flag_irq_enabled;
+	bool err_flag_status;
+	bool is_hbm_enabled;
+	int  op_force_screenfp;
+	bool dim_status;
 
+	int poc;
 	bool lp11_init;
 	bool ulps_feature_enabled;
 	bool ulps_suspend_enabled;
@@ -336,5 +406,30 @@ struct dsi_panel *dsi_panel_ext_bridge_get(struct device *parent,
 int dsi_panel_parse_esd_reg_read_configs(struct dsi_panel *panel);
 
 void dsi_panel_ext_bridge_put(struct dsi_panel *panel);
+int dsi_panel_set_hbm_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_acl_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_hbm_brightness(struct dsi_panel *panel, int level);
+int dsi_panel_op_set_hbm_mode(struct dsi_panel *panel, int level);
+extern int msm_drm_notifier_call_chain(unsigned long val, void *v);
+int dsi_panel_set_aod_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_dci_p3_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_night_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_native_display_p3_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_native_display_wide_color_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_native_display_srgb_color_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_native_loading_effect_mode(struct dsi_panel *panel, int level);
+int dsi_panel_gamma_read_address_setting(struct dsi_panel *panel, u16 read_number);
+int dsi_panel_tx_cmd_set(struct dsi_panel *panel, enum dsi_cmd_set_type type);
+int dsi_panel_parse_gamma_cmd_sets(void);
+int dsi_panel_tx_gamma_cmd_set(struct dsi_panel *panel, enum dsi_gamma_cmd_set_type type);
+extern int mipi_dsi_dcs_write_c1(struct mipi_dsi_device *dsi, u16 read_number);
+int dsi_panel_update_cmd_sets_sub(struct dsi_panel_cmd_set *cmd,
+					enum dsi_cmd_set_type type, const char *data, unsigned int length);
+int dsi_panel_send_dsi_panel_command(struct dsi_panel *panel);
+int dsi_panel_update_dsi_seed_command(struct dsi_cmd_desc *cmds,
+					enum dsi_cmd_set_type type, const char *data);
+int dsi_panel_send_dsi_seed_command(struct dsi_panel *panel);
+int dsi_panel_set_customer_srgb_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_customer_p3_mode(struct dsi_panel *panel, int level);
 
 #endif /* _DSI_PANEL_H_ */

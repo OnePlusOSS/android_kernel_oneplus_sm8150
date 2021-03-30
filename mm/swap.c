@@ -251,6 +251,9 @@ void rotate_reclaimable_page(struct page *page)
 		struct pagevec *pvec;
 		unsigned long flags;
 
+		if (PG_UIDLRU(page))
+			return;
+
 		get_page(page);
 		local_irq_save(flags);
 		pvec = this_cpu_ptr(&lru_rotate_pvecs);
@@ -276,6 +279,9 @@ static void __activate_page(struct page *page, struct lruvec *lruvec,
 	if (PageLRU(page) && !PageActive(page) && !PageUnevictable(page)) {
 		int file = page_is_file_cache(page);
 		int lru = page_lru_base_type(page);
+
+		if (PG_UIDLRU(page))
+			return;
 
 		del_page_from_lru_list(page, lruvec, lru);
 		SetPageActive(page);
@@ -644,6 +650,9 @@ void deactivate_file_page(struct page *page)
 	 * unevictable page deactivation for accelerating reclaim is pointless.
 	 */
 	if (PageUnevictable(page))
+		return;
+
+	if (PG_UIDLRU(page))
 		return;
 
 	if (likely(get_page_unless_zero(page))) {

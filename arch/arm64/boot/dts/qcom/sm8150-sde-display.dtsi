@@ -34,6 +34,12 @@
 #include "dsi-panel-nt36850-truly-dualmipi-wqhd-cmd.dtsi"
 #include "dsi-panel-rm69299-visionox-amoled-fhd-plus-video.dtsi"
 #include <dt-bindings/clock/mdss-10nm-pll-clk.h>
+#include "dsi-panel-samsung_oneplus_dsc.dtsi"
+#include "dsi-panel-samsung_s6e3fc2x01.dtsi"
+#include "dsi-panel-samsung_sofef03f_m_fhd_dsc_cmd.dtsi"
+#include "dsi-panel-samsung_findx_dsc.dtsi"
+#include "dsi-panel-samsung_sofef00_m_video.dtsi"
+
 
 &tlmm {
 	display_panel_avdd_eldo_default: display_panel_avdd_eldo_default {
@@ -175,7 +181,7 @@
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <1800000>;
 		regulator-enable-ramp-delay = <233>;
-		gpio = <&tlmm 130 0>;
+//		gpio = <&tlmm 130 0>;
 		enable-active-high;
 		regulator-boot-on;
 		pinctrl-names = "default";

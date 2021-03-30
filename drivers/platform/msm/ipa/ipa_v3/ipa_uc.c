@@ -233,6 +233,11 @@ static void ipa3_uc_save_dbg_stats(u32 size)
 		ipa3_ctx->uc_ctx.uc_sram_mmio->responseParams_1);
 	addr_offset = IPA_UC_DBG_STATS_GET_OFFSET(
 		ipa3_ctx->uc_ctx.uc_sram_mmio->responseParams_1);
+
+	// Add by bsp
+	if (prot_id == IPA_HW_PROTOCOL_COMMON)
+		return;
+
 	mmio = ioremap(ipa3_ctx->ipa_wrapper_base +
 		addr_offset, sizeof(struct IpaHwRingStats_t) *
 		MAX_CH_STATS_SUPPORTED);

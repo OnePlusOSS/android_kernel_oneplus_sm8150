@@ -10,6 +10,15 @@
 #ifdef CONFIG_TASK_IO_ACCOUNTING
 static inline void task_io_account_read(size_t bytes)
 {
+#ifdef CONFIG_ONEPLUS_TASKLOAD_INFO
+	bool tli_index;
+
+	tli_index = ODD(sample_window.window_index);
+	current->tli[tli_index].read_bytes += bytes;
+	/* >=1MB/s */
+	if (current->tli[tli_index].read_bytes >= ohm_read_thresh)
+		current->tli[tli_index].tli_overload_flag |= TASK_READ_OVERLOAD_FLAG;
+#endif
 	current->ioac.read_bytes += bytes;
 }
 
@@ -24,6 +33,15 @@ static inline unsigned long task_io_get_inblock(const struct task_struct *p)
 
 static inline void task_io_account_write(size_t bytes)
 {
+#ifdef CONFIG_ONEPLUS_TASKLOAD_INFO
+	bool tli_index;
+
+	tli_index = ODD(sample_window.window_index);
+	current->tli[tli_index].write_bytes += bytes;
+	/* >=1MB/s */
+	if (current->tli[tli_index].write_bytes >= ohm_write_thresh)
+		current->tli[tli_index].tli_overload_flag |= TASK_WRITE_OVERLOAD_FLAG;
+#endif
 	current->ioac.write_bytes += bytes;
 }
 
@@ -58,6 +76,14 @@ static inline void task_blk_io_accounting_add(struct task_io_accounting *dst,
 
 static inline void task_io_account_read(size_t bytes)
 {
+#ifdef CONFIG_ONEPLUS_TASKLOAD_INFO
+	bool tli_index = ODD(sample_window.window_index);
+
+	current->tli[tli_index].read_bytes += bytes;
+	/* >=1MB/s */
+	if (current->tli[tli_index].read_bytes >= ohm_read_thresh)
+		current->tli[tli_index].tli_overload_flag |= TASK_READ_OVERLOAD_FLAG;
+#endif
 }
 
 static inline unsigned long task_io_get_inblock(const struct task_struct *p)
@@ -67,6 +93,14 @@ static inline unsigned long task_io_get_inblock(const struct task_struct *p)
 
 static inline void task_io_account_write(size_t bytes)
 {
+#ifdef CONFIG_ONEPLUS_TASKLOAD_INFO
+	bool tli_index = ODD(sample_window.window_index);
+
+	current->tli[tli_index].write_bytes += bytes;
+	/* >=1MB/s */
+	if (current->tli[tli_index].write_bytes >= ohm_write_thresh)
+		current->tli[tli_index].tli_overload_flag |= TASK_WRITE_OVERLOAD_FLAG;
+#endif
 }
 
 static inline unsigned long task_io_get_oublock(const struct task_struct *p)

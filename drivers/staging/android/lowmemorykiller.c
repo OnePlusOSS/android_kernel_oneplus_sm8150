@@ -54,6 +54,7 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/almk.h>
 #include <linux/show_mem_notifier.h>
+#include <oneplus/defrag/defrag_helper.h>
 
 #ifdef CONFIG_HIGHMEM
 #define _ZONE ZONE_HIGHMEM
@@ -89,6 +90,11 @@ static int lmk_fast_run = 1;
 
 static unsigned long lowmem_deathpending_timeout;
 
+unsigned long get_max_minfree(void)
+{
+	return (unsigned long)lowmem_minfree[lowmem_minfree_size - 1];
+}
+
 #define lowmem_print(level, x...)			\
 	do {						\
 		if (lowmem_debug_level >= (level))	\
@@ -111,6 +117,9 @@ bool lmk_kill_possible(void);
 static atomic_t shift_adj = ATOMIC_INIT(0);
 static short adj_max_shift = 353;
 module_param_named(adj_max_shift, adj_max_shift, short, 0644);
+
+static int almk_min_free = 262144;
+module_param_named(almk_min_free, almk_min_free, int, 0644);
 
 enum {
 	ADAPTIVE_LMK_DISABLED = 0,
@@ -176,12 +185,37 @@ static int adjust_minadj(short *min_score_adj)
 	return ret;
 }
 
+#ifdef CONFIG_ADJ_CHAIN
+static int batch_kill = 1;
+module_param(batch_kill, int, 0644);
+MODULE_PARM_DESC(batch_kill, "lowmemorykiller kill more strategy");
+
+#define BATCH_KILL_MAX_CNT (5)
+static int batch_kill_cnt = 1;
+
+static inline void batch_kill_adjust(unsigned long pressure)
+{
+	if (batch_kill) {
+		if (pressure >= 95)
+			batch_kill_cnt = 3; // critical
+		else if (pressure >= 90)
+			batch_kill_cnt = 2; // medium
+		else
+			batch_kill_cnt = 1; // normal
+	}
+}
+#endif
+
 static int lmk_vmpressure_notifier(struct notifier_block *nb,
 				   unsigned long action, void *data)
 {
 	int other_free, other_file;
 	unsigned long pressure = action;
 	int array_size = ARRAY_SIZE(lowmem_adj);
+
+#ifdef CONFIG_ADJ_CHAIN
+	batch_kill_adjust(pressure);
+#endif
 
 	if (enable_adaptive_lmk != ADAPTIVE_LMK_ENABLED)
 		return 0;
@@ -191,8 +225,10 @@ static int lmk_vmpressure_notifier(struct notifier_block *nb,
 			global_node_page_state(NR_SHMEM) -
 			total_swapcache_pages();
 		other_free = global_zone_page_state(NR_FREE_PAGES);
+		other_free -= DEFRAG_FREE_SIZE;
 
-		atomic_set(&shift_adj, 1);
+		if ((other_free + other_file) <  almk_min_free)
+			atomic_set(&shift_adj, 1);
 		trace_almk_vmpressure(pressure, other_free, other_file);
 	} else if (pressure >= 90) {
 		if (lowmem_adj_size < array_size)
@@ -205,6 +241,7 @@ static int lmk_vmpressure_notifier(struct notifier_block *nb,
 			total_swapcache_pages();
 
 		other_free = global_zone_page_state(NR_FREE_PAGES);
+		other_free -= DEFRAG_FREE_SIZE;
 
 		if (other_free < lowmem_minfree[array_size - 1] &&
 		    other_file < vmpressure_file_min) {
@@ -463,6 +500,532 @@ static void mark_lmk_victim(struct task_struct *tsk)
 	}
 }
 
+#ifdef CONFIG_ADJ_CHAIN
+#include <linux/oem/adj_chain.h>
+
+static bool selftest_running = false;
+static int selftest_min_score_adj = 906;
+
+static int quick_select = 1;
+module_param(quick_select, int, 0644);
+MODULE_PARM_DESC(quick_select, "lowmemorykiller quick select task from adj chain");
+
+static int time_measure = 1;
+module_param(time_measure, int, 0644);
+MODULE_PARM_DESC(time_measure, "lowmemorykiller select task time measurement");
+
+static bool trust_adj_chain = false;
+module_param(trust_adj_chain, bool, 0644);
+MODULE_PARM_DESC(trust_adj_chain, "lowmemorykiller trust adj chain to select task only from adj chain");
+
+// define the floor for batch kill killing process
+#define BATCH_KILL_FLOOR __adjc(900)
+
+/*
+ *0 for start marker
+ *1 for end marker
+ */
+enum measure_marker {
+	MEASURE_START_MARKER,
+	MEASURE_END_MARKER
+};
+
+enum lmk_stat_group {
+	LMK_FOREGROUND,
+	LMK_KSWAPD,
+	LMK_OTHERS,
+	LMK_TOTAL,
+	LMK_GROUP_SIZE
+};
+
+enum lmk_batch_kill_lvs {
+	LMK_BK_NORMAL,
+	LMK_BK_MEDIUM,
+	LMK_BK_CRITICAL,
+	LMK_BK_SIZE
+};
+
+enum lmk_missed_task {
+	LMK_NOTHING_MISSED,
+	LMK_ADJ_CHAIN_MISSED,
+	LMK_BOTH_MISSED,
+	LMK_MISSED_SIZE
+};
+
+struct batch_kill_wrapper {
+	struct list_head node;
+	struct task_struct *selected;
+	int selected_tasksize;
+	short selected_oom_score_adj;
+	short min_score_adj;
+	u32 bklv;
+	u32 missed;
+	u32 scan;
+};
+
+static inline void batch_kill_init(struct batch_kill_wrapper *bkws)
+{
+	int i;
+
+	for (i = 0; i < BATCH_KILL_MAX_CNT; ++i)
+		bkws[i].selected = NULL;
+
+	/* use first entry to record status */
+	bkws[0].scan = 0;
+	bkws[0].bklv = LMK_BK_NORMAL;
+	bkws[0].missed = LMK_NOTHING_MISSED;
+}
+
+static inline bool batch_kill_empty(struct batch_kill_wrapper *bkw)
+{
+	if (bkw->selected)
+		return false;
+	return true;
+}
+
+static inline void batch_kill_assign(
+	struct batch_kill_wrapper *bkw,
+	struct task_struct *tsk,
+	int tasksize,
+	short oom_score_adj,
+	int bklv)
+{
+	bkw->selected = tsk;
+	bkw->selected_tasksize = tasksize;
+	bkw->selected_oom_score_adj = oom_score_adj;
+	lowmem_print(1,
+			"batch select: '%s' (%d), adj %hd, size %d, to kill, bklv %d\n",
+			tsk->comm, tsk->pid, __adjr(oom_score_adj), tasksize, bklv);
+}
+
+/* statistic information */
+#define LMK_STAT_FOREGROUND_ADJ (0)
+#define LMK_STAT_TIME_LV (10)
+
+struct lmk_stat {
+	s64 time_us;
+	s64 max_time_us;
+	s64 min_time_us;
+	u32 t[LMK_STAT_TIME_LV];
+	u32 cnt;
+	u32 bklv[LMK_BK_SIZE];
+	u32 missed[LMK_MISSED_SIZE];
+	u64 scan;
+} lmk_s[LMK_GROUP_SIZE] = {
+	{	.min_time_us = S64_MAX,	},
+	{	.min_time_us = S64_MAX,	},
+	{	.min_time_us = S64_MAX,	},
+	{	.min_time_us = S64_MAX,	}
+};
+
+static const char *lmk_tags[LMK_GROUP_SIZE] = {
+	"FOREGROUND :",
+	"KSWAPD     :",
+	"OTHERS     :",
+	"TOTAL      :"
+};
+
+static s64 lmk_t_delim[LMK_STAT_TIME_LV] = {
+	50, 100, 200, 400, 800,
+	1600, 3200, 6400, 12800, S64_MAX
+};
+
+static int lmk_stat_show(char *buf, const struct kernel_param *kp)
+{
+	int offset = 0, i, j;
+
+	for (i = 0; i < LMK_GROUP_SIZE; ++i) {
+		offset += snprintf(buf + offset, PAGE_SIZE - offset, lmk_tags[i]);
+		offset += snprintf(buf + offset, PAGE_SIZE - offset, "%lld ", lmk_s[i].time_us);
+		offset += snprintf(buf + offset, PAGE_SIZE - offset, "%lld ", lmk_s[i].max_time_us);
+		offset += snprintf(buf + offset, PAGE_SIZE - offset, "%lld ", lmk_s[i].time_us ? lmk_s[i].min_time_us : 0);
+		offset += snprintf(buf + offset, PAGE_SIZE - offset, "%lld ", lmk_s[i].cnt ? lmk_s[i].time_us / lmk_s[i].cnt : 0);
+		offset += snprintf(buf + offset, PAGE_SIZE - offset, "%u, bklv: ",  lmk_s[i].cnt);
+		for (j = LMK_BK_NORMAL; j < LMK_BK_SIZE; ++j)
+			offset += snprintf(buf + offset, PAGE_SIZE - offset, "%u ",  lmk_s[i].bklv[j]);
+		offset += snprintf(buf + offset, PAGE_SIZE - offset, ", ratio: ");
+		for (j = 0; j < LMK_STAT_TIME_LV; ++j)
+			offset += snprintf(buf + offset, PAGE_SIZE - offset, "%u ",  lmk_s[i].t[j]);
+		offset += snprintf(buf + offset, PAGE_SIZE - offset, ", missed: ");
+		for (j = LMK_ADJ_CHAIN_MISSED; j < LMK_MISSED_SIZE; ++j)
+			offset += snprintf(buf + offset, PAGE_SIZE - offset, "%u ",  lmk_s[i].missed[j]);
+		offset += snprintf(buf + offset, PAGE_SIZE - offset, ", scan: %lld %lld",
+				lmk_s[i].scan, lmk_s[i].cnt ? lmk_s[i].scan / lmk_s[i].cnt : 0);
+		offset += snprintf(buf + offset, PAGE_SIZE - offset, "\n");
+	}
+	return offset;
+}
+
+static struct kernel_param_ops lmk_stat_ops = {
+	.get = lmk_stat_show,
+};
+module_param_cb(stat, &lmk_stat_ops, NULL, 0444);
+
+static inline enum lmk_stat_group lmk_which_group(void)
+{
+	const char *p = "kswapd";
+
+	if (current->signal) {
+		if (current->signal->oom_score_adj ==  LMK_STAT_FOREGROUND_ADJ) {
+			if (!strncmp(current->comm, p, strlen(p)))
+				return LMK_KSWAPD;
+			return LMK_FOREGROUND;
+		}
+	}
+	return LMK_OTHERS;
+}
+
+static inline void lmk_stat_analysis(ktime_t begin, ktime_t end, s64 t,
+				enum lmk_stat_group g, struct task_struct *tsk, struct batch_kill_wrapper *bkws)
+{
+	int i;
+
+	lowmem_print(1, "measure: analysis group: %s, begin: %lld, end: %lld, cost: %lldus, scan: %d, min_adj: %hd\n",
+		lmk_tags[g], ktime_to_us(begin), ktime_to_us(end), t, bkws[0].scan, bkws[0].min_score_adj);
+
+	if (!quick_select) {
+		/* original selection measure */
+		if (tsk) {
+			lowmem_print(1, "measure: analysis selected tsk: '%s' (%d) adj %hd\n",
+					tsk->comm, tsk->pid, tsk->signal->oom_score_adj);
+		} else {
+			lowmem_print(1, "measure: analysis no selected tsk\n");
+		}
+	} else {
+		/* adj chain selection measure */
+		for (i = 0; i < BATCH_KILL_MAX_CNT; ++i) {
+			struct task_struct *p = bkws[i].selected;
+
+			if (!p && i == 0) {
+				lowmem_print(1, "batch measure: analysis no selected tsk\n");
+				break;
+			} else if (!p)
+				break;
+			lowmem_print(1, "batch measure: analysis selected tsk: '%s' (%d) adj %hd\n",
+					p->comm, p->pid, p->signal->oom_score_adj);
+		}
+	}
+}
+
+static inline void lmk_stat_update(s64 t, enum lmk_stat_group g, struct batch_kill_wrapper *bkws)
+{
+	enum lmk_batch_kill_lvs lv = bkws[0].bklv;
+	enum lmk_missed_task mt = bkws[0].missed;
+	u64 scan = bkws[0].scan;
+	int i;
+
+	lmk_s[g].time_us += t;
+	if (t > lmk_s[g].max_time_us)
+		lmk_s[g].max_time_us = t;
+	if (t < lmk_s[g].min_time_us)
+		lmk_s[g].min_time_us = t;
+	++lmk_s[g].cnt;
+	for (i = 0; i < LMK_STAT_TIME_LV; ++i) {
+		if (t < lmk_t_delim[i]) {
+			++lmk_s[g].t[i];
+			break;
+		}
+	}
+	++lmk_s[g].bklv[lv];
+	if (mt != LMK_NOTHING_MISSED)
+		++lmk_s[g].missed[mt];
+	lmk_s[g].scan += scan;
+}
+
+static void time_measure_marker(enum measure_marker m, struct task_struct *tsk, struct batch_kill_wrapper *bkws)
+{
+	static ktime_t begin, end;
+	enum lmk_stat_group g = lmk_which_group();
+	s64 t;
+	int i;
+
+	switch (m) {
+	case MEASURE_START_MARKER:
+		begin = ktime_get();
+		break;
+	case MEASURE_END_MARKER:
+		end = ktime_get();
+		t = ktime_to_us(ktime_sub(end, begin));
+		if (unlikely(time_measure)) {
+			if (tsk)
+				lowmem_print(1, "measure: select %d (%s) adj %d, cost %lldus. qp %d\n",
+						tsk->pid, tsk->comm, tsk->signal->oom_score_adj,
+						t, quick_select);
+			else if (!batch_kill_empty(bkws)) {
+				for (i = 0; i < BATCH_KILL_MAX_CNT; ++i) {
+					tsk = bkws[i].selected;
+					if (tsk)
+						lowmem_print(1,
+								"batch measure: select %d (%s) adj %d, cost %lldus. qs %d bk %d\n",
+								tsk->pid, tsk->comm, tsk->signal->oom_score_adj,
+								t, quick_select, batch_kill);
+				}
+			}
+		}
+
+		/* record searching time longer than 12.8 ms*/
+		if (t >= lmk_t_delim[LMK_STAT_TIME_LV - 2])
+			lmk_stat_analysis(begin, end, t, g, tsk, bkws);
+
+		lmk_stat_update(t, g, bkws);
+		lmk_stat_update(t, LMK_TOTAL, bkws);
+		break;
+	}
+}
+
+static int lowmem_quick_select_next(
+		short min_score_adj,
+		struct task_struct **target,
+		bool batch_kill_enable,
+		struct batch_kill_wrapper *bkws,
+		int *selected_tasksize,
+		short *selected_oom_score_adj)
+{
+	struct task_struct *tsk, *p;
+	struct task_struct *selected = NULL;
+	int cur_high = adj_chain_hist_high;
+	int tasksize;
+	int limit = __adjc(min_score_adj);
+	int bkcnt = batch_kill_cnt;
+	int cnt = 0, i, bklv = bkcnt;
+
+	/*
+	 *critical: kill 3 tasks
+	 *medium: kill 2 tasks
+	 *normal: kill 1 task
+	 *clear pressure event by reset kill cnt to 1
+	 *FIXME
+	 *   bklv will be directly mapped to array index,
+	 *  it will be better to defined by pressure.
+	 */
+	bkws[0].bklv = bkcnt - 1;
+	batch_kill_cnt = 1;
+
+	read_lock(&tasklist_lock);
+	for (; cur_high >= limit; --cur_high) {
+		if (!list_empty(&adj_chain[cur_high])) {
+			/* reset selected_tasksize for batch kill */
+			*selected_tasksize = 0;
+
+			list_for_each_entry_rcu(tsk, &adj_chain[cur_high], adj_chain_tasks) {
+				/* record for scan cnt */
+				++bkws[0].scan;
+
+				/* align lmk original selection logic */
+				if (tsk->flags & PF_KTHREAD)
+					continue;
+
+				/* if task no longer has any memory ignore it */
+				if (test_task_flag(tsk, TIF_MM_RELEASED))
+					continue;
+
+				if (oom_reaper) {
+					p = find_lock_task_mm(tsk);
+					if (!p)
+						continue;
+
+					if (test_bit(MMF_OOM_VICTIM, &p->mm->flags)) {
+						if (test_bit(MMF_OOM_SKIP, &p->mm->flags)) {
+							task_unlock(p);
+							continue;
+						} else if (time_before_eq(jiffies,
+									lowmem_deathpending_timeout)) {
+							task_unlock(p);
+							read_unlock(&tasklist_lock);
+							rcu_read_unlock();
+							mutex_unlock(&scan_mutex);
+							return -1;
+						}
+					}
+				} else {
+					if (time_before_eq(jiffies,
+								lowmem_deathpending_timeout))
+						if (test_task_lmk_waiting(tsk)) {
+							read_unlock(&tasklist_lock);
+							rcu_read_unlock();
+							mutex_unlock(&scan_mutex);
+							return -1;
+						}
+
+					p = find_lock_task_mm(tsk);
+					if (!p)
+						continue;
+				}
+
+				tasksize = get_mm_rss(p->mm);
+
+				task_unlock(p);
+				if (tasksize <= 0)
+					continue;
+
+				/*
+				 * batch kill select
+				 * Since select will search adjchain from the highest to lower adj.
+				 * considering the case (adj: tasksize)
+				 * 906: 16 15 13, pick cnt 2
+				 * if we pick task after tasksize compared, it will only pick 16
+				 * and find next task with lower adj, which is not appropriate.
+				 * So we pick task before tasksize is compared.
+				 */
+				if (batch_kill_enable && bkcnt) {
+					/*if already selected at least one task and the adj
+					 *of next task is lower than 900, skip it and
+					 *complete the selection.
+					 */
+					if (bkcnt < bklv && cur_high < BATCH_KILL_FLOOR)
+						goto select_complete;
+
+					batch_kill_assign(bkws + cnt, p, tasksize, cur_high, bklv);
+					++cnt;
+					--bkcnt;
+				}
+
+				if (selected) {
+					if (tasksize <= *selected_tasksize)
+						continue;
+				}
+				selected = p;
+				*selected_tasksize = tasksize;
+				*selected_oom_score_adj = cur_high;
+			}
+
+			if (selected) {
+				if (batch_kill_enable) {
+					bool exist = false;
+
+					for (i = 0; i < BATCH_KILL_MAX_CNT; ++i) {
+						if (bkws[i].selected == selected) {
+							exist = true;
+							break;
+						}
+					}
+					/* always make sure the best candidate been picked */
+					if (!exist) {
+						/* replace task with higher adj */
+						if (*selected_oom_score_adj >= bkws[0].selected_oom_score_adj)
+							batch_kill_assign(bkws + 0, selected,
+									*selected_tasksize, *selected_oom_score_adj, bklv);
+					}
+				} else {
+					lowmem_print(3, "select: '%s' (%d), adj %hd, size %d, to kill\n",
+							selected->comm, selected->pid,
+							__adjr(*selected_oom_score_adj), *selected_tasksize);
+					*target = selected;
+					goto select_complete;
+				}
+			}
+
+			if (!bkcnt)
+				goto select_complete;
+		}
+	}
+
+select_complete:
+	read_unlock(&tasklist_lock);
+
+	return 0;
+}
+
+static unsigned long lowmem_batch_kill(
+	struct batch_kill_wrapper *bkws,
+	struct shrink_control *sc,
+	int minfree,
+	int other_file,
+	int other_free,
+	short min_score_adj)
+{
+	unsigned long rem = 0;
+	struct task_struct *selected;
+	int selected_tasksize, i;
+	short selected_oom_score_adj;
+	bool signaled = false;
+
+	for (i = 0; i < BATCH_KILL_MAX_CNT; ++i) {
+		selected = bkws[i].selected;
+		selected_tasksize = bkws[i].selected_tasksize;
+		selected_oom_score_adj = bkws[i].selected_oom_score_adj;
+
+		if (selected) {
+			long cache_size = other_file * (long)(PAGE_SIZE / 1024);
+			long cache_limit = minfree * (long)(PAGE_SIZE / 1024);
+			long free = other_free * (long)(PAGE_SIZE / 1024);
+
+			if (test_task_lmk_waiting(selected) &&
+					(test_task_state(selected, TASK_UNINTERRUPTIBLE))) {
+				lowmem_print(2, "'%s' (%d) is already killed\n",
+						selected->comm,
+						selected->pid);
+				continue;
+			}
+
+			task_lock(selected);
+			send_sig(SIGKILL, selected, 0);
+			signaled = true;
+			if (selected->mm) {
+				task_set_lmk_waiting(selected);
+				if (!test_bit(MMF_OOM_SKIP, &selected->mm->flags) &&
+						oom_reaper) {
+					mark_lmk_victim(selected);
+					wake_oom_reaper(selected);
+				}
+			}
+			task_unlock(selected);
+			trace_lowmemory_kill(selected, cache_size, cache_limit, free);
+			lowmem_print(1, "batch Killing '%s' (%d) (tgid %d), adj %hd,\n"
+					"to free %ldkB on behalf of '%s' (%d) because\n"
+					"cache %ldkB is below limit %ldkB for oom score %hd\n"
+					"uid_lru_list size %ld pages\n"
+					"Free memory is %ldkB above reserved.\n"
+					"Free CMA is %ldkB\n"
+					"Total reserve is %ldkB\n"
+					"Total free pages is %ldkB\n"
+					"Total file cache is %ldkB\n"
+					"SHMEM is %ldkB\n"
+					"SwapCached is %ldkB\n"
+					"GFP mask is 0x%x\n",
+					selected->comm, selected->pid, selected->tgid,
+					__adjr(selected_oom_score_adj),
+					selected_tasksize * (long)(PAGE_SIZE / 1024),
+					current->comm, current->pid,
+					cache_size, cache_limit,
+					min_score_adj,
+					UID_LRU_SIZE,
+					free,
+					global_zone_page_state(NR_FREE_CMA_PAGES) *
+					(long)(PAGE_SIZE / 1024),
+					totalreserve_pages * (long)(PAGE_SIZE / 1024),
+					global_zone_page_state(NR_FREE_PAGES) *
+						(long)(PAGE_SIZE / 1024),
+					global_node_page_state(NR_FILE_PAGES) *
+						(long)(PAGE_SIZE / 1024),
+					global_node_page_state(NR_SHMEM) *
+						(long)(PAGE_SIZE / 1024),
+					total_swapcache_pages() *
+						(long)(PAGE_SIZE / 1024),
+					sc->gfp_mask);
+
+			if (lowmem_debug_level >= 2 && selected_oom_score_adj == 0) {
+				show_mem(SHOW_MEM_FILTER_NODES, NULL);
+				show_mem_call_notifiers();
+				dump_tasks(NULL, NULL);
+			}
+
+			rem += selected_tasksize;
+		}
+	}
+	lowmem_print(4, "lowmem_scan %lu, %x, return %lu\n",
+			sc->nr_to_scan, sc->gfp_mask, rem);
+	rcu_read_unlock();
+	if (signaled) {
+		lowmem_deathpending_timeout = jiffies + HZ;
+		/* give the system time to free up the memory */
+		msleep_interruptible(20);
+	}
+	mutex_unlock(&scan_mutex);
+	return rem;
+}
+#endif
+
 static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 {
 	struct task_struct *tsk;
@@ -480,8 +1043,15 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 	int other_free;
 	int other_file;
 	bool lock_required = true;
-
+#ifdef CONFIG_ADJ_CHAIN
+	bool quick_select_enable = quick_select;
+	bool batch_kill_enable = batch_kill;
+	struct batch_kill_wrapper bkws[BATCH_KILL_MAX_CNT];
+	enum lmk_missed_task mt = LMK_NOTHING_MISSED;
+	batch_kill_init(bkws);
+#endif
 	other_free = global_zone_page_state(NR_FREE_PAGES) - totalreserve_pages;
+	other_free -= DEFRAG_FREE_SIZE;
 
 	if (global_node_page_state(NR_SHMEM) + total_swapcache_pages() +
 			global_node_page_state(NR_UNEVICTABLE) <
@@ -521,6 +1091,12 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		     __func__, sc->nr_to_scan, sc->gfp_mask, other_free,
 		     other_file, min_score_adj);
 
+#ifdef CONFIG_ADJ_CHAIN
+	if (unlikely(selftest_running)) {
+		min_score_adj = selftest_min_score_adj;
+		goto selftest_bypass;
+	}
+#endif
 	if (min_score_adj == OOM_SCORE_ADJ_MAX + 1) {
 		trace_almk_shrink(0, ret, other_free, other_file, 0);
 		lowmem_print(5, "%s %lu, %x, return 0\n",
@@ -530,12 +1106,53 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		return 0;
 	}
 
+#ifdef CONFIG_ADJ_CHAIN
+selftest_bypass:
+#endif
 	selected_oom_score_adj = min_score_adj;
 
 	rcu_read_lock();
+#ifdef CONFIG_ADJ_CHAIN
+	/* record for each time lmk scan's min_score_adj */
+	bkws[0].min_score_adj = min_score_adj;
+
+	/* marker for select begin */
+	time_measure_marker(MEASURE_START_MARKER, NULL, NULL);
+
+	if (quick_select_enable) {
+		if (lowmem_quick_select_next(min_score_adj,
+				&selected, batch_kill_enable, bkws,
+				&selected_tasksize, &selected_oom_score_adj))
+			return 0;
+
+		if (selected || !batch_kill_empty(bkws))
+			goto quick_select_fast;
+		else if (trust_adj_chain) {
+			/* marker for select end */
+			bkws[0].missed = LMK_ADJ_CHAIN_MISSED;
+			time_measure_marker(MEASURE_END_MARKER, selected, bkws);
+
+			/*
+			 * since trust adj chain, then we don't need to search tasklist again.
+			 * Basically, if candidate task can't be found in adj chain,
+			 * it should not be found in tasklist neither.
+			 */
+			trace_almk_shrink(1, ret, other_free, other_file, 0);
+			rcu_read_unlock();
+			lowmem_print(4, "%s %lu, %x, return %lu\n",
+					__func__, sc->nr_to_scan, sc->gfp_mask, rem);
+			mutex_unlock(&scan_mutex);
+			return rem;
+		}
+	}
+#endif
 	for_each_process(tsk) {
 		struct task_struct *p;
 		short oom_score_adj;
+#ifdef CONFIG_ADJ_CHAIN
+		/* record for scan cnt */
+		++bkws[0].scan;
+#endif
 
 		if (tsk->flags & PF_KTHREAD)
 			continue;
@@ -599,6 +1216,102 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		lowmem_print(3, "select '%s' (%d), adj %hd, size %d, to kill\n",
 			     p->comm, p->pid, oom_score_adj, tasksize);
 	}
+#ifdef CONFIG_ADJ_CHAIN
+	/* adj chain diagnose */
+	if (!selected) {
+		/* which is good because it expected result */
+		mt = LMK_BOTH_MISSED;
+	} else {
+		struct list_head *h;
+		struct task_struct *tsk;
+		bool found = false;
+
+		if (!quick_select_enable)
+			goto bypass_diagnose;
+
+		mt = LMK_ADJ_CHAIN_MISSED;
+
+		lowmem_print(3, "missing task '%s' (%d) adj %hd, adj_chain_status(%d), size %d, "
+				"missed from adj chain, run diagnose\n",
+				selected->comm,
+				selected->pid,
+				selected_oom_score_adj,
+				selected->adj_chain_status,
+				selected_tasksize);
+
+		if (!found) {
+			if (selected->adj_chain_status) {
+				lowmem_print(3,
+					"missing task adj_chain_status(%d), under updating, "
+					"should be reattach to adj chain %hd later, don't worry!\n",
+					selected->adj_chain_status,
+					selected_oom_score_adj);
+				found = true;
+				mt = LMK_NOTHING_MISSED;
+			}
+		}
+
+		if (!found) {
+			list_for_each(h, &adj_chain[__adjc(selected_oom_score_adj)]) {
+				tsk = get_task_struct_adj_chain_rcu(h);
+				if (tsk == selected) {
+					lowmem_print(3,
+								"missing task exists in other adj chain\n");
+					found = true;
+					mt = LMK_NOTHING_MISSED;
+					break;
+				}
+			}
+		}
+
+		if (!found) {
+		/* worst case to search each adj chain for missing task */
+			int cur_high = __adjc(1000);
+
+			lowmem_print(3,
+					"missing task not exists adj chain,search for all adj chain\n");
+			for (; cur_high >= 0; --cur_high) {
+				if (!list_empty(&adj_chain[cur_high])) {
+					list_for_each(h, &adj_chain[cur_high]) {
+						tsk = get_task_struct_adj_chain_rcu(h);
+						if (tsk == selected) {
+							lowmem_print(3,
+									"missing task finally found with in adj chain %d\n",
+									__adjr(cur_high));
+							found = true;
+							mt = LMK_NOTHING_MISSED;
+							break;
+						}
+					}
+				}
+				if (found)
+					break;
+			}
+		}
+
+		/* missing someone ... oops */
+		if (!found) {
+			lowmem_print(1, "missing task '%s' (%d) adj %hd, adj_chain_status(%d)\n",
+					selected->comm, selected->pid, selected_oom_score_adj,
+					selected->adj_chain_status);
+		}
+
+		/* leave selected task NULL for further debugging */
+		selected = NULL;
+	}
+
+bypass_diagnose:
+	/* record missing task analysis result */
+	bkws[0].missed = mt;
+
+quick_select_fast:
+	/* marker for select end */
+	time_measure_marker(MEASURE_END_MARKER, selected, bkws);
+
+	if (batch_kill_enable && !batch_kill_empty(bkws))
+		return lowmem_batch_kill(bkws, sc, minfree, other_file,
+						other_free, min_score_adj);
+#endif
 	if (selected) {
 		long cache_size = other_file * (long)(PAGE_SIZE / 1024);
 		long cache_limit = minfree * (long)(PAGE_SIZE / 1024);
@@ -631,6 +1344,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		lowmem_print(1, "Killing '%s' (%d) (tgid %d), adj %hd,\n"
 			"to free %ldkB on behalf of '%s' (%d) because\n"
 			"cache %ldkB is below limit %ldkB for oom score %hd\n"
+			"uid_lru_list size %ld pages\n"
 			"Free memory is %ldkB above reserved.\n"
 			"Free CMA is %ldkB\n"
 			"Total reserve is %ldkB\n"
@@ -643,6 +1357,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			current->comm, current->pid,
 			cache_size, cache_limit,
 			min_score_adj,
+			UID_LRU_SIZE,
 			free,
 			global_zone_page_state(NR_FREE_CMA_PAGES) *
 			(long)(PAGE_SIZE / 1024),
@@ -819,3 +1534,41 @@ module_param_array_named(minfree, lowmem_minfree, uint, &lowmem_minfree_size,
 module_param_named(debug_level, lowmem_debug_level, uint, S_IRUGO | S_IWUSR);
 module_param_named(lmk_fast_run, lmk_fast_run, int, S_IRUGO | S_IWUSR);
 
+#ifdef CONFIG_ADJ_CHAIN
+static int selftest_store(const char *buf, const struct kernel_param *kp)
+{
+	unsigned int val;
+	unsigned int min_score_adj = 900;
+	long freeable;
+	struct shrink_control sc = {
+		.gfp_mask = GFP_KERNEL,
+		.nid = 0,
+		.memcg = NULL,
+	};
+
+	if (sscanf(buf, "%u %u\n", &val, &min_score_adj) <= 0)
+		return -EINVAL;
+
+	if (val < 1 || val > BATCH_KILL_MAX_CNT || min_score_adj < 352 || min_score_adj > 1000) {
+		lowmem_print(1, "selftest EINVAL\n");
+		return -EINVAL;
+	}
+
+	batch_kill_cnt = val;
+	selftest_min_score_adj = min_score_adj;
+	selftest_running = true;
+	freeable = lowmem_count(NULL, NULL);
+	if (freeable) {
+		lowmem_print(1, "selftest set batch kill cnt to %u, min_score_adj %d\n", val, min_score_adj);
+		lowmem_scan(NULL, &sc);
+	}
+	batch_kill_cnt = 1;
+	selftest_running = false;
+	return 0;
+}
+
+static struct kernel_param_ops selftest_ops = {
+	.set = selftest_store,
+};
+module_param_cb(selftest, &selftest_ops, NULL, 0200);
+#endif

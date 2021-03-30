@@ -18,6 +18,7 @@
 #include <linux/notifier.h>
 #include <linux/spinlock.h>
 #include <linux/sysfs.h>
+#include <oneplus/pccore/pccore_helper.h>
 
 /*********************************************************************
  *                        CPUFREQ INTERFACE                          *
@@ -151,6 +152,18 @@ struct cpufreq_policy {
 
 	/* For cpufreq driver's internal use */
 	void			*driver_data;
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+	char			change_comm[TASK_COMM_LEN];
+	unsigned int		org_max;
+#endif
+
+#ifdef CONFIG_CONTROL_CENTER
+	unsigned int req_freq;
+	unsigned int cc_min;
+	unsigned int cc_max;
+	spinlock_t cc_lock;
+	bool cc_enable;
+#endif
 };
 
 /* Only for ACPI */
@@ -231,6 +244,7 @@ static inline void cpufreq_stats_record_transition(struct cpufreq_policy *policy
 #define CPUFREQ_RELATION_L 0  /* lowest frequency at or above target */
 #define CPUFREQ_RELATION_H 1  /* highest frequency below or at target */
 #define CPUFREQ_RELATION_C 2  /* closest frequency to target */
+#define CPUFREQ_RELATION_OP 3
 
 struct freq_attr {
 	struct attribute attr;
@@ -797,6 +811,8 @@ static inline int cpufreq_table_find_index_ac(struct cpufreq_policy *policy,
 	struct cpufreq_frequency_table *table = policy->freq_table;
 	struct cpufreq_frequency_table *pos, *best = table - 1;
 	unsigned int freq;
+	unsigned int op_mode = get_op_mode();
+	bool op_enable = get_op_select_freq_enable();
 
 	cpufreq_for_each_valid_entry(pos, table) {
 		freq = pos->frequency;
@@ -814,8 +830,15 @@ static inline int cpufreq_table_find_index_ac(struct cpufreq_policy *policy,
 			return pos - table;
 
 		/* Choose the closest freq */
-		if (target_freq - best->frequency > freq - target_freq)
-			return pos - table;
+		if (op_enable && op_mode == 1) {
+			if ((target_freq - best->frequency) >
+					((freq - best->frequency) * get_op_limit() / 100))
+				return pos - table;
+		} else {
+			/* Choose the closest freq */
+			if (target_freq - best->frequency > freq - target_freq)
+				return pos - table;
+		}
 
 		return best - table;
 	}
@@ -830,6 +853,8 @@ static inline int cpufreq_table_find_index_dc(struct cpufreq_policy *policy,
 	struct cpufreq_frequency_table *table = policy->freq_table;
 	struct cpufreq_frequency_table *pos, *best = table - 1;
 	unsigned int freq;
+	unsigned int op_mode = get_op_mode();
+	bool op_enable = get_op_select_freq_enable();
 
 	cpufreq_for_each_valid_entry(pos, table) {
 		freq = pos->frequency;
@@ -847,8 +872,15 @@ static inline int cpufreq_table_find_index_dc(struct cpufreq_policy *policy,
 			return pos - table;
 
 		/* Choose the closest freq */
-		if (best->frequency - target_freq > target_freq - freq)
-			return pos - table;
+		if (op_enable && op_mode == 1) {
+			if ((best->frequency - target_freq) <
+					((best->frequency - freq) * (100 - get_op_limit()) / 100))
+				return pos - table;
+		} else {
+			/* Choose the closest freq */
+			if (best->frequency - target_freq > target_freq - freq)
+				return pos - table;
+		}
 
 		return best - table;
 	}
@@ -860,12 +892,31 @@ static inline int cpufreq_table_find_index_dc(struct cpufreq_policy *policy,
 static inline int cpufreq_table_find_index_c(struct cpufreq_policy *policy,
 					     unsigned int target_freq)
 {
-	target_freq = clamp_val(target_freq, policy->min, policy->max);
+	unsigned int raw_freq = target_freq * 4 / 5;
+	unsigned int op_mode = get_op_mode();
+	bool op_enable = get_op_select_freq_enable();
+	unsigned int idx, prefer_idx;
 
-	if (policy->freq_table_sorted == CPUFREQ_TABLE_SORTED_ASCENDING)
-		return cpufreq_table_find_index_ac(policy, target_freq);
-	else
-		return cpufreq_table_find_index_dc(policy, target_freq);
+	target_freq = clamp_val(target_freq, policy->min, policy->max);
+	raw_freq = clamp_val(raw_freq, policy->min, policy->max);
+
+	if (policy->freq_table_sorted == CPUFREQ_TABLE_SORTED_ASCENDING) {
+		if (op_enable && op_mode == 2) {
+			prefer_idx = cpufreq_table_find_index_ac(policy, raw_freq);
+			idx = cpufreq_table_find_index_ac(policy, target_freq);
+			return cross_pd(policy->cpu, prefer_idx, idx, true);
+		} else {
+			return cpufreq_table_find_index_ac(policy, target_freq);
+		}
+	} else {
+		if (op_enable && op_mode == 2) {
+			idx = cpufreq_table_find_index_dc(policy, target_freq);
+			prefer_idx = cpufreq_table_find_index_dc(policy, raw_freq);
+			return cross_pd(policy->cpu, prefer_idx, idx, false);
+		} else {
+			return cpufreq_table_find_index_dc(policy, target_freq);
+		}
+	}
 }
 
 static inline int cpufreq_frequency_table_target(struct cpufreq_policy *policy,
@@ -882,6 +933,8 @@ static inline int cpufreq_frequency_table_target(struct cpufreq_policy *policy,
 	case CPUFREQ_RELATION_H:
 		return cpufreq_table_find_index_h(policy, target_freq);
 	case CPUFREQ_RELATION_C:
+		return cpufreq_table_find_index_c(policy, target_freq);
+	case CPUFREQ_RELATION_OP:
 		return cpufreq_table_find_index_c(policy, target_freq);
 	default:
 		pr_err("%s: Invalid relation: %d\n", __func__, relation);

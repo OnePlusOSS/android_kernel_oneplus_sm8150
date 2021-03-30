@@ -804,6 +804,8 @@ static void pmic_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 	struct pmic_gpio_state *state = gpiochip_get_data(chip);
 	unsigned i;
 
+	seq_puts(s, "\n name  : dir  func    p_s        biases              buffer_types  val strength atest dtest\n");
+
 	for (i = 0; i < chip->ngpio; i++) {
 		pmic_gpio_config_dbg_show(state->ctrl, s, i);
 		seq_puts(s, "\n");

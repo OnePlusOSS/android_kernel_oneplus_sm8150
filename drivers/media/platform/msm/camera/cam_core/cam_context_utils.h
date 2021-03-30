@@ -36,6 +36,5 @@ int32_t cam_context_flush_req_to_hw(struct cam_context *ctx,
 int32_t cam_context_dump_pf_info_to_hw(struct cam_context *ctx,
 	struct cam_packet *packet, unsigned long iova, uint32_t buf_info,
 	bool *mem_found);
-int32_t cam_context_dump_dev_to_hw(struct cam_context *ctx,
-	struct cam_dump_req_cmd *cmd);
+
 #endif /* _CAM_CONTEXT_UTILS_H_ */

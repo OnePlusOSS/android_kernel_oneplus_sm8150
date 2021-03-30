@@ -40,6 +40,10 @@ static inline u64 sched_get_cpu_last_busy_time(int cpu)
 }
 #endif
 
+#ifdef CONFIG_CONTROL_CENTER
+extern u64 sched_lpm_disallowed_time(int cpu);
+#endif
+
 static inline int sched_info_on(void)
 {
 #ifdef CONFIG_SCHEDSTATS

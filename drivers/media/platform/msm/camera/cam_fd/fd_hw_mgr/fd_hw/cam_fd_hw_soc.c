@@ -151,7 +151,6 @@ int cam_fd_soc_enable_resources(struct cam_hw_soc_info *soc_info)
 	ahb_vote.type = CAM_VOTE_ABSOLUTE;
 	ahb_vote.vote.level = CAM_SVS_VOTE;
 	axi_vote.compressed_bw = 7200000;
-	axi_vote.compressed_bw_ab = 7200000;
 	axi_vote.uncompressed_bw = 7200000;
 	rc = cam_cpas_start(soc_private->cpas_handle, &ahb_vote, &axi_vote);
 	if (rc) {

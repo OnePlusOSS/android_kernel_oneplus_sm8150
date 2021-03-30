@@ -1109,6 +1109,12 @@ void proc_sched_show_task(struct task_struct *p, struct pid_namespace *ns,
 #endif
 	P(policy);
 	P(prio);
+#ifdef CONFIG_CONTROL_CENTER
+		/* should remove later */
+		P(static_prio);
+		P(normal_prio);
+		P(cached_prio);
+#endif
 	if (p->policy == SCHED_DEADLINE) {
 		P(dl.runtime);
 		P(dl.deadline);

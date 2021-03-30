@@ -78,7 +78,6 @@ int cam_ipe_init_hw(void *device_priv,
 	cpas_vote.ahb_vote.type = CAM_VOTE_ABSOLUTE;
 	cpas_vote.ahb_vote.vote.level = CAM_SVS_VOTE;
 	cpas_vote.axi_vote.compressed_bw = CAM_CPAS_DEFAULT_AXI_BW;
-	cpas_vote.axi_vote.compressed_bw_ab = CAM_CPAS_DEFAULT_AXI_BW;
 	cpas_vote.axi_vote.uncompressed_bw = CAM_CPAS_DEFAULT_AXI_BW;
 
 	rc = cam_cpas_start(core_info->cpas_handle,
@@ -163,7 +162,7 @@ static int cam_ipe_handle_pc(struct cam_hw_info *ipe_dev)
 			hw_info->pwr_ctrl, true, 0x1);
 
 		if (pwr_status >> IPE_PWR_ON_MASK)
-			CAM_WARN(CAM_ICP, "BPS: pwr_status(%x):pwr_ctrl(%x)",
+			CAM_ERR(CAM_ICP, "BPS: pwr_status(%x):pwr_ctrl(%x)",
 				pwr_status, pwr_ctrl);
 
 	}
@@ -224,12 +223,6 @@ static int cam_ipe_cmd_reset(struct cam_hw_soc_info *soc_info,
 	bool reset_ipe_top_fail = false;
 
 	CAM_DBG(CAM_ICP, "CAM_ICP_IPE_CMD_RESET");
-	if (!core_info->clk_enable || !core_info->cpas_start) {
-		CAM_ERR(CAM_HFI, "IPE reset failed. clk_en %d cpas_start %d",
-				core_info->clk_enable, core_info->cpas_start);
-		return -EINVAL;
-	}
-
 	/* IPE CDM core reset*/
 	cam_io_w_mb((uint32_t)0xF,
 		soc_info->reg_map[0].mem_base + IPE_CDM_RST_CMD);
@@ -342,11 +335,7 @@ int cam_ipe_process_cmd(void *device_priv, uint32_t cmd_type,
 
 	case CAM_ICP_IPE_CMD_CPAS_STOP:
 		if (core_info->cpas_start) {
-			rc = cam_cpas_stop(core_info->cpas_handle);
-			if (rc) {
-				CAM_ERR(CAM_ICP, "CPAS stop failed %d", rc);
-				return rc;
-			}
+			cam_cpas_stop(core_info->cpas_handle);
 			core_info->cpas_start = false;
 		}
 		break;
@@ -388,16 +377,12 @@ int cam_ipe_process_cmd(void *device_priv, uint32_t cmd_type,
 		}
 		break;
 	case CAM_ICP_IPE_CMD_DISABLE_CLK:
-		mutex_lock(&ipe_dev->hw_mutex);
 		if (core_info->clk_enable == true)
 			cam_ipe_toggle_clk(soc_info, false);
 		core_info->clk_enable = false;
-		mutex_unlock(&ipe_dev->hw_mutex);
 		break;
 	case CAM_ICP_IPE_CMD_RESET:
-		mutex_lock(&ipe_dev->hw_mutex);
 		rc = cam_ipe_cmd_reset(soc_info, core_info);
-		mutex_unlock(&ipe_dev->hw_mutex);
 		break;
 	default:
 		CAM_ERR(CAM_ICP, "Invalid Cmd Type:%u", cmd_type);

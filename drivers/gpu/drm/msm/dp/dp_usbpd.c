@@ -321,7 +321,7 @@ end:
 static int dp_usbpd_get_ss_lanes(struct dp_usbpd_private *pd)
 {
 	int rc = 0;
-	int timeout = 250;
+	int timeout = 10;
 
 	/*
 	 * By default, USB reserves two lanes for Super Speed.
@@ -341,7 +341,7 @@ static int dp_usbpd_get_ss_lanes(struct dp_usbpd_private *pd)
 			pr_warn("USB busy, retry\n");
 
 			/* wait for hw recommended delay for usb */
-			msleep(20);
+			msleep(200);
 			timeout--;
 		}
 	}

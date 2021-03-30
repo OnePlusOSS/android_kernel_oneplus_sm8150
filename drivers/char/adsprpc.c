@@ -136,6 +136,12 @@ static int fastrpc_pdr_notifier_cb(struct notifier_block *nb,
 static struct dentry *debugfs_root;
 static struct dentry *debugfs_global_file;
 
+atomic_t total_buf_size;
+int read_fastrpc_usage(void)
+{
+	return atomic_read(&total_buf_size) / PAGE_SIZE;
+}
+
 static inline uint64_t buf_page_start(uint64_t buf)
 {
 	uint64_t start = (uint64_t) buf & PAGE_MASK;
@@ -533,6 +539,7 @@ static void fastrpc_buf_free(struct fastrpc_buf *buf, int cache)
 			hyp_assign_phys(buf->phys, buf_page_size(buf->size),
 				srcVM, 2, destVM, destVMperm, 1);
 		}
+		atomic_sub(buf->size, &total_buf_size);
 		dma_free_attrs(fl->sctx->smmu.dev, buf->size, buf->virt,
 					buf->phys, buf->dma_attr);
 	}
@@ -1032,6 +1039,7 @@ static int fastrpc_buf_alloc(struct fastrpc_file *fl, size_t size,
 	buf->flags = rflags;
 	buf->raddr = 0;
 	buf->remote = 0;
+	atomic_add(size, &total_buf_size);
 	buf->virt = dma_alloc_attrs(fl->sctx->smmu.dev, buf->size,
 						(dma_addr_t *)&buf->phys,
 						GFP_KERNEL, buf->dma_attr);
@@ -4222,15 +4230,16 @@ static int fastrpc_probe(struct platform_device *pdev)
 		if (range.addr && !of_property_read_bool(dev->of_node,
 							 "restrict-access")) {
 			int srcVM[1] = {VMID_HLOS};
-			int destVM[3] = {VMID_HLOS, VMID_SSC_Q6,
+			int destVM[4] = {VMID_HLOS, VMID_MSS_MSA, VMID_SSC_Q6,
 						VMID_ADSP_Q6};
-			int destVMperm[3] = {PERM_READ | PERM_WRITE | PERM_EXEC,
+			int destVMperm[4] = {PERM_READ | PERM_WRITE | PERM_EXEC,
+				PERM_READ | PERM_WRITE | PERM_EXEC,
 				PERM_READ | PERM_WRITE | PERM_EXEC,
 				PERM_READ | PERM_WRITE | PERM_EXEC,
 				};
 
 			VERIFY(err, !hyp_assign_phys(range.addr, range.size,
-					srcVM, 1, destVM, destVMperm, 3));
+					srcVM, 1, destVM, destVMperm, 4));
 			if (err)
 				goto bail;
 			me->range.addr = range.addr;

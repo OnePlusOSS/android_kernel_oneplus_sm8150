@@ -28,6 +28,11 @@
 
 #include "xhci.h"
 #include "xhci-trace.h"
+#include <linux/moduleparam.h>
+
+static bool usb2_lpm_disable = 1;
+module_param(usb2_lpm_disable, bool, 0644);
+MODULE_PARM_DESC(usb2_lpm_disable, "DISABLE USB2 LPM");
 
 /*
  * Allocates a generic ring segment from the ring pool, sets the dma address,
@@ -2257,7 +2262,7 @@ static void xhci_add_in_port(struct xhci_hcd *xhci, unsigned int num_ports,
 		xhci_dbg_trace(xhci, trace_xhci_dbg_init,
 				"xHCI 1.0: support USB2 software lpm");
 		xhci->sw_lpm_support = 1;
-		if (temp & XHCI_HLC) {
+		if (!usb2_lpm_disable && (temp & XHCI_HLC)) {
 			xhci_dbg_trace(xhci, trace_xhci_dbg_init,
 					"xHCI 1.0: support USB2 hardware lpm");
 			xhci->hw_lpm_support = 1;

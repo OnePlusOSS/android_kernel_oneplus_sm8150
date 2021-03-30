@@ -285,7 +285,13 @@ __rwsem_down_read_failed_common(struct rw_semaphore *sem, int state)
 			raw_spin_unlock_irq(&sem->wait_lock);
 			break;
 		}
-		schedule();
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+				current->in_downread = 1;
+#endif
+				schedule();
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+				current->in_downread = 0;
+#endif
 	}
 
 	__set_current_state(TASK_RUNNING);
@@ -586,7 +592,13 @@ __rwsem_down_write_failed_common(struct rw_semaphore *sem, int state)
 			if (signal_pending_state(state, current))
 				goto out_nolock;
 
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+			current->in_downwrite = 1;
+#endif
 			schedule();
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+			current->in_downwrite = 0;
+#endif
 			set_current_state(state);
 		} while ((count = atomic_long_read(&sem->count)) & RWSEM_ACTIVE_MASK);
 

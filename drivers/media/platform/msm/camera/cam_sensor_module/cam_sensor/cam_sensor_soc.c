@@ -98,21 +98,6 @@ int32_t cam_sensor_get_sub_module_index(struct device_node *of_node,
 	else
 		sensor_info->subdev_id[SUB_MODULE_CSIPHY] = val;
 
-	src_node = of_parse_phandle(of_node, "ir-led-src", 0);
-	if (!src_node) {
-		CAM_DBG(CAM_SENSOR, "ir led src_node NULL");
-	} else {
-		rc = of_property_read_u32(src_node, "cell-index", &val);
-		CAM_DBG(CAM_SENSOR, "ir led cell index %d, rc %d", val, rc);
-		if (rc < 0) {
-			CAM_ERR(CAM_SENSOR, "failed %d", rc);
-			of_node_put(src_node);
-			return rc;
-		}
-		sensor_info->subdev_id[SUB_MODULE_IR_LED] = val;
-		of_node_put(src_node);
-	}
-
 	return rc;
 }
 
@@ -208,6 +193,14 @@ static int32_t cam_sensor_driver_get_dt_data(struct cam_sensor_ctrl_t *s_ctrl)
 			s_ctrl->cci_num = CCI_DEVICE_0;
 			rc = 0;
 		}
+	}
+	rc = of_property_read_u32(of_node, "sensor-eeprom-same-cci",
+			&s_ctrl->sensor_eeprom_same_cci);
+	CAM_DBG(CAM_SENSOR, "sensor-eeprom-same-cci %d, rc %d",
+		s_ctrl->cci_num, rc);
+	if (rc < 0) {
+		s_ctrl->sensor_eeprom_same_cci = 0x00;
+		rc = 0;
 	}
 
 	if (of_property_read_u32(of_node, "sensor-position-pitch",

@@ -4591,6 +4591,7 @@ no_journal:
 	if (err)
 		goto failed_mount6;
 
+	sbi->s_flags = sb->s_flags;
 	err = ext4_register_sysfs(sb);
 	if (err)
 		goto failed_mount7;

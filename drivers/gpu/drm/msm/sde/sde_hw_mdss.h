@@ -560,6 +560,12 @@ struct sde_hw_dim_layer {
 	struct sde_mdss_color color_fill;
 	struct sde_rect rect;
 };
+struct fingerprint_dim_layer {
+	uint32_t flags;
+	uint32_t stage;
+	struct sde_mdss_color color_fill;
+	struct sde_rect rect;
+};
 
 /**
  * struct sde_splash_mem - Struct contains splah memory info

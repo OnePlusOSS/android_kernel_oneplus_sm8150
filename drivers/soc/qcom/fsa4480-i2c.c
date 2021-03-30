@@ -72,16 +72,46 @@ static const struct fsa4480_reg_val fsa_reg_i2c_defaults[] = {
 static void fsa4480_usbc_update_settings(struct fsa4480_priv *fsa_priv,
 		u32 switch_control, u32 switch_enable)
 {
+	int ret = 0;
+	int retry = 3;
+	int i = 0;
+
 	if (!fsa_priv->regmap) {
 		dev_err(fsa_priv->dev, "%s: regmap invalid\n", __func__);
 		return;
 	}
 
-	regmap_write(fsa_priv->regmap, FSA4480_SWITCH_SETTINGS, 0x80);
-	regmap_write(fsa_priv->regmap, FSA4480_SWITCH_CONTROL, switch_control);
+	for (i = 0; i < retry; i++) {
+		ret = regmap_write(fsa_priv->regmap, FSA4480_SWITCH_SETTINGS,
+				0x80);
+		if (!ret)
+			break;
+		pr_info("%s: ret = %d, retry %d write FSA4480_SWITCH_SETTINGS1\n",
+					__func__, ret, i);
+		usleep_range(3000, 3100);
+	}
+	for (i = 0; i < retry; i++) {
+		ret = regmap_write(fsa_priv->regmap, FSA4480_SWITCH_CONTROL,
+				switch_control);
+		if (!ret)
+			break;
+		pr_info("%s: ret = %d, retry %d write FSA4480_SWITCH_CONTROL\n",
+					__func__, ret, i);
+		usleep_range(3000, 3100);
+	}
+
 	/* FSA4480 chip hardware requirement */
 	usleep_range(50, 55);
-	regmap_write(fsa_priv->regmap, FSA4480_SWITCH_SETTINGS, switch_enable);
+	for (i = 0; i < retry; i++) {
+		ret = regmap_write(fsa_priv->regmap, FSA4480_SWITCH_SETTINGS,
+				switch_enable);
+		if (!ret)
+			break;
+		pr_info("%s: ret = %d, retry %d write FSA4480_SWITCH_SETTINGS2\n",
+					__func__, ret, i);
+		usleep_range(3000, 3100);
+	}
+
 }
 
 static int fsa4480_usbc_event_changed(struct notifier_block *nb,

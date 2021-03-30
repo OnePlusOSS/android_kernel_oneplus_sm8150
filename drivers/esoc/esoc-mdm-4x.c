@@ -16,6 +16,9 @@
 #include <linux/sched/clock.h>
 #include <soc/qcom/sysmon.h>
 #include "esoc-mdm.h"
+#include <linux/project_info.h>
+#include <linux/oneplus/boot_mode.h>
+#include <soc/qcom/subsystem_restart.h>
 
 enum gpio_update_config {
 	GPIO_UPDATE_BOOTING_CONFIG = 1,
@@ -264,12 +267,20 @@ static int mdm_cmd_exe(enum esoc_cmd cmd, struct esoc_clink *esoc)
 		if (esoc->statusline_not_a_powersource == false) {
 			esoc_mdm_log(
 			"ESOC_FORCE_PWR_OFF: setting AP2MDM_STATUS = 0\n");
-			gpio_set_value(MDM_GPIO(mdm, AP2MDM_STATUS), 0);
+			dev_err(mdm->dev,
+			"ESOC_FORCE_PWR_OFF: setting AP2MDM_STATUS = 0\n");
+			//gpio_set_value(MDM_GPIO(mdm, AP2MDM_STATUS), 0);
 		}
 		esoc_mdm_log(
 		"ESOC_FORCE_PWR_OFF: Queueing request: ESOC_REQ_SHUTDOWN\n");
+		dev_err(mdm->dev,
+		"ESOC_FORCE_PWR_OFF: Queueing request: ESOC_REQ_SHUTDOWN\n");
 		esoc_clink_queue_request(ESOC_REQ_SHUTDOWN, esoc);
+		dev_err(mdm->dev,
+			"ESOC_FORCE_PWR_OFF: mdm_power_down start!\n");
 		mdm_power_down(mdm);
+		dev_err(mdm->dev,
+		"ESOC_FORCE_PWR_OFF: mdm_power_down end!\n");
 		mdm_update_gpio_configs(mdm, GPIO_UPDATE_BOOTING_CONFIG);
 		break;
 	case ESOC_RESET:
@@ -292,7 +303,21 @@ static int mdm_cmd_exe(enum esoc_cmd cmd, struct esoc_clink *esoc)
 			gpio_set_value(MDM_GPIO(mdm, AP2MDM_ERRFATAL), 1);
 			dev_dbg(mdm->dev,
 				"set ap2mdm errfatal to force reset\n");
-			msleep(mdm->ramdump_delay_ms);
+			/*
+			 * The 3000ms is there to allow for SDI/ramdump path to complete on the sdx55 side.
+			 * While you have disabled ramdump,
+			 * it is still dangerous to reduce the time because any timeout due to delay shortening
+			 * in this case will result in booting failure of the sdx55 most likely.
+			 * We will not test for how much time it takes for sdx55 to finish the SDI path in the
+			 * 3000ms range as a performance metric.
+			 * - Reducing it to 1.7 sec will minimize other impact or in case SSR dump is enabled
+			 *   by mistake.
+			 * - If SSR dump is enabled, 3 sec delay should be remained.
+			 */
+			if (oem_get_download_mode())
+				msleep(mdm->ramdump_delay_ms);
+			else
+				msleep(1700);
 		}
 		break;
 	case ESOC_EXE_DEBUG:
@@ -384,6 +409,9 @@ static void mdm_get_restart_reason(struct work_struct *work)
 		if (!ret) {
 			esoc_mdm_log("restart reason is %s\n", sfr_buf);
 			dev_err(dev, "mdm restart reason is %s\n", sfr_buf);
+			dev_err(dev, "[OEM_MDM] SSR: send esoc crash reason\n");
+			subsys_store_crash_reason(mdm->esoc->subsys_dev, sfr_buf);
+			subsys_send_uevent_notify(&mdm->esoc->subsys);
 			break;
 		}
 		msleep(SFR_RETRY_INTERVAL);
@@ -394,6 +422,24 @@ static void mdm_get_restart_reason(struct work_struct *work)
 						__func__, ret);
 	}
 	mdm->get_restart_reason = false;
+
+	if (oem_get_download_mode()) {
+		char detial_buf[] = "\nSDX5x esoc0 modem crash";
+
+		if ((strlen(sfr_buf)+sizeof(detial_buf)) < RD_BUF_SIZE)
+			strncat(sfr_buf, detial_buf, strlen(detial_buf));
+
+		esoc_mdm_log(
+		"[OEM_MDM] Trigger panic by OEM to get SDX5x dump!\n");
+		dev_err(dev,
+		"[OEM_MDM] Trigger panic by OEM to get SDX5x dump!\n");
+		msleep(5000);
+		mdm_power_down(mdm);
+		oem_set_esoc_ssr(0);
+		panic(sfr_buf);
+	} else if (is_oem_esoc_ssr() == 1) {
+		oem_set_esoc_ssr(0);
+	}
 }
 
 void mdm_wait_for_status_low(struct mdm_ctrl *mdm, bool atomic)
@@ -402,6 +448,13 @@ void mdm_wait_for_status_low(struct mdm_ctrl *mdm, bool atomic)
 	uint64_t now;
 
 	esoc_mdm_log("Waiting for MDM2AP_STATUS to go LOW\n");
+	// Optimize esoc SSR time
+	if (!oem_get_download_mode() && gpio_get_value(MDM_GPIO(mdm, MDM2AP_STATUS)) != 0) {
+		esoc_mdm_log("[OEM] mdm_toggle_soft_reset() directly to optimize esoc SSR time\n");
+		dev_err(mdm->dev, "[OEM] mdm_toggle_soft_reset() directly to optimize esoc SSR time\n");
+		mdm_toggle_soft_reset(mdm, atomic);
+	}
+
 	timeout = local_clock();
 	do_div(timeout, NSEC_PER_MSEC);
 	timeout += MDM_MODEM_TIMEOUT;
@@ -846,6 +899,23 @@ static void mdm_free_irq(struct mdm_ctrl *mdm)
 	free_irq(mdm->status_irq, mdm);
 }
 
+static int esoc_ssr_reason_feature_enable =0;
+int get_ssr_reason_state(void)
+{
+	return esoc_ssr_reason_feature_enable;
+}
+
+static int esoc_ssr_occur =0;
+int oem_set_esoc_ssr(int enable)
+{
+	esoc_ssr_occur = enable;
+	return 0;
+}
+int is_oem_esoc_ssr(void)
+{
+	return esoc_ssr_occur;
+}
+
 static int mdm9x55_setup_hw(struct mdm_ctrl *mdm,
 					const struct mdm_ops *ops,
 					struct platform_device *pdev)
@@ -1014,6 +1084,10 @@ static int sdx50m_setup_hw(struct mdm_ctrl *mdm,
 	mdm->skip_restart_for_mdm_crash = of_property_read_bool(node,
 				"qcom,esoc-skip-restart-for-mdm-crash");
 
+	esoc_ssr_reason_feature_enable = of_property_read_bool(node,
+				"oem,esoc_ssr_reason_feature_enable");
+
+
 	esoc->clink_ops = clink_ops;
 	esoc->parent = mdm->dev;
 	esoc->owner = THIS_MODULE;
@@ -1143,6 +1217,12 @@ static int mdm_probe(struct platform_device *pdev)
 	struct mdm_ctrl *mdm;
 	int ret;
 
+	if (get_second_board_absent() == 1) {
+		pr_err("%s second board absent, don't probe esoc-mdm-4x",
+		__func__);
+		ret = -1;
+		return ret;
+	}
 	match = of_match_node(mdm_dt_match, node);
 	if (IS_ERR_OR_NULL(match))
 		return PTR_ERR(match);
@@ -1173,6 +1253,12 @@ static struct platform_driver mdm_driver = {
 
 static int __init mdm_register(void)
 {
+	if (get_second_board_absent() == 1) {
+		pr_err("%s second board absent, don't probe esoc-mdm-4x",
+		__func__);
+		return false;
+	}
+
 	return platform_driver_register(&mdm_driver);
 }
 module_init(mdm_register);

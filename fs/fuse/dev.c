@@ -7,6 +7,7 @@
 */
 
 #include "fuse_i.h"
+#include "fuse_shortcircuit.h"
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -38,6 +39,60 @@ static struct fuse_dev *fuse_get_dev(struct file *file)
 	return ACCESS_ONCE(file->private_data);
 }
 
+#ifdef CONFIG_ONEPLUS_FG_OPT
+#include <linux/cred.h>
+extern unsigned int ht_fuse_boost;
+
+static int fuse_debug;
+module_param_named(fuse_debug, fuse_debug, int, 0664);
+
+static inline bool fuse_can_boost(void)
+{
+	int uid = current_uid().val;
+
+	if (!ht_fuse_boost)
+		return false;
+
+	// fuse_boost enabled and is foreground request
+	if (ht_fuse_boost >= 1 && is_fg(uid))
+		return true;
+
+	// fuse_boost enabled and is system request (include foreground request)
+	if (ht_fuse_boost == 2 && uid < 10000)
+		return true;
+
+	return false;
+}
+
+static inline void fuse_boost_init(struct fuse_req *req)
+{
+	clear_bit(FR_BOOST, &req->flags);
+
+	if (fuse_can_boost())
+		__set_bit(FR_BOOST, &req->flags);
+
+	if (fuse_debug) {
+		int uid = current_uid().val;
+
+		pr_info("current %s %d, fg: %d, uid: %d\n",
+			current->comm, current->pid, current_is_fg(), uid);
+	}
+}
+
+static inline void fuse_boost_active_check(struct fuse_req *req)
+{
+	// boost active check
+	// 1. sysctl: sched_fuse_boost (on)
+	// 2. target: mediaprovider's specific tasks
+	// TODO: add system busy check to not impact ux experience
+	if (ht_fuse_boost)
+		current->fuse_boost = test_bit(FR_BOOST, &req->flags) ? 1 : 0;
+}
+#else
+static inline void fuse_boost_init(struct fuse_req *req) {}
+static inline void fuse_boost_active_check(struct fuse_req *req) {}
+#endif
+
 static void fuse_request_init(struct fuse_req *req, struct page **pages,
 			      struct fuse_page_desc *page_descs,
 			      unsigned npages)
@@ -53,6 +108,8 @@ static void fuse_request_init(struct fuse_req *req, struct page **pages,
 	req->page_descs = page_descs;
 	req->max_pages = npages;
 	__set_bit(FR_PENDING, &req->flags);
+
+	fuse_boost_init(req);
 }
 
 static struct fuse_req *__fuse_request_alloc(unsigned npages, gfp_t flags)
@@ -99,6 +156,10 @@ void fuse_request_free(struct fuse_req *req)
 	if (req->pages != req->inline_pages) {
 		kfree(req->pages);
 		kfree(req->page_descs);
+	}
+	if (req->iname) {
+		__putname(req->iname);
+		req->iname = NULL;
 	}
 	kmem_cache_free(fuse_req_cachep, req);
 }
@@ -568,10 +629,16 @@ ssize_t fuse_simple_request(struct fuse_conn *fc, struct fuse_args *args)
 	       args->in.numargs * sizeof(struct fuse_in_arg));
 	req->out.argvar = args->out.argvar;
 	req->out.numargs = args->out.numargs;
+	req->iname = args->iname;
+	args->iname = NULL;
 	memcpy(req->out.args, args->out.args,
 	       args->out.numargs * sizeof(struct fuse_arg));
 	fuse_request_send(fc, req);
 	ret = req->out.h.error;
+	if (!ret) {
+		if (req->private_lower_rw_file != NULL)
+			args->private_lower_rw_file = req->private_lower_rw_file;
+	}
 	if (!ret && args->out.argvar) {
 		BUG_ON(args->out.numargs != 1);
 		ret = req->out.args[0].size;
@@ -1279,6 +1346,9 @@ static ssize_t fuse_dev_do_read(struct fuse_dev *fud, struct file *file,
 
 	req = list_entry(fiq->pending.next, struct fuse_req, list);
 	clear_bit(FR_PENDING, &req->flags);
+
+	fuse_boost_active_check(req);
+
 	list_del_init(&req->list);
 	spin_unlock(&fiq->waitq.lock);
 
@@ -1327,6 +1397,24 @@ static ssize_t fuse_dev_do_read(struct fuse_dev *fud, struct file *file,
 	__fuse_get_request(req);
 	set_bit(FR_SENT, &req->flags);
 	spin_unlock(&fpq->lock);
+
+	if (sct_mode == 1) {
+		if (current->fpack) {
+			if (current->fpack->iname)
+				__putname(current->fpack->iname);
+			memset(current->fpack, 0, sizeof(struct fuse_package));
+		}
+		if (req->in.h.opcode == FUSE_OPEN || req->in.h.opcode == FUSE_CREATE) {
+			if (!current->fpack)
+				current->fpack = kzalloc(sizeof(struct fuse_package), GFP_KERNEL);
+			if (likely(current->fpack)) {
+				current->fpack->fuse_open_req = true;
+				current->fpack->iname = req->iname;
+				req->iname = NULL;
+			}
+		}
+	}
+
 	/* matches barrier in request_wait_answer() */
 	smp_mb__after_atomic();
 	if (test_bit(FR_INTERRUPTED, &req->flags))
@@ -1856,6 +1944,11 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 	struct fuse_req *req;
 	struct fuse_out_header oh;
 
+	if (current->fpack && current->fpack->iname) {
+		__putname(current->fpack->iname);
+		current->fpack->iname = NULL;
+	}
+
 	if (nbytes < sizeof(struct fuse_out_header))
 		return -EINVAL;
 
@@ -1888,6 +1981,8 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 	req = request_find(fpq, oh.unique);
 	if (!req)
 		goto err_unlock_pq;
+
+	fuse_boost_active_check(req);
 
 	/* Is it an interrupt reply? */
 	if (req->intr_unique == oh.unique) {
@@ -1927,6 +2022,8 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 		req->out.h.error = kern_path(path, 0, req->canonical_path);
 	}
 	fuse_copy_finish(cs);
+
+	fuse_setup_shortcircuit(fc, req);
 
 	spin_lock(&fpq->lock);
 	clear_bit(FR_LOCKED, &req->flags);

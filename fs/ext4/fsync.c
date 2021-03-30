@@ -34,6 +34,9 @@
 
 #include <trace/events/ext4.h>
 
+/* [OSP-3675]: ext4 fsync */
+extern unsigned int ext4_fsync_enable_status;
+
 /*
  * If we're not journaling and this is a just-created file, we have to
  * sync our parent directory (if it was freshly created) since
@@ -95,6 +98,7 @@ int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	struct inode *inode = file->f_mapping->host;
 	struct ext4_inode_info *ei = EXT4_I(inode);
 	journal_t *journal = EXT4_SB(inode->i_sb)->s_journal;
+	unsigned int s_flags = inode->i_sb->s_flags;
 	int ret = 0, err;
 	tid_t commit_tid;
 	bool needs_barrier = false;
@@ -146,8 +150,10 @@ int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	}
 
 	commit_tid = datasync ? ei->i_datasync_tid : ei->i_sync_tid;
-	if (journal->j_flags & JBD2_BARRIER &&
-	    !jbd2_trans_will_send_data_barrier(journal, commit_tid))
+	/* [OSP-3675]: ext4 fsync */
+	if (!(ext4_fsync_enable_status && s_flags & SB_USERDATA) &&
+		journal->j_flags & JBD2_BARRIER &&
+		!jbd2_trans_will_send_data_barrier(journal, commit_tid))
 		needs_barrier = true;
 	ret = jbd2_complete_transaction(journal, commit_tid);
 	if (needs_barrier) {

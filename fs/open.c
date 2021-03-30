@@ -32,6 +32,10 @@
 #include <linux/dnotify.h>
 #include <linux/compat.h>
 
+#ifdef CONFIG_FSC
+#include <linux/oem/fsc.h>
+#endif
+
 #include "internal.h"
 
 int do_truncate2(struct vfsmount *mnt, struct dentry *dentry, loff_t length,
@@ -1097,8 +1101,32 @@ long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)
 			put_unused_fd(fd);
 			fd = PTR_ERR(f);
 		} else {
+#ifdef CONFIG_FSC
+			path_get(&f->f_path);
+#endif
 			fsnotify_open(f);
 			fd_install(fd, f);
+#ifdef CONFIG_FSC
+			if (fsc_enable && fsc_allow_list_cur && tmp->name) {
+				size_t len = strlen(tmp->name);
+				if ((flags & O_CREAT || flags & O_TMPFILE) && len < FSC_PATH_MAX) {
+					const char *path = NULL;
+					char buf[FSC_PATH_MAX] = {0};
+					unsigned int hidx;
+					/* check before use */
+					path = file_path(f, buf, FSC_PATH_MAX); /* null-terminator */
+					if (!IS_ERR(path)) {
+						len = strlen(path);
+						hidx = fsc_get_hidx(path, len);
+						fsc_spin_lock(hidx);
+						fsc_delete_absence_path_locked(path, len, hidx);
+						fsc_spin_unlock(hidx);
+						pr_debug("%s %s open succeed with create or tmpfile\n", __func__, path);
+					}
+				}
+			}
+			path_put(&f->f_path);
+#endif
 		}
 	}
 	putname(tmp);

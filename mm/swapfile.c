@@ -932,6 +932,11 @@ int get_swap_pages(int n_goal, bool cluster, swp_entry_t swp_entries[])
 	int n_ret = 0;
 	int node;
 	int swap_ratio_off = 0;
+#ifdef CONFIG_MEMPLUS
+	unsigned long memplus_flag = __get_memplus_swp_flag(swp_entries[0]);
+
+	__memplus_clear_entry(swp_entries[0]);
+#endif
 
 	/* Only single cluster request supported */
 	WARN_ON_ONCE(n_goal > 1 && cluster);
@@ -977,6 +982,14 @@ start_over:
 		spin_unlock(&swap_avail_lock);
 start:
 		spin_lock(&si->lock);
+#ifdef CONFIG_MEMPLUS
+		if (memplus_enabled() &&
+			(memplus_flag != __memplus_entry(si->flags))) {
+			spin_lock(&swap_avail_lock);
+			spin_unlock(&si->lock);
+			goto nextsi;
+		}
+#endif
 		if (!si->highest_bit || !(si->flags & SWP_WRITEOK)) {
 			spin_lock(&swap_avail_lock);
 			if (plist_node_empty(&si->avail_lists[node])) {

@@ -257,6 +257,10 @@ struct ion_heap {
 	int (*debug_show)(struct ion_heap *heap, struct seq_file *, void *);
 };
 
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+unsigned long ion_total(void);
+#endif
+
 /**
  * ion_buffer_cached - this ion buffer is cached
  * @buffer:		buffer

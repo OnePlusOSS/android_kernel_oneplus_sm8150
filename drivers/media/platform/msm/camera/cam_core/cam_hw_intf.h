@@ -80,8 +80,4 @@ struct cam_hw_intf {
 	void                        *hw_priv;
 };
 
-/* hardware event callback function type */
-typedef int (*cam_hw_mgr_event_cb_func)(void *priv, uint32_t evt_id,
-	void *evt_data);
-
 #endif /* _CAM_HW_INTF_H_ */

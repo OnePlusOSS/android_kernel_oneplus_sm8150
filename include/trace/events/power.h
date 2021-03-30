@@ -173,6 +173,75 @@ TRACE_EVENT(cpu_frequency_limits,
 		  (unsigned long)__entry->cpu_id)
 );
 
+TRACE_EVENT(find_freq,
+
+	TP_PROTO(unsigned int target_idx, unsigned int target_freq, unsigned int final_idx,
+		unsigned int final_freq, int cpu, bool op_enable, int dp_level_mode, int dp_level),
+
+	TP_ARGS(target_idx, target_freq, final_idx, final_freq, cpu, op_enable, dp_level_mode, dp_level),
+
+	TP_STRUCT__entry(
+		__field(u32, target_freq)
+		__field(u32, target_idx)
+		__field(u32, final_idx)
+		__field(u32, final_freq)
+		__field(int, cpu)
+		__field(bool, op_enable)
+		__field(int, dp_level_mode)
+		__field(int, dp_level)
+	),
+
+	TP_fast_assign(
+		__entry->target_idx = target_idx;
+		__entry->target_freq = target_freq;
+		__entry->final_idx = final_idx;
+		__entry->final_freq = final_freq;
+		__entry->cpu = cpu;
+		__entry->op_enable = op_enable;
+		__entry->dp_level_mode = dp_level_mode;
+		__entry->dp_level = dp_level;
+	),
+
+	TP_printk(
+		"target[%lu]=%lu final[%lu]=%lu cpu=%d op_enable=%d dp_level_mod=%d dp_level=%d",
+		(unsigned long)__entry->target_idx,
+		(unsigned long)__entry->target_freq,
+		(unsigned long)__entry->final_idx,
+		(unsigned long)__entry->final_freq,
+		(unsigned long)__entry->cpu,
+		 __entry->op_enable, __entry->dp_level_mode, __entry->dp_level)
+);
+
+TRACE_EVENT(cpu_frequency_select,
+
+	TP_PROTO(unsigned int target_freq, unsigned int final_freq,
+		unsigned int index, int cpu, int num),
+
+	TP_ARGS(target_freq, final_freq, index, cpu, num),
+
+	TP_STRUCT__entry(
+		__field(u32, target_freq)
+		__field(u32, final_freq)
+		__field(u32, index)
+		__field(int, cpu)
+		__field(int, num)
+	),
+
+	TP_fast_assign(
+		__entry->target_freq = target_freq;
+		__entry->final_freq = final_freq;
+		__entry->index = index;
+		__entry->cpu = cpu;
+		__entry->num = num;
+	),
+
+	TP_printk("target=%lu final=%lu index=%lu cpu=%d num=%d",
+		  (unsigned long)__entry->target_freq,
+		  (unsigned long)__entry->final_freq,
+		  (unsigned long)__entry->index,
+				 __entry->cpu, __entry->num)
+);
+
 TRACE_EVENT(cpu_frequency_switch_start,
 
 	TP_PROTO(unsigned int start_freq, unsigned int end_freq,

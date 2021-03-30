@@ -2889,7 +2889,9 @@ static int do_wp_page(struct vm_fault *vmf)
 	__releases(vmf->ptl)
 {
 	struct vm_area_struct *vma = vmf->vma;
-
+#ifdef CONFIG_MEMPLUS
+	count_vm_event(WPFAULT);
+#endif
 	vmf->page = __vm_normal_page(vma, vmf->address, vmf->orig_pte, false,
 				     vmf->vma_flags);
 	if (!vmf->page) {
@@ -3160,6 +3162,9 @@ int do_swap_page(struct vm_fault *vmf)
 		/* Had to read the page from swap area: Major fault */
 		ret = VM_FAULT_MAJOR;
 		count_vm_event(PGMAJFAULT);
+#ifdef CONFIG_MEMPLUS
+		count_vm_event(SWAPMAJFAULT);
+#endif
 		count_memcg_event_mm(vma->vm_mm, PGMAJFAULT);
 	} else if (PageHWPoison(page)) {
 		/*
@@ -3179,6 +3184,9 @@ int do_swap_page(struct vm_fault *vmf)
 		goto out_release;
 	}
 
+#ifdef CONFIG_MEMPLUS
+	memplus_next_event(page);
+#endif
 	/*
 	 * Make sure try_to_free_swap or reuse_swap_page or swapoff did not
 	 * release the swapcache from under us.  The page pin, and pte_same
@@ -3313,6 +3321,10 @@ static int do_anonymous_page(struct vm_fault *vmf)
 	int ret = 0;
 	pte_t entry;
 
+#ifdef CONFIG_MEMPLUS
+	count_vm_event(ANONFAULT);
+#endif
+
 	/* File mapping without ->vm_ops ? */
 	if (vmf->vma_flags & VM_SHARED)
 		return VM_FAULT_SIGBUS;
@@ -3402,7 +3414,6 @@ static int do_anonymous_page(struct vm_fault *vmf)
 		put_page(page);
 		return handle_userfault(vmf, VM_UFFD_MISSING);
 	}
-
 	inc_mm_counter_fast(vma->vm_mm, MM_ANONPAGES);
 	__page_add_new_anon_rmap(page, vma, vmf->address, false);
 	mem_cgroup_commit_charge(page, memcg, false, false);
@@ -4008,13 +4019,22 @@ static int do_fault(struct vm_fault *vmf)
 
 			pte_unmap_unlock(vmf->pte, vmf->ptl);
 		}
-	} else if (!(vmf->flags & FAULT_FLAG_WRITE))
+	} else if (!(vmf->flags & FAULT_FLAG_WRITE)) {
 		ret = do_read_fault(vmf);
-	else if (!(vmf->vma_flags & VM_SHARED))
+#ifdef CONFIG_MEMPLUS
+		count_vm_event(READFAULT);
+#endif
+	} else if (!(vmf->vma_flags & VM_SHARED)) {
 		ret = do_cow_fault(vmf);
-	else
+#ifdef CONFIG_MEMPLUS
+		count_vm_event(COWFAULT);
+#endif
+	} else {
 		ret = do_shared_fault(vmf);
-
+#ifdef CONFIG_MEMPLUS
+		count_vm_event(SHAREDFAULT);
+#endif
+	}
 	/* preallocated pagetable is unused: free it */
 	if (vmf->prealloc_pte) {
 		pte_free(vma->vm_mm, vmf->prealloc_pte);
@@ -4256,9 +4276,12 @@ static int handle_pte_fault(struct vm_fault *vmf)
 			return do_fault(vmf);
 	}
 
-	if (!pte_present(vmf->orig_pte))
+	if (!pte_present(vmf->orig_pte)) {
+#ifdef CONFIG_MEMPLUS
+		count_vm_event(SWAPFAULT);
+#endif
 		return do_swap_page(vmf);
-
+	}
 	if (pte_protnone(vmf->orig_pte) && vma_is_accessible(vmf->vma))
 		return do_numa_page(vmf);
 
@@ -4593,6 +4616,10 @@ int __handle_speculative_fault(struct mm_struct *mm, unsigned long address,
 		put_vma(vmf.vma);
 		*vma = NULL;
 	}
+#ifdef CONFIG_MEMPLUS
+	else
+		count_vm_event(SPECRETRY);
+#endif
 
 	/*
 	 * The task may have entered a memcg OOM situation but

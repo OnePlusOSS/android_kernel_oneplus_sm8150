@@ -4273,8 +4273,12 @@ static int msm_pcie_enable(struct msm_pcie_dev_t *dev, u32 options)
 	/* configure PCIe preset */
 	msm_pcie_write_reg_field(dev->dm_core,
 		PCIE_GEN3_MISC_CONTROL, BIT(0), 1);
-	msm_pcie_write_reg(dev->dm_core,
-		PCIE_GEN3_SPCIE_CAP, dev->core_preset);
+	if (dev->rc_idx == 1)
+		msm_pcie_write_reg(dev->dm_core,
+			PCIE_GEN3_SPCIE_CAP, 0x55555555);
+	else
+		msm_pcie_write_reg(dev->dm_core,
+			PCIE_GEN3_SPCIE_CAP, 0x77777777);
 	msm_pcie_write_reg_field(dev->dm_core,
 		PCIE_GEN3_MISC_CONTROL, BIT(0), 0);
 
@@ -6336,6 +6340,9 @@ static int msm_pcie_link_retrain(struct msm_pcie_dev_t *pcie_dev,
 	u32 cnt_max = 1000; /* 100ms timeout */
 	u32 link_status_lbms_mask = PCI_EXP_LNKSTA_LBMS << PCI_EXP_LNKCTL;
 
+	/* force link to L0 */
+	msm_pcie_write_mask(pcie_dev->parf + PCIE20_PARF_PM_CTRL,  0, BIT(5));
+
 	/* link retrain */
 	msm_pcie_config_clear_set_dword(pci_dev,
 					pci_dev->pcie_cap + PCI_EXP_LNKCTL,
@@ -6356,6 +6363,50 @@ static int msm_pcie_link_retrain(struct msm_pcie_dev_t *pcie_dev,
 
 	return 0;
 }
+
+void msm_pcie_allow_l1(struct pci_dev *pci_dev)
+{
+	struct pci_dev *root_pci_dev;
+	struct msm_pcie_dev_t *pcie_dev;
+
+	root_pci_dev = pci_find_pcie_root_port(pci_dev);
+	pcie_dev = PCIE_BUS_PRIV_DATA(root_pci_dev->bus);
+
+	msm_pcie_write_mask(pcie_dev->parf + PCIE20_PARF_PM_CTRL, BIT(5), 0);
+	msm_pcie_config_l1(pcie_dev, root_pci_dev, true);
+}
+EXPORT_SYMBOL(msm_pcie_allow_l1);
+
+int msm_pcie_prevent_l1(struct pci_dev *pci_dev)
+{
+	struct pci_dev *root_pci_dev;
+	struct msm_pcie_dev_t *pcie_dev;
+	u32 cnt = 0;
+	u32 cnt_max = 1000; /* 100ms timeout */
+
+	root_pci_dev = pci_find_pcie_root_port(pci_dev);
+	pcie_dev = PCIE_BUS_PRIV_DATA(root_pci_dev->bus);
+
+	/* disable link L1 */
+	msm_pcie_config_l1(pcie_dev, root_pci_dev, false);
+	msm_pcie_write_mask(pcie_dev->parf + PCIE20_PARF_PM_CTRL,  0, BIT(5));
+
+	/* confirm link is in L0 */
+	while (((readl_relaxed(pcie_dev->parf + PCIE20_PARF_LTSSM) &
+		MSM_PCIE_LTSSM_MASK)) != MSM_PCIE_LTSSM_L0) {
+		if (unlikely(cnt++ >= cnt_max)) {
+			PCIE_ERR(pcie_dev,
+					"PCIe: RC%d: failed to transition to L0\n",
+					pcie_dev->rc_idx);
+			return -EIO;
+		}
+
+		usleep_range(100, 105);
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(msm_pcie_prevent_l1);
 
 static int msm_pcie_set_link_width(struct msm_pcie_dev_t *pcie_dev,
 					u16 target_link_width)
@@ -6383,99 +6434,6 @@ static int msm_pcie_set_link_width(struct msm_pcie_dev_t *pcie_dev,
 
 	return 0;
 }
-
-void msm_pcie_allow_l1(struct pci_dev *pci_dev)
-{
-	struct pci_dev *root_pci_dev;
-	struct msm_pcie_dev_t *pcie_dev;
-
-	root_pci_dev = pci_find_pcie_root_port(pci_dev);
-	if (!root_pci_dev)
-		return;
-
-	pcie_dev = PCIE_BUS_PRIV_DATA(root_pci_dev->bus);
-
-	mutex_lock(&pcie_dev->aspm_lock);
-	if (unlikely(--pcie_dev->prevent_l1 < 0))
-		PCIE_ERR(pcie_dev,
-			"PCIe: RC%d: %02x:%02x.%01x: unbalanced prevent_l1: %d < 0\n",
-			pcie_dev->rc_idx, pci_dev->bus->number,
-			PCI_SLOT(pci_dev->devfn), PCI_FUNC(pci_dev->devfn),
-			pcie_dev->prevent_l1);
-
-	if (pcie_dev->prevent_l1) {
-		mutex_unlock(&pcie_dev->aspm_lock);
-		return;
-	}
-
-	msm_pcie_write_mask(pcie_dev->parf + PCIE20_PARF_PM_CTRL, BIT(5), 0);
-	/* enable L1 */
-	msm_pcie_write_mask(pcie_dev->dm_core +
-				(root_pci_dev->pcie_cap + PCI_EXP_LNKCTL),
-				0, PCI_EXP_LNKCTL_ASPM_L1);
-
-	PCIE_DBG2(pcie_dev, "PCIe: RC%d: %02x:%02x.%01x: exit\n",
-		pcie_dev->rc_idx, pci_dev->bus->number,
-		PCI_SLOT(pci_dev->devfn), PCI_FUNC(pci_dev->devfn));
-	mutex_unlock(&pcie_dev->aspm_lock);
-}
-EXPORT_SYMBOL(msm_pcie_allow_l1);
-
-int msm_pcie_prevent_l1(struct pci_dev *pci_dev)
-{
-	struct pci_dev *root_pci_dev;
-	struct msm_pcie_dev_t *pcie_dev;
-	u32 cnt = 0;
-	u32 cnt_max = 1000; /* 100ms timeout */
-	int ret = 0;
-
-	root_pci_dev = pci_find_pcie_root_port(pci_dev);
-	if (!root_pci_dev)
-		return -ENODEV;
-
-	pcie_dev = PCIE_BUS_PRIV_DATA(root_pci_dev->bus);
-
-	/* disable L1 */
-	mutex_lock(&pcie_dev->aspm_lock);
-	if (pcie_dev->prevent_l1++) {
-		mutex_unlock(&pcie_dev->aspm_lock);
-		return 0;
-	}
-
-	msm_pcie_write_mask(pcie_dev->dm_core +
-				(root_pci_dev->pcie_cap + PCI_EXP_LNKCTL),
-				PCI_EXP_LNKCTL_ASPM_L1, 0);
-	msm_pcie_write_mask(pcie_dev->parf + PCIE20_PARF_PM_CTRL, 0, BIT(5));
-
-	/* confirm link is in L0 */
-	while (((readl_relaxed(pcie_dev->parf + PCIE20_PARF_LTSSM) &
-		MSM_PCIE_LTSSM_MASK)) != MSM_PCIE_LTSSM_L0) {
-		if (unlikely(cnt++ >= cnt_max)) {
-			PCIE_ERR(pcie_dev,
-				"PCIe: RC%d: %02x:%02x.%01x: failed to transition to L0\n",
-				pcie_dev->rc_idx, pci_dev->bus->number,
-				PCI_SLOT(pci_dev->devfn),
-				PCI_FUNC(pci_dev->devfn));
-			ret = -EIO;
-			goto err;
-		}
-
-		usleep_range(100, 105);
-	}
-
-	PCIE_DBG2(pcie_dev, "PCIe: RC%d: %02x:%02x.%01x: exit\n",
-		pcie_dev->rc_idx, pci_dev->bus->number,
-		PCI_SLOT(pci_dev->devfn), PCI_FUNC(pci_dev->devfn));
-	mutex_unlock(&pcie_dev->aspm_lock);
-
-	return 0;
-err:
-	mutex_unlock(&pcie_dev->aspm_lock);
-	msm_pcie_allow_l1(pci_dev);
-
-	return ret;
-}
-EXPORT_SYMBOL(msm_pcie_prevent_l1);
 
 int msm_pcie_set_link_bandwidth(struct pci_dev *pci_dev, u16 target_link_speed,
 				u16 target_link_width)
@@ -6542,6 +6500,13 @@ int msm_pcie_set_link_bandwidth(struct pci_dev *pci_dev, u16 target_link_speed,
 
 	if (target_link_speed > current_link_speed)
 		msm_pcie_scale_link_bandwidth(pcie_dev, target_link_speed);
+
+	/* need to be in L0 for gen switch */
+	ret = msm_pcie_prevent_l1(root_pci_dev);
+	if (ret) {
+		msm_pcie_allow_l1(root_pci_dev);
+		return ret;
+	}
 
 	ret = msm_pcie_link_retrain(pcie_dev, root_pci_dev);
 	if (ret)

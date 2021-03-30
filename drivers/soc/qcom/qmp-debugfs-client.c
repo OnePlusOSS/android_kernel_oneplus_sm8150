@@ -35,6 +35,66 @@ static struct mbox_client *cl;
 
 static DEFINE_MUTEX(qmp_debugfs_mutex);
 
+#ifdef CONFIG_CONTROL_CENTER
+#define DDR_CONFIG_SIZE 12
+#define DDR_BUFFER_SIZE 64
+struct ddr_config {
+	char buf[DDR_BUFFER_SIZE];
+	size_t len;
+} ddr_config[DDR_CONFIG_SIZE] = {
+	{ "{class:ddr, res:fixed, val: 100}", 32 },
+	{ "{class:ddr, res:fixed, val: 200}", 32 },
+	{ "{class:ddr, res:fixed, val: 300}", 32 },
+	{ "{class:ddr, res:fixed, val: 451}", 32 },
+	{ "{class:ddr, res:fixed, val: 547}", 32 },
+	{ "{class:ddr, res:fixed, val: 681}", 32 },
+	{ "{class:ddr, res:fixed, val: 768}", 32 },
+	{ "{class:ddr, res:fixed, val: 1017}", 33 },
+	{ "{class:ddr, res:fixed, val: 1353}", 33 },
+	{ "{class:ddr, res:fixed, val: 1555}", 33 },
+	{ "{class:ddr, res:fixed, val: 1804}", 33 },
+	{ "{class:ddr, res:fixed, val: 2092}", 33 }
+};
+void aop_lock_ddr_freq(int config)
+{
+	int target = 0;
+	static struct qmp_debugfs_data data;
+
+	mutex_lock(&qmp_debugfs_mutex);
+
+	switch (config) {
+	case 0:
+	case 100:  target = 0; break;
+	case 200:  target = 1; break;
+	case 300:  target = 2; break;
+	case 451:  target = 3; break;
+	case 547:  target = 4; break;
+	case 681:  target = 5; break;
+	case 768:  target = 6; break;
+	case 1017: target = 7; break;
+	case 1353: target = 8; break;
+	case 1555: target = 9; break;
+	case 1804: target = 10; break;
+	case 2092: target = 11; break;
+	default:
+		pr_warn("config not match: %d\n", config);
+		mutex_unlock(&qmp_debugfs_mutex);
+		return;
+	}
+
+	memset(&data, 0, sizeof(struct qmp_debugfs_data));
+	memcpy(&data.buf, ddr_config[target].buf, ddr_config[target].len);
+	data.buf[ddr_config[target].len] = '\0';
+	data.pkt.size = (ddr_config[target].len + 0x3) & ~0x3;
+	data.pkt.data = data.buf;
+
+	if (mbox_send_message(chan, &(data.pkt)) < 0)
+		pr_err("Failed to send qmp request\n");
+
+	mutex_unlock(&qmp_debugfs_mutex);
+}
+#endif
+
 static ssize_t aop_msg_write(struct file *file, const char __user *userstr,
 		size_t len, loff_t *pos)
 {

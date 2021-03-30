@@ -91,9 +91,20 @@
 #include <linux/sysctl.h>
 #include <linux/kcov.h>
 #include <linux/livepatch.h>
+#ifdef CONFIG_ADJ_CHAIN
+#include <linux/oem/adj_chain.h>
+#endif
 #include <linux/thread_info.h>
 #include <linux/cpufreq_times.h>
 #include <linux/scs.h>
+
+#ifdef CONFIG_HOUSTON
+#include <oneplus/houston/houston_helper.h>
+#endif
+
+#ifdef CONFIG_CONTROL_CENTER
+#include <oneplus/control_center/control_center_helper.h>
+#endif
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -136,6 +147,10 @@ int lockdep_tasklist_lock_is_held(void)
 }
 EXPORT_SYMBOL_GPL(lockdep_tasklist_lock_is_held);
 #endif /* #ifdef CONFIG_PROVE_RCU */
+
+#ifdef CONFIG_ONEPLUS_TASKLOAD_INFO
+struct sample_window_t sample_window;
+#endif
 
 int nr_processes(void)
 {
@@ -583,6 +598,29 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	tsk->splice_pipe = NULL;
 	tsk->task_frag.page = NULL;
 	tsk->wake_q.next = NULL;
+#ifdef CONFIG_CONTROL_CENTER
+	tsk->nice_effect_ts = 0;
+	tsk->cached_prio = tsk->static_prio;
+#endif
+#ifdef CONFIG_OPCHAIN
+	tsk->utask_tag = 0;
+	tsk->utask_tag_base = 0;
+	tsk->etask_claim = 0;
+	tsk->claim_cpu = -1;
+	tsk->utask_slave = 0;
+#endif
+#ifdef CONFIG_UXCHAIN
+	tsk->static_ux = 0;
+	tsk->dynamic_ux = 0;
+	tsk->ux_depth = 0;
+	tsk->oncpu_time = 0;
+	tsk->prio_saved = 0;
+	tsk->saved_flag = 0;
+#endif
+#ifdef CONFIG_CONTROL_CENTER
+	tsk->nice_effect_ts = 0;
+	tsk->cached_prio = tsk->static_prio;
+#endif
 
 	account_kernel_stack(tsk, 1);
 
@@ -827,6 +865,8 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	mm->mmap = NULL;
 	mm->mm_rb = RB_ROOT;
 	mm->vmacache_seqnum = 0;
+	mm->va_feature = 0;
+	mm->zygoteheap_in_MB = 0;
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 	rwlock_init(&mm->mm_rb_lock);
 #endif
@@ -1464,6 +1504,8 @@ static int copy_signal(unsigned long clone_flags, struct task_struct *tsk)
 	sig->oom_score_adj = current->signal->oom_score_adj;
 	sig->oom_score_adj_min = current->signal->oom_score_adj_min;
 
+	memplus_init_task_reclaim_stat(sig);
+
 	mutex_init(&sig->cred_guard_mutex);
 
 	return 0;
@@ -1822,6 +1864,9 @@ static __latent_entropy struct task_struct *copy_process(
 #endif
 
 	task_io_accounting_init(&p->ioac);
+#ifdef CONFIG_ONEPLUS_TASKLOAD_INFO
+	task_tli_init(p);
+#endif
 	acct_clear_integrals(p);
 
 	posix_cpu_timers_init(p);
@@ -1874,7 +1919,12 @@ static __latent_entropy struct task_struct *copy_process(
 	p->sequential_io	= 0;
 	p->sequential_io_avg	= 0;
 #endif
-
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+	/*2020-06-17, add for stuck monitor*/
+	p->stuck_trace = 0;
+	memset(&p->oneplus_stuck_info, 0, sizeof(struct oneplus_uifirst_monitor_info));
+#endif /*CONFIG_ONEPLUS_HEALTHINFO*/
+	p->fpack = NULL;
 	/* Perform scheduler related setup. Assign this task to a CPU. */
 	retval = sched_fork(clone_flags, p);
 	if (retval)
@@ -2056,6 +2106,9 @@ static __latent_entropy struct task_struct *copy_process(
 	if (likely(p->pid)) {
 		ptrace_init_task(p, (clone_flags & CLONE_PTRACE) || trace);
 
+#ifdef CONFIG_ADJ_CHAIN
+		adj_chain_init_list(p);
+#endif
 		init_task_pid(p, PIDTYPE_PID, pid);
 		if (thread_group_leader(p)) {
 			init_task_pid(p, PIDTYPE_PGID, task_pgrp(current));
@@ -2077,6 +2130,9 @@ static __latent_entropy struct task_struct *copy_process(
 							 p->real_parent->signal->is_child_subreaper;
 			list_add_tail(&p->sibling, &p->real_parent->children);
 			list_add_tail_rcu(&p->tasks, &init_task.tasks);
+#ifdef CONFIG_ADJ_CHAIN
+			adj_chain_attach(p);
+#endif
 			attach_pid(p, PIDTYPE_PGID);
 			attach_pid(p, PIDTYPE_SID);
 			__this_cpu_inc(process_counts);
@@ -2105,6 +2161,21 @@ static __latent_entropy struct task_struct *copy_process(
 
 	trace_task_newtask(p, clone_flags);
 	uprobe_copy_process(p, clone_flags);
+
+#if defined(CONFIG_CONTROL_CENTER) || defined(CONFIG_HOUSTON)
+	if (likely(!IS_ERR(p))) {
+#ifdef CONFIG_HOUSTON
+		ht_perf_event_init(p);
+		ht_rtg_init(p);
+#endif
+#ifdef CONFIG_CONTROL_CENTER
+		cc_tsk_init((void*) p);
+#endif
+#ifdef CONFIG_ONEPLUS_FG_OPT
+		p->fuse_boost = 0;
+#endif
+	}
+#endif
 
 	return p;
 
@@ -2240,6 +2311,8 @@ long _do_fork(unsigned long clone_flags,
 		cpufreq_task_times_alloc(p);
 
 		trace_sched_process_fork(current, p);
+
+		SMB_HOT_COUNT_INIT((clone_flags & CLONE_VM), p);
 
 		pid = get_task_pid(p, PIDTYPE_PID);
 		nr = pid_vnr(pid);

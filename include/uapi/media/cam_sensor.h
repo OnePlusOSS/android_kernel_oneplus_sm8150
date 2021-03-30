@@ -477,6 +477,18 @@ struct cam_flash_query_cap_info {
 	uint32_t    max_current_torch[CAM_FLASH_MAX_LED_TRIGGERS];
 } __attribute__ ((packed));
 
+#define FD_DFCT_MAX_NUM 5
+#define SG_DFCT_MAX_NUM 299
+
+struct sony_dfct_tbl_t {
+	//---- single static defect ----
+	int sg_dfct_num;		// the number of single static defect
+	int sg_dfct_addr[SG_DFCT_MAX_NUM];		// [ u25 ( upper-u13 = x-addr, lower-u12 = y-addr ) ]
+	//---- FD static defect ----
+	int fd_dfct_num;		// the number of FD static defect
+	int fd_dfct_addr[FD_DFCT_MAX_NUM];		// [ u25 ( upper-u13 = x-addr, lower-u12 = y-addr ) ]
+} __attribute__ ((packed));
+
 /**
  * struct cam_ir_led_query_cap  :  capabilities info for ir_led
  *

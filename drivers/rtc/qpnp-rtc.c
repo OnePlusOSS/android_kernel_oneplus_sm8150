@@ -87,6 +87,14 @@ static int qpnp_write_wrapper(struct qpnp_rtc *rtc_dd, u8 *rtc_val,
 			u16 base, int count)
 {
 	int rc;
+	static u8 rtc_val_pre;
+
+	if (base == (rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL1)) {
+		if (*rtc_val != rtc_val_pre)
+			dev_err(rtc_dd->rtc_dev,
+				"write ALARM_CTRL1=0x%x\n", *rtc_val);
+		rtc_val_pre = *rtc_val;
+	}
 
 	rc = regmap_bulk_write(rtc_dd->regmap, base, rtc_val, count);
 	if (rc) {
@@ -113,7 +121,7 @@ qpnp_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	value[2] = (secs >> 16) & 0xFF;
 	value[3] = (secs >> 24) & 0xFF;
 
-	dev_dbg(dev, "Seconds value to be written to RTC = %lu\n", secs);
+	dev_err(dev, "Seconds value to be written to RTC = %lu\n", secs);
 
 	spin_lock_irqsave(&rtc_dd->alarm_ctrl_lock, irq_flags);
 	ctrl_reg = rtc_dd->alarm_ctrl_reg1;
@@ -285,6 +293,7 @@ qpnp_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 {
 	int rc;
 	u8 value[4], ctrl_reg;
+	static u8 pre_value_0, pre_value_1, pre_value_2, pre_value_3;
 	unsigned long secs, secs_rtc, irq_flags;
 	struct qpnp_rtc *rtc_dd = dev_get_drvdata(dev);
 	struct rtc_time rtc_tm;
@@ -312,6 +321,16 @@ qpnp_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	value[2] = (secs >> 16) & 0xFF;
 	value[3] = (secs >> 24) & 0xFF;
 
+	if (value[0] != pre_value_0 || value[1] != pre_value_1
+				|| value[2] != pre_value_2 || value[3] != pre_value_3) {
+		dev_info(dev, "val[0] = 0x%x, val[1] = 0x%x, val[2] = 0x%x, val[3] = 0x%x\n",
+					value[0], value[1], value[2], value[3]);
+	}
+	pre_value_0 = value[0];
+	pre_value_1 = value[1];
+	pre_value_2 = value[2];
+	pre_value_3 = value[3];
+
 	spin_lock_irqsave(&rtc_dd->alarm_ctrl_lock, irq_flags);
 
 	rc = qpnp_write_wrapper(rtc_dd, value,
@@ -335,7 +354,7 @@ qpnp_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 
 	rtc_dd->alarm_ctrl_reg1 = ctrl_reg;
 
-	dev_dbg(dev, "Alarm Set for h:r:s=%d:%d:%d, d/m/y=%d/%d/%d\n",
+	dev_err(dev, "Alarm Set for h:r:s=%d:%d:%d, d/m/y=%d/%d/%d\n",
 			alarm->time.tm_hour, alarm->time.tm_min,
 			alarm->time.tm_sec, alarm->time.tm_mday,
 			alarm->time.tm_mon, alarm->time.tm_year);
@@ -652,11 +671,17 @@ static void qpnp_rtc_shutdown(struct platform_device *pdev)
 	unsigned long irq_flags;
 	struct qpnp_rtc *rtc_dd;
 	bool rtc_alarm_powerup;
+	struct rtc_wkalrm alarm;
 
 	if (!pdev) {
 		pr_err("qpnp-rtc: spmi device not found\n");
 		return;
 	}
+	qpnp_rtc_read_alarm(&pdev->dev, &alarm);
+	dev_err(&pdev->dev, "Alarm set for - h:r:s=%d:%d:%d, d/m/y=%d/%d/%d\n",
+			alarm.time.tm_hour, alarm.time.tm_min,
+			alarm.time.tm_sec, alarm.time.tm_mday,
+			alarm.time.tm_mon, alarm.time.tm_year);
 	rtc_dd = dev_get_drvdata(&pdev->dev);
 	if (!rtc_dd) {
 		pr_err("qpnp-rtc: rtc driver data not found\n");
@@ -665,7 +690,7 @@ static void qpnp_rtc_shutdown(struct platform_device *pdev)
 	rtc_alarm_powerup = rtc_dd->rtc_alarm_powerup;
 	if (!rtc_alarm_powerup && !poweron_alarm) {
 		spin_lock_irqsave(&rtc_dd->alarm_ctrl_lock, irq_flags);
-		dev_dbg(&pdev->dev, "Disabling alarm interrupts\n");
+		dev_err(&pdev->dev, "Disabling alarm interrupts\n");
 
 		/* Disable RTC alarms */
 		reg = rtc_dd->alarm_ctrl_reg1;

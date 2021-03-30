@@ -595,6 +595,17 @@ config TEST_IRQ_REQUESTER
 
 	  If in doubt, say N.
 
+config BOOTLOADER_LOG
+	tristate "show bootloader log"
+	depends on OF
+	default y
+	help
+	  show bootloader log in kernel
+
+config AUDIO_SENSOR
+	tristate "support sensor notify audio to control ultrasound"
+	default y
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"

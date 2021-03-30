@@ -305,6 +305,12 @@ struct vm_area_struct {
 	struct mm_struct *vm_mm;	/* The address space we belong to. */
 	pgprot_t vm_page_prot;		/* Access permissions of this VMA. */
 	unsigned long vm_flags;		/* Flags, see mm.h. */
+#ifdef CONFIG_MEMPLUS
+	unsigned int memplus_flags;
+#endif
+#ifdef CONFIG_VM_FRAGMENT_MONITOR
+	unsigned long rb_glfragment_gap;
+#endif
 
 	/*
 	 * For areas with an address space and backing store,
@@ -526,6 +532,9 @@ struct mm_struct {
 	/* HMM needs to track a few things per mm */
 	struct hmm *hmm;
 #endif
+	unsigned int zygoteheap_in_MB;
+	int va_feature;
+	unsigned long va_feature_rnd;
 } __randomize_layout;
 
 extern struct mm_struct init_mm;

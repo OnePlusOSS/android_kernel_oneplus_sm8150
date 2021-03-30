@@ -42,7 +42,6 @@ enum cam_cpas_reg_base {
 enum cam_cpas_hw_version {
 	CAM_CPAS_TITAN_NONE = 0,
 	CAM_CPAS_TITAN_150_V100 = 0x150100,
-	CAM_CPAS_TITAN_150_V110 = 0x150110,
 	CAM_CPAS_TITAN_170_V100 = 0x170100,
 	CAM_CPAS_TITAN_170_V110 = 0x170110,
 	CAM_CPAS_TITAN_170_V120 = 0x170120,
@@ -348,7 +347,6 @@ struct cam_ahb_vote {
 struct cam_axi_vote {
 	uint64_t   uncompressed_bw;
 	uint64_t   compressed_bw;
-	uint64_t   compressed_bw_ab;
 };
 
 /**

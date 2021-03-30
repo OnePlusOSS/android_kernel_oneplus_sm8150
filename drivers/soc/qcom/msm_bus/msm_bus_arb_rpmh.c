@@ -1309,7 +1309,7 @@ static uint32_t register_client_adhoc(struct msm_bus_scale_pdata *pdata)
 		}
 		client->src_devs[i] = dev;
 
-		MSM_BUS_ERR("%s:find path.src %d dest %d",
+		MSM_BUS_DBG("%s:find path.src %d dest %d",
 				__func__, src, dest);
 
 		lnode[i] = getpath(dev, dest, client->pdata->name);
@@ -1323,7 +1323,7 @@ static uint32_t register_client_adhoc(struct msm_bus_scale_pdata *pdata)
 	handle = gen_handle(client);
 	msm_bus_dbg_client_data(client->pdata, MSM_BUS_DBG_REGISTER,
 					handle);
-	MSM_BUS_ERR("%s:Client handle %d %s", __func__, handle,
+	MSM_BUS_DBG("%s:Client handle %d %s", __func__, handle,
 						client->pdata->name);
 	rt_mutex_unlock(&msm_bus_adhoc_lock);
 	return handle;

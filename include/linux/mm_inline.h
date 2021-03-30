@@ -62,7 +62,9 @@ static __always_inline void del_page_from_lru_list(struct page *page,
 				struct lruvec *lruvec, enum lru_list lru)
 {
 	list_del(&page->lru);
-	update_lru_size(lruvec, lru, page_zonenum(page), -hpage_nr_pages(page));
+	if (!smb_update_uid_lru_size(page, lruvec, lru))
+		update_lru_size(lruvec, lru,
+			page_zonenum(page), -hpage_nr_pages(page));
 }
 
 /**
@@ -77,6 +79,8 @@ static inline enum lru_list page_lru_base_type(struct page *page)
 {
 	if (page_is_file_cache(page))
 		return LRU_INACTIVE_FILE;
+	if (PageSwapCache(page))
+		return MEMPLUS_PAGE_LRU;
 	return LRU_INACTIVE_ANON;
 }
 

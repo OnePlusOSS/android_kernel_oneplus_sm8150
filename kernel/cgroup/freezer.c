@@ -22,6 +22,8 @@
 #include <linux/freezer.h>
 #include <linux/seq_file.h>
 #include <linux/mutex.h>
+#include <linux/sched/task.h>
+#include <linux/sched/signal.h>
 
 /*
  * A cgroup is freezing if any FREEZING flags are set.  FREEZING_SELF is
@@ -43,6 +45,7 @@ enum freezer_state_flags {
 struct freezer {
 	struct cgroup_subsys_state	css;
 	unsigned int			state;
+	unsigned int			oem_freeze_flag;
 };
 
 static DEFINE_MUTEX(freezer_mutex);
@@ -322,7 +325,7 @@ static void freeze_cgroup(struct freezer *freezer)
 
 	css_task_iter_start(&freezer->css, 0, &it);
 	while ((task = css_task_iter_next(&it)))
-		freeze_task(task);
+		freeze_cgroup_task(task);
 	css_task_iter_end(&it);
 }
 
@@ -330,11 +333,24 @@ static void unfreeze_cgroup(struct freezer *freezer)
 {
 	struct css_task_iter it;
 	struct task_struct *task;
+	struct task_struct *g, *p;
+	uid_t tmp_uid_val = -1;
 
 	css_task_iter_start(&freezer->css, 0, &it);
-	while ((task = css_task_iter_next(&it)))
+	while ((task = css_task_iter_next(&it))) {
+		if (task->real_cred)
+			tmp_uid_val = task->real_cred->uid.val;
 		__thaw_task(task);
+	}
 	css_task_iter_end(&it);
+
+	read_lock(&tasklist_lock);
+	do_each_thread(g, p) {
+		if (p->real_cred &&
+			p->real_cred->uid.val == tmp_uid_val)
+			__thaw_task(p);
+	} while_each_thread(g, p);
+	read_unlock(&tasklist_lock);
 }
 
 /**
@@ -392,6 +408,7 @@ static void freezer_change_state(struct freezer *freezer, bool freeze)
 	 * CGROUP_FREEZING_PARENT.
 	 */
 	mutex_lock(&freezer_mutex);
+	freezer->oem_freeze_flag = freeze ? 1 : 0;
 	rcu_read_lock();
 	css_for_each_descendant_pre(pos, &freezer->css) {
 		struct freezer *pos_f = css_freezer(pos);
@@ -414,6 +431,25 @@ static void freezer_change_state(struct freezer *freezer, bool freeze)
 	}
 	rcu_read_unlock();
 	mutex_unlock(&freezer_mutex);
+}
+
+void unfreezer_fork(struct task_struct *task)
+{
+	struct freezer *freezer = NULL;
+
+	if (task_css_is_root(task, freezer_cgrp_id))
+		return;
+
+	rcu_read_lock();
+	freezer = task_freezer(task);
+	rcu_read_unlock();
+
+
+	if (freezer->oem_freeze_flag != 1)
+		return;
+
+	pr_debug("%s:%s(%d)try to unfreeze\n", __func__, task->comm, task->pid);
+	freezer_change_state(freezer, 0);
 }
 
 static ssize_t freezer_write(struct kernfs_open_file *of,

@@ -61,6 +61,7 @@
 			 0x144 /* GSI_RING_BASE_ADDR_H */
 			 0x1a4>; /* GSI_IF_STS */
 		qcom,dwc-usb3-msm-tx-fifo-size = <27696>;
+		qcom,pm-qos-latency = <44>;
 
 		qcom,msm-bus,name = "usb0";
 		qcom,msm-bus,num-cases = <4>;
@@ -98,10 +99,11 @@
 			snps,has-lpm-erratum;
 			snps,hird-threshold = /bits/ 8 <0x10>;
 			snps,ssp-u3-u0-quirk;
-			snps,usb3-u1u2-disable;
+			//snps,usb3-u1u2-disable;
 			usb-core-id = <0>;
 			tx-fifo-resize;
-			maximum-speed = "super-speed-plus";
+			maximum-speed = "super-speed";
+			//maximum-speed = "super-speed-plus";
 			dr_mode = "otg";
 		};
 
@@ -385,6 +387,7 @@
 			 0x1a4>; /* GSI_IF_STS */
 		qcom,dwc-usb3-msm-tx-fifo-size = <27696>;
 		qcom,charging-disabled;
+		qcom,pm-qos-latency = <44>;
 
 		qcom,msm-bus,name = "usb1";
 		qcom,msm-bus,num-cases = <3>;

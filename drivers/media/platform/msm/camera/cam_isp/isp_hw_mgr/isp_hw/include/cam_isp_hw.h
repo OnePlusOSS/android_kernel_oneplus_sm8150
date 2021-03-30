@@ -22,9 +22,6 @@
 
 #define CAM_ISP_FPS_60                           60
 
-/* Maximum length of tag while dumping */
-#define CAM_ISP_HW_DUMP_TAG_MAX_LEN 32
-
 /*
  * struct cam_isp_timestamp:
  *
@@ -113,9 +110,6 @@ enum cam_isp_hw_cmd_type {
 	CAM_ISP_HW_CMD_FE_UPDATE_BUS_RD,
 	CAM_ISP_HW_CMD_GET_IRQ_REGISTER_DUMP,
 	CAM_ISP_HW_CMD_FPS_CONFIG,
-	CAM_ISP_HW_CMD_DUMP_HW,
-	CAM_ISP_HW_CMD_SET_STATS_DMI_DUMP,
-	CAM_ISP_HW_CMD_GET_RDI_IRQ_MASK,
 	CAM_ISP_HW_CMD_MAX,
 };
 
@@ -203,20 +197,6 @@ struct cam_isp_hw_get_wm_update {
 };
 
 /*
- * struct cam_isp_hw_rup_data:
- *
- * @Brief:         RUP for required resources.
- *
- * @is_fe_enable   if fetch engine enabled
- * @res_bitmap     resource bitmap for set resources
- *
- */
-struct cam_isp_hw_rup_data {
-	bool                            is_fe_enable;
-	unsigned long                   res_bitmap;
-};
-
-/*
  * struct cam_isp_hw_get_cmd_update:
  *
  * @Brief:         Get cmd buffer update for different CMD types
@@ -239,7 +219,6 @@ struct cam_isp_hw_get_cmd_update {
 		struct cam_isp_bw_config             *bw_update;
 		struct cam_ubwc_plane_cfg_v1         *ubwc_update;
 		struct cam_fe_config                 *fe_update;
-		struct cam_isp_hw_rup_data           *rup_data;
 	};
 };
 
@@ -257,40 +236,5 @@ struct cam_isp_hw_dual_isp_update_args {
 	enum cam_isp_hw_split_id         split_id;
 	struct cam_isp_resource_node    *res;
 	struct cam_isp_dual_config      *dual_cfg;
-};
-
-/*
- * struct cam_isp_hw_dump_args:
- *
- * @Brief:        isp hw dump args
- *
- * @ req_id:         request id
- * @ cpu_addr:       cpu address
- * @ buf_len:        buf len
- * @ offset:         offset of buffer
- * @ ctxt_to_hw_map: ctx to hw map
- */
-struct cam_isp_hw_dump_args {
-	uint64_t                req_id;
-	uintptr_t               cpu_addr;
-	size_t                  buf_len;
-	uint32_t                offset;
-	void                    *ctxt_to_hw_map;
-};
-
-/**
- * struct cam_isp_hw_dump_header - ISP context dump header
- *
- * @Brief:        isp hw dump header
- *
- * @tag:       Tag name for the header
- * @word_size: Size of word
- * @size:      Size of data
- *
- */
-struct cam_isp_hw_dump_header {
-	char      tag[CAM_ISP_HW_DUMP_TAG_MAX_LEN];
-	uint64_t  size;
-	uint32_t  word_size;
 };
 #endif /* _CAM_ISP_HW_H_ */

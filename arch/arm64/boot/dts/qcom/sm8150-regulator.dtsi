@@ -951,13 +951,13 @@
 	};
 
 	rpmh-regulator-ldof2 {
-		compatible = "qcom,rpmh-xob-regulator";
+		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
 		qcom,resource-name = "ldof2";
 		L2F: pm8009_l2: regulator-pm8009-l2 {
 			regulator-name = "pm8009_l2";
 			qcom,set = <RPMH_REGULATOR_SET_ALL>;
-			regulator-min-microvolt = <1200000>;
+			regulator-min-microvolt = <1000000>;
 			regulator-max-microvolt = <1200000>;
 		};
 	};
@@ -983,6 +983,54 @@
 			qcom,set = <RPMH_REGULATOR_SET_ALL>;
 			regulator-min-microvolt = <2856000>;
 			regulator-max-microvolt = <2856000>;
+		};
+	};
+
+	rpmh-regulator-ldof1 {
+		compatible = "qcom,rpmh-vrm-regulator";
+		mboxes = <&apps_rsc 0>;
+		qcom,resource-name = "ldof1";
+		L1F: pm8009_l1: regulator-pm8009-l1 {
+			regulator-name = "pm8009_l1";
+			qcom,set = <RPMH_REGULATOR_SET_ALL>;
+			regulator-min-microvolt = <1000000>;
+			regulator-max-microvolt = <1200000>;
+		};
+	};
+
+	rpmh-regulator-ldof3 {
+		compatible = "qcom,rpmh-vrm-regulator";
+		mboxes = <&apps_rsc 0>;
+		qcom,resource-name = "ldof3";
+		L3F: pm8009_l3: regulator-pm8009-l3 {
+			regulator-name = "pm8009_l3";
+			qcom,set = <RPMH_REGULATOR_SET_ALL>;
+			regulator-min-microvolt = <1000000>;
+			regulator-max-microvolt = <1200000>;
+		};
+	};
+
+	rpmh-regulator-ldof4 {
+		compatible = "qcom,rpmh-vrm-regulator";
+		mboxes = <&apps_rsc 0>;
+		qcom,resource-name = "ldof4";
+		L4F: pm8009_l4: regulator-pm8009-l4 {
+			regulator-name = "pm8009_l4";
+			qcom,set = <RPMH_REGULATOR_SET_ALL>;
+			regulator-min-microvolt = <1000000>;
+			regulator-max-microvolt = <1200000>;
+		};
+	};
+
+	rpmh-regulator-ldof7 {
+		compatible = "qcom,rpmh-xob-regulator";
+		mboxes = <&apps_rsc 0>;
+		qcom,resource-name = "ldof7";
+		L7F: pm8009_l7: regulator-pm8009-l7 {
+			regulator-name = "pm8009_l7";
+			qcom,set = <RPMH_REGULATOR_SET_ALL>;
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
 		};
 	};
 

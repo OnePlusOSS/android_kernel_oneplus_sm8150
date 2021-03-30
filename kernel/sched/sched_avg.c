@@ -194,3 +194,17 @@ u64 sched_get_cpu_last_busy_time(int cpu)
 {
 	return atomic64_read(&per_cpu(last_busy_time, cpu));
 }
+
+#ifdef CONFIG_CONTROL_CENTER
+u64 sched_lpm_disallowed_time(int cpu)
+{
+	u64 now = sched_clock();
+	u64 bias_end_time = atomic64_read(&per_cpu(last_busy_time, cpu));
+
+	if (now < bias_end_time)
+		return bias_end_time - now;
+
+	return 0;
+}
+#endif
+

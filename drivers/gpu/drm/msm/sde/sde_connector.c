@@ -23,7 +23,7 @@
 #include "dsi_display.h"
 #include "sde_crtc.h"
 #include "sde_rm.h"
-
+#include "sde_trace.h"
 #define BL_NODE_NAME_SIZE 32
 
 /* Autorefresh will occur after FRAME_CNT frames. Large values are unlikely */
@@ -143,7 +143,9 @@ static int sde_backlight_setup(struct sde_connector *c_conn,
 	display = (struct dsi_display *) c_conn->display;
 	bl_config = &display->panel->bl_config;
 	props.max_brightness = bl_config->brightness_max_level;
-	props.brightness = bl_config->brightness_default_level;
+//	props.brightness = bl_config->brightness_default_level;
+	props.brightness = bl_config->bl_def_val;
+	SDE_ERROR("props.brightness = %d\n",props.brightness);
 	snprintf(bl_node_name, BL_NODE_NAME_SIZE, "panel%u-backlight",
 							display_count);
 	c_conn->bl_device = backlight_device_register(bl_node_name, dev->dev,
@@ -364,15 +366,19 @@ int sde_connector_get_info(struct drm_connector *connector,
 	return c_conn->ops.get_info(&c_conn->base, info, c_conn->display);
 }
 
+extern void dsi_display_change_err_flag_irq_status(struct dsi_display *display,
+					bool enable);
 void sde_connector_schedule_status_work(struct drm_connector *connector,
 		bool en)
 {
 	struct sde_connector *c_conn;
 	struct msm_display_info info;
-
+	struct dsi_display *dsi_display;
 	c_conn = to_sde_connector(connector);
 	if (!c_conn)
 		return;
+
+	dsi_display = (struct dsi_display *)c_conn->display;
 
 	/* Return if there is no change in ESD status check condition */
 	if (en == c_conn->esd_status_check)
@@ -395,10 +401,12 @@ void sde_connector_schedule_status_work(struct drm_connector *connector,
 			schedule_delayed_work(&c_conn->status_work,
 				msecs_to_jiffies(interval));
 			c_conn->esd_status_check = true;
+			dsi_display_change_err_flag_irq_status(dsi_display, true);
 		} else {
 			/* Cancel any pending ESD status check */
 			cancel_delayed_work_sync(&c_conn->status_work);
 			c_conn->esd_status_check = false;
+			dsi_display_change_err_flag_irq_status(dsi_display, false);
 		}
 	}
 }
@@ -506,6 +514,188 @@ static int _sde_connector_update_bl_scale(struct sde_connector *c_conn)
 
 	return rc;
 }
+extern bool sde_crtc_get_fingerprint_mode(struct drm_crtc_state *crtc_state);
+extern bool sde_crtc_get_fingerprint_pressed(struct drm_crtc_state *crtc_state);
+extern int dsi_display_set_hbm_mode(struct drm_connector *connector, int level);
+int aod_layer_hide = 0;
+extern bool HBM_flag ;
+extern int oneplus_dim_status;
+extern int oneplus_onscreenfp_status;
+extern bool aod_fod_flag;
+extern bool real_aod_mode;
+extern bool aod_complete;
+extern bool finger_type;
+
+extern int op_dimlayer_bl;
+extern int op_dimlayer_bl_enabled;
+
+int sde_connector_update_backlight(struct drm_connector *connector)
+{
+	if (op_dimlayer_bl != op_dimlayer_bl_enabled) {
+		struct sde_connector *c_conn = to_sde_connector(connector);
+		if (!c_conn) {
+			SDE_ERROR("Invalid params sde_connector null\n");
+			return -EINVAL;
+			}
+		op_dimlayer_bl_enabled = op_dimlayer_bl;
+		_sde_connector_update_bl_scale(c_conn);
+	}
+
+	return 0;
+}
+
+extern int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
+				enum dsi_cmd_set_type type);
+static int _sde_connector_update_hbm(struct sde_connector *c_conn)
+{
+	struct drm_connector *connector = &c_conn->base;
+	struct dsi_display *dsi_display;
+	struct sde_connector_state *c_state;
+	int rc = 0;
+	int fingerprint_mode;
+
+	if (!c_conn) {
+		SDE_ERROR("Invalid params sde_connector null\n");
+		return -EINVAL;
+	}
+
+	if (c_conn->connector_type != DRM_MODE_CONNECTOR_DSI)
+		return 0;
+
+	c_state = to_sde_connector_state(connector->state);
+
+	dsi_display = c_conn->display;
+	if (!dsi_display || !dsi_display->panel) {
+		SDE_ERROR("Invalid params(s) dsi_display %pK, panel %pK\n",
+			dsi_display,
+			((dsi_display) ? dsi_display->panel : NULL));
+		return -EINVAL;
+	}
+
+	if (!c_conn->encoder || !c_conn->encoder->crtc ||
+	    !c_conn->encoder->crtc->state) {
+		return 0;
+	}
+	if (!finger_type) {
+		if (dsi_display->panel->aod_status == 1) {
+			if (real_aod_mode && !aod_complete) {
+				pr_err("aod not complete\n");
+				return 0;
+			}
+			if (!(sde_crtc_get_fingerprint_mode(c_conn->encoder->crtc->state)))
+				fingerprint_mode = false;
+			else
+				fingerprint_mode = sde_crtc_get_fingerprint_mode(c_conn->encoder->crtc->state);
+			} else {
+		if (!(sde_crtc_get_fingerprint_mode(c_conn->encoder->crtc->state)))
+            fingerprint_mode = false;
+		else if (oneplus_dim_status == 1)
+            fingerprint_mode = !!oneplus_dim_status;
+        else
+            fingerprint_mode = sde_crtc_get_fingerprint_mode(c_conn->encoder->crtc->state);
+        }
+		} else {
+			if (dsi_display->panel->aod_status == 1) {
+				if (oneplus_dim_status == 5)
+					fingerprint_mode = false;
+				else if (oneplus_dim_status == 2)
+					fingerprint_mode = !!oneplus_dim_status;
+			} else {
+				return 0;
+			}
+		}
+
+	if (fingerprint_mode != dsi_display->panel->is_hbm_enabled) {
+		//struct drm_encoder *drm_enc = c_conn->encoder;
+		dsi_display->panel->is_hbm_enabled = fingerprint_mode;
+		if (fingerprint_mode) {
+			SDE_ATRACE_BEGIN("set_hbm_on");
+			HBM_flag=true;
+			mutex_lock(&dsi_display->panel->panel_lock);
+			if (dsi_display->panel->aod_status==1 && !finger_type) {
+				if (dsi_display->panel->aod_mode == 2) {
+					rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_AOD_OFF_HBM_ON_SETTING);
+					pr_err("Send DSI_CMD_AOD_OFF_HBM_ON_SETTING cmds\n");
+				} else {
+					rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_REAL_AOD_OFF_HBM_ON_SETTING);
+					pr_err("Send DSI_CMD_REAL_AOD_OFF_HBM_ON_SETTING cmds\n");
+				}
+				aod_fod_flag = true;
+			}
+			else if (dsi_display->panel->aod_status == 1 && finger_type) {
+				rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_SET_AOD_OFF_NEW);
+				pr_err("qdt aod off\n");
+			}
+			else {
+				//sde_encoder_poll_line_counts(drm_enc);
+				rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_SET_HBM_ON_5);
+				pr_err("Send DSI_CMD_SET_HBM_ON_5 cmds\n");
+			}
+			SDE_ATRACE_END("set_hbm_on");
+			mutex_unlock(&dsi_display->panel->panel_lock);
+			if (rc) {
+				pr_err("failed to send DSI_GAMMA_CMD_SET_HBM_ON cmds, rc=%d\n", rc);
+				return rc;
+			}
+		}
+		else {
+			SDE_ATRACE_BEGIN("set_hbm_off");
+			HBM_flag = false;
+			//_sde_connector_update_bl_scale(c_conn);
+			mutex_lock(&dsi_display->panel->panel_lock);
+			if (dsi_display->panel->aod_status == 1 && !finger_type) {
+				if(oneplus_dim_status == 5){
+					rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_SET_HBM_OFF);
+					pr_err("Send DSI_CMD_SET_HBM_OFF cmds\n");
+					aod_fod_flag = true;
+					dsi_display->panel->aod_status = 0;
+					oneplus_dim_status = 0;
+					aod_layer_hide = 1;
+				}
+				else {
+					if (oneplus_onscreenfp_status == 4) {
+						if (dsi_display->panel->aod_mode == 5 || dsi_display->panel->aod_mode == 4) {
+							rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_SET_AOD_ON_5);
+							pr_err("Send DSI_CMD_SET_AOD_ON_5 cmds\n");
+						} else if (dsi_display->panel->aod_mode == 1) {
+							rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_SET_AOD_ON_1);
+							pr_err("Send DSI_CMD_SET_AOD_ON_1 cmds\n");
+						} else if (dsi_display->panel->aod_mode == 3) {
+							rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_SET_AOD_ON_3);
+							pr_err("Send DSI_CMD_SET_AOD_ON_3 cmds\n");
+						}
+					} else if (oneplus_onscreenfp_status == 0) {
+						rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_HBM_OFF_AOD_ON_SETTING);
+						aod_layer_hide = 1;
+						pr_err("Send DSI_CMD_HBM_OFF_AOD_ON_SETTING  cmds\n");
+					}
+				}
+			}
+			else if (dsi_display->panel->aod_status == 1 && finger_type) {
+				if(oneplus_dim_status == 5) {
+					pr_err("qdt aod off dim 5\n");
+				} else {
+					rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_SET_AOD_ON_2);
+					pr_err("qdt aod on dim 0\n");
+				}
+			}
+			else {
+				HBM_flag = false;
+				//sde_encoder_poll_line_counts(drm_enc);
+				rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_SET_HBM_OFF);
+				pr_err("Send DSI_CMD_SET_HBM_OFF cmds\n");
+			}
+			SDE_ATRACE_END("set_hbm_off");
+			mutex_unlock(&dsi_display->panel->panel_lock);
+			_sde_connector_update_bl_scale(c_conn);
+			if (rc) {
+				pr_err("failed to send DSI_CMD_HBM_OFF cmds, rc=%d\n", rc);
+				return rc;
+			}
+		}
+	}
+	return 0;
+}
 
 void sde_connector_set_qsync_params(struct drm_connector *connector)
 {
@@ -603,6 +793,7 @@ int sde_connector_pre_kickoff(struct drm_connector *connector)
 	}
 
 	rc = _sde_connector_update_dirty_properties(connector);
+	rc = _sde_connector_update_hbm(c_conn);
 	if (rc) {
 		SDE_EVT32(connector->base.id, SDE_EVTLOG_ERROR);
 		goto end;
@@ -1201,8 +1392,8 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 		c_conn->bl_scale_dirty = true;
 		break;
 	case CONNECTOR_PROP_AD_BL_SCALE:
-		c_conn->bl_scale_ad = val;
-		c_conn->bl_scale_dirty = true;
+		// c_conn->bl_scale_ad = val;
+		// c_conn->bl_scale_dirty = true;
 		break;
 	case CONNECTOR_PROP_QSYNC_MODE:
 		msm_property_set_dirty(&c_conn->property_info,
@@ -1910,6 +2101,8 @@ int sde_connector_esd_status(struct drm_connector *conn)
 	return ret;
 }
 
+struct delayed_work *sde_esk_check_delayed_work;
+EXPORT_SYMBOL(sde_esk_check_delayed_work);
 static void sde_connector_check_status_work(struct work_struct *work)
 {
 	struct sde_connector *conn;
@@ -1921,6 +2114,8 @@ static void sde_connector_check_status_work(struct work_struct *work)
 		SDE_ERROR("not able to get connector object\n");
 		return;
 	}
+
+	sde_esk_check_delayed_work = &conn->status_work;
 
 	mutex_lock(&conn->lock);
 	if (!conn->ops.check_status ||
@@ -1992,7 +2187,7 @@ static int sde_connector_populate_mode_info(struct drm_connector *conn,
 		int topology_idx = 0;
 
 		memset(&mode_info, 0, sizeof(mode_info));
-
+		SDE_EVT32(conn, ((unsigned long long)conn) >> 32, 0x9999);
 		rc = c_conn->ops.get_mode_info(&c_conn->base, mode, &mode_info,
 			sde_kms->catalog->max_mixer_width,
 			c_conn->display);
@@ -2337,6 +2532,8 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 	msm_property_install_range(&c_conn->property_info, "ad_bl_scale",
 		0x0, 0, MAX_AD_BL_SCALE_LEVEL, MAX_AD_BL_SCALE_LEVEL,
 		CONNECTOR_PROP_AD_BL_SCALE);
+	msm_property_install_range(&c_conn->property_info,"CONNECTOR_CUST",
+			0x0, 0, INT_MAX, 0, CONNECTOR_PROP_CUSTOM);
 
 	c_conn->bl_scale_dirty = false;
 	c_conn->bl_scale = MAX_BL_SCALE_LEVEL;

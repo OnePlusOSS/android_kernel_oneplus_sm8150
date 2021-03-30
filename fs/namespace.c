@@ -28,8 +28,13 @@
 #include <linux/task_work.h>
 #include <linux/sched/task.h>
 
+/* [OSP-3675]: ext4 fsync */
+#include <linux/string.h>
+
 #include "pnode.h"
 #include "internal.h"
+
+#define EMBEDDED_NAME_MAX	(PATH_MAX - offsetof(struct filename, iname))
 
 /* Maximum number of mounts in a mount namespace */
 unsigned int sysctl_mount_max __read_mostly = 100000;
@@ -2862,6 +2867,21 @@ long do_mount(const char *dev_name, const char __user *dir_name,
 	struct path path;
 	unsigned int mnt_flags = 0, sb_flags;
 	int retval = 0;
+	int userdata = 0;
+
+	if (likely(dir_name)) {
+		char *kdir_name = (char *)__get_free_page(GFP_KERNEL);
+
+		if (likely(kdir_name)) {
+			int len = strncpy_from_user(kdir_name, dir_name, EMBEDDED_NAME_MAX);
+
+			if (likely(len)) {
+				if (!strcmp(kdir_name, "/data"))
+					userdata = 1;
+			}
+			free_page((unsigned long)kdir_name);
+		}
+	}
 
 	/* Discard magic */
 	if ((flags & MS_MGC_MSK) == MS_MGC_VAL)
@@ -2925,6 +2945,8 @@ long do_mount(const char *dev_name, const char __user *dir_name,
 			    SB_LAZYTIME |
 			    SB_I_VERSION);
 
+	if (userdata)
+		sb_flags |= SB_USERDATA;
 	if (flags & MS_REMOUNT)
 		retval = do_remount(&path, flags, sb_flags, mnt_flags,
 				    data_page);

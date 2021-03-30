@@ -37,6 +37,7 @@ struct bcl_device {
 	bool					irq_enabled;
 	struct thermal_zone_device		*tz_dev;
 	struct thermal_zone_of_device_ops	ops;
+	struct work_struct		bcl_usb_work;
 };
 
 static struct bcl_device *bcl_perph;
@@ -107,10 +108,43 @@ eval_exit:
 	mutex_unlock(&bcl_perph->state_trans_lock);
 }
 
+static void bcl_usb_process(struct work_struct *work)
+{
+	static struct power_supply *usb_psy;
+	union power_supply_propval ret = {0,};
+	int err = 0;
+
+	if (!usb_psy)
+		usb_psy = power_supply_get_by_name("usb");
+	if (usb_psy) {
+		err = power_supply_get_property(usb_psy,
+				POWER_SUPPLY_PROP_PRESENT, &ret);
+		if (err) {
+			pr_err("USB status get error:%d\n",
+				err);
+			return;
+		}
+		if (ret.intval == 1) {
+			bcl_perph->tz_dev->ops->set_trip_temp(
+			bcl_perph->tz_dev, 1, 0);
+			thermal_zone_device_update(bcl_perph->tz_dev,
+			THERMAL_EVENT_UNSPECIFIED);
+		} else {
+			bcl_perph->tz_dev->ops->set_trip_temp(
+			bcl_perph->tz_dev, 1, 15);
+			thermal_zone_device_update(bcl_perph->tz_dev,
+			THERMAL_EVENT_UNSPECIFIED);
+		}
+	}
+}
+
 static int battery_supply_callback(struct notifier_block *nb,
 			unsigned long event, void *data)
 {
 	struct power_supply *psy = data;
+
+	if (!strcmp(psy->desc->name, "usb"))
+		schedule_work(&bcl_perph->bcl_usb_work);
 
 	if (strcmp(psy->desc->name, "battery"))
 		return NOTIFY_OK;
@@ -123,6 +157,7 @@ static int bcl_soc_remove(struct platform_device *pdev)
 {
 	power_supply_unreg_notifier(&bcl_perph->psy_nb);
 	flush_work(&bcl_perph->soc_eval_work);
+	flush_work(&bcl_perph->bcl_usb_work);
 	if (bcl_perph->tz_dev)
 		thermal_zone_of_sensor_unregister(&pdev->dev,
 				bcl_perph->tz_dev);
@@ -142,14 +177,8 @@ static int bcl_soc_probe(struct platform_device *pdev)
 	bcl_perph->ops.get_temp = bcl_read_soc;
 	bcl_perph->ops.set_trips = bcl_set_soc;
 	INIT_WORK(&bcl_perph->soc_eval_work, bcl_evaluate_soc);
-	bcl_perph->psy_nb.notifier_call = battery_supply_callback;
-	ret = power_supply_reg_notifier(&bcl_perph->psy_nb);
-	if (ret < 0) {
-		pr_err("soc notifier registration error. defer. err:%d\n",
-			ret);
-		ret = -EPROBE_DEFER;
-		goto bcl_soc_probe_exit;
-	}
+	INIT_WORK(&bcl_perph->bcl_usb_work, bcl_usb_process);
+
 	bcl_perph->tz_dev = thermal_zone_of_sensor_register(&pdev->dev,
 				0, bcl_perph, &bcl_perph->ops);
 	if (IS_ERR(bcl_perph->tz_dev)) {
@@ -160,6 +189,14 @@ static int bcl_soc_probe(struct platform_device *pdev)
 		goto bcl_soc_probe_exit;
 	}
 	thermal_zone_device_update(bcl_perph->tz_dev, THERMAL_DEVICE_UP);
+	bcl_perph->psy_nb.notifier_call = battery_supply_callback;
+	ret = power_supply_reg_notifier(&bcl_perph->psy_nb);
+	if (ret < 0) {
+		pr_err("soc notifier registration error. defer. err:%d\n",
+			ret);
+		ret = -EPROBE_DEFER;
+		goto bcl_soc_probe_exit;
+	}
 	schedule_work(&bcl_perph->soc_eval_work);
 
 	dev_set_drvdata(&pdev->dev, bcl_perph);

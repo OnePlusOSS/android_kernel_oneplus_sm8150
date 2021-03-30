@@ -348,6 +348,7 @@ repeat:
 			return entry;
 	}
 
+	__set_memplus_entry(entry, page_private(page));
 	get_swap_pages(1, false, &entry);
 
 	return entry;

@@ -30,6 +30,7 @@
 #include <linux/of.h>
 #include <linux/of_irq.h>
 #include <linux/spinlock.h>
+#include <linux/oem_force_dump.h>
 
 struct gpio_button_data {
 	const struct gpio_keys_button *button;
@@ -42,6 +43,7 @@ struct gpio_button_data {
 	unsigned int release_delay;	/* in msecs, for IRQ-only buttons */
 
 	struct delayed_work work;
+	struct delayed_work press_vol_up;
 	unsigned int software_debounce;	/* in msecs, for GPIO-driven buttons */
 
 	unsigned int irq;
@@ -371,6 +373,8 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 		return;
 	}
 
+	oem_check_force_dump_key(button->code, state);
+
 	if (type == EV_ABS) {
 		if (state)
 			input_event(input, type, button->code, button->value);
@@ -391,9 +395,33 @@ static void gpio_keys_gpio_work_func(struct work_struct *work)
 		pm_relax(bdata->input->dev.parent);
 }
 
+static void gpio_vol_up_work_func(struct work_struct *work)
+{
+	struct gpio_button_data *bdata =
+		container_of(work, struct gpio_button_data, press_vol_up.work);
+	const struct gpio_keys_button *button = bdata->button;
+	struct input_dev *input = bdata->input;
+	int state;
+
+	state = gpiod_get_value_cansleep(bdata->gpiod);
+	if (state < 0) {
+		dev_err(input->dev.parent,
+			"failed to get gpio state: %d\n", state);
+		return;
+	}
+
+	if (state && button->code == KEY_VOLUMEUP) {
+		set_vol_up_status(key_pressed);
+		compound_key_to_get_trace("system_server");
+	}
+}
+
 static irqreturn_t gpio_keys_gpio_isr(int irq, void *dev_id)
 {
 	struct gpio_button_data *bdata = dev_id;
+	const struct gpio_keys_button *button = bdata->button;
+	struct input_dev *input = bdata->input;
+	int state;
 
 	BUG_ON(irq != bdata->irq);
 
@@ -416,6 +444,21 @@ static irqreturn_t gpio_keys_gpio_isr(int irq, void *dev_id)
 			 &bdata->work,
 			 msecs_to_jiffies(bdata->software_debounce));
 
+	if (button->code == KEY_VOLUMEUP) {
+		state = gpiod_get_value(bdata->gpiod);
+		if (state < 0) {
+			dev_err(input->dev.parent,
+				"failed to get gpio state: %d\n", state);
+			return IRQ_NONE;
+		}
+
+		if (state)
+			schedule_delayed_work(&bdata->press_vol_up, msecs_to_jiffies(6000));
+		else {
+			set_vol_up_status(key_released);
+			cancel_delayed_work(&bdata->press_vol_up);
+		}
+	}
 	return IRQ_HANDLED;
 }
 
@@ -564,6 +607,7 @@ static int gpio_keys_setup_key(struct platform_device *pdev,
 		}
 
 		INIT_DELAYED_WORK(&bdata->work, gpio_keys_gpio_work_func);
+		INIT_DELAYED_WORK(&bdata->press_vol_up, gpio_vol_up_work_func);
 
 		isr = gpio_keys_gpio_isr;
 		irqflags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING;

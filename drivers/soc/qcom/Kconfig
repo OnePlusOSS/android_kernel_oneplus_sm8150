@@ -975,6 +975,20 @@ config QCOM_CDSP_RM
 	  CPU L3 clock for improving IO-Coherent throughput and opt for QoS mode
 	  to improve RPC latency.
 
+config PROJECT_INFO
+	bool "detect project info"
+	default n
+        help
+           detect projcet info  If unsure, say n.
+
+config RF_CABLE_DETECT
+	bool "detect RF cable connection"
+	help
+	  detect RF cable connection for different RF configuration
+	  To compile this driver as a module, choose M here: the module
+	  will be called RF cable.
+	  If unsure, say N.
+
 config QCOM_CX_IPEAK
 	bool "Common driver to handle Cx iPeak limitation"
 	help

@@ -1653,6 +1653,9 @@ int _regmap_write(struct regmap *map, unsigned int reg,
 		dev_info(map->dev, "%x <= %x\n", reg, val);
 #endif
 
+	if ( reg == 0x88E || reg == 0x88d)
+		dev_info(map->dev, "w:%x <= %x[%s],\n", reg, val,dev_name(map->dev));
+
 	trace_regmap_reg_write(map, reg, val);
 
 	return map->reg_write(context, reg, val);
@@ -2381,6 +2384,8 @@ static int _regmap_read(struct regmap *map, unsigned int reg,
 		if (map->dev && strcmp(dev_name(map->dev), LOG_DEVICE) == 0)
 			dev_info(map->dev, "%x => %x\n", reg, *val);
 #endif
+		if ( reg == 0x88E || reg == 0x88d)
+			dev_info(map->dev, "r:%x <= %x[%s],\n", reg, val,dev_name(map->dev));
 
 		trace_regmap_reg_read(map, reg, *val);
 

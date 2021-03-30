@@ -748,7 +748,8 @@ static enum lru_status inode_lru_isolate(struct list_head *item,
 		spin_unlock(lru_lock);
 		if (remove_inode_buffers(inode)) {
 			unsigned long reap;
-			reap = invalidate_mapping_pages(&inode->i_data, 0, -1);
+			reap = smb_invalidate_mapping_pages(&inode->i_data,
+						0, -1);
 			if (current_is_kswapd())
 				__count_vm_events(KSWAPD_INODESTEAL, reap);
 			else

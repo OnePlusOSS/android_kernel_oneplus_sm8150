@@ -21,7 +21,7 @@
 #include <media/v4l2-event.h>
 #include <media/v4l2-ioctl.h>
 
-#define CAM_SUBDEVICE_EVENT_MAX 30
+#define CAM_SUBDEVICE_EVENT_MAX 100
 
 /**
  * struct cam_subdev - describes a camera sub-device

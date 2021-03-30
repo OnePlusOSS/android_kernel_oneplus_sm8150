@@ -286,34 +286,6 @@ TRACE_EVENT(cam_irq_handled,
 	)
 );
 
-TRACE_EVENT(cam_isp_irq_delay_detect,
-	TP_PROTO(const char *text, struct cam_context *ctx,
-		uint64_t request_id, uint32_t substate,
-		uint64_t timestamp),
-	TP_ARGS(text, ctx, request_id, substate, timestamp),
-	TP_STRUCT__entry(
-		__string(text, text)
-		__field(uint32_t, ctx_id)
-		__field(uint64_t, dev_id)
-		__field(uint64_t, req_id)
-		__field(uint32_t, substate)
-		__field(uint64_t, ts)
-	),
-	TP_fast_assign(
-		__assign_str(text, text);
-		__entry->ctx_id = ctx->ctx_id;
-		__entry->dev_id = ctx->dev_id;
-		__entry->req_id = request_id;
-		__entry->substate = substate;
-		__entry->ts = timestamp;
-	),
-	TP_printk(
-		"ISP: %s ctx=%u dev_id=%u req_id=%lld substate=%u event=%u delay_by=%llu",
-			__get_str(text), __entry->ctx_id, __entry->dev_id,
-			__entry->req_id, __entry->substate, __entry->ts
-	)
-);
-
 TRACE_EVENT(cam_cdm_cb,
 	TP_PROTO(const char *entity, uint32_t status),
 	TP_ARGS(entity, status),

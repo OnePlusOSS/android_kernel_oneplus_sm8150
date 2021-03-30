@@ -1058,33 +1058,27 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 	}
 
 	temp = buf;
-	if (len >= sizeof(uint8_t)) {
-		entry.cmd_code = (uint16_t)(*(uint8_t *)temp);
-		DIAG_LOG(DIAG_DEBUG_CMD_INFO,
-			"diag: received cmd_code %02x\n", entry.cmd_code);
-	}
-	if (len >= (2 * sizeof(uint8_t))) {
-		temp += sizeof(uint8_t);
-		entry.subsys_id = (uint16_t)(*(uint8_t *)temp);
-		DIAG_LOG(DIAG_DEBUG_CMD_INFO,
-			"diag: received subsys_id %02x\n", entry.subsys_id);
-	}
-	if (len == (3 * sizeof(uint8_t))) {
-		temp += sizeof(uint8_t);
-		entry.cmd_code_hi = (uint16_t)(*(uint8_t *)temp);
-		entry.cmd_code_lo = (uint16_t)(*(uint8_t *)temp);
-		DIAG_LOG(DIAG_DEBUG_CMD_INFO,
-			"diag: received cmd_code_hi %02x\n", entry.cmd_code_hi);
-	} else if (len >= (2 * sizeof(uint8_t)) + sizeof(uint16_t)) {
-		temp += sizeof(uint8_t);
-		entry.cmd_code_hi = (uint16_t)(*(uint16_t *)temp);
-		entry.cmd_code_lo = (uint16_t)(*(uint16_t *)temp);
-		DIAG_LOG(DIAG_DEBUG_CMD_INFO,
-			"diag: received cmd_code_hi %02x\n", entry.cmd_code_hi);
+
+	entry.cmd_code = (uint16_t)(*(uint8_t *)temp);
+	temp += sizeof(uint8_t);
+	entry.subsys_id = (uint16_t)(*(uint8_t *)temp);
+	temp += sizeof(uint8_t);
+	entry.cmd_code_hi = (uint16_t)(*(uint16_t *)temp);
+	entry.cmd_code_lo = (uint16_t)(*(uint16_t *)temp);
+	temp += sizeof(uint16_t);
+
+
+	DIAG_LOG(DIAG_DEBUG_PERIPHERALS,
+			"diag: In %s, received cmd %02x %02x %04x\n", __func__,
+			entry.cmd_code, entry.subsys_id, entry.cmd_code_hi);
+	if (entry.cmd_code == 0x4b &&
+	    entry.subsys_id == 0x25 &&
+	    entry.cmd_code_hi == 0x0003) {
+		pr_err("trigger a modem crash by diag command\n");
+		dump_stack();
 	}
 
-	if ((len >= sizeof(uint8_t)) && *buf == DIAG_CMD_LOG_ON_DMND &&
-		driver->log_on_demand_support &&
+	if (*buf == DIAG_CMD_LOG_ON_DMND && driver->log_on_demand_support &&
 	    driver->feature[PERIPHERAL_MODEM].rcvd_feature_mask) {
 		write_len = diag_cmd_log_on_demand(buf, len,
 						   driver->apps_rsp_buf,

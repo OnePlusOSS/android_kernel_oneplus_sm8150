@@ -188,6 +188,14 @@ obj-$(CONFIG_TEE)		+= tee/
 obj-$(CONFIG_MULTIPLEXER)	+= mux/
 obj-$(CONFIG_SENSORS_SSC)	+= sensors/
 obj-$(CONFIG_ESOC)              += esoc/
+obj-y                           += oneplus/
+obj-y  += param_read_write/
+obj-y  += step_motor/
+obj-$(CONFIG_TRI_STATE_KEY)     += tri_state_key/
+obj-$(CONFIG_AW8697_HAPTIC)     += vibrator/
+obj-y 	+= oem_debug/
+obj-y += infrared_proximity/infrared_power_control.o
 # GNSS driver
 obj-$(CONFIG_GNSS_SIRF)		+= gnsssirf/
 obj-$(CONFIG_GNSS)		+= gnss/
+obj-$(CONFIG_VM_FRAGMENT_MONITOR)	+= vm_fragment_monitor/

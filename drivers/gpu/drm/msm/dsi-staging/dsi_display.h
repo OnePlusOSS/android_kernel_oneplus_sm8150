@@ -426,6 +426,7 @@ int dsi_display_validate_mode_change(struct dsi_display *display,
 			struct dsi_display_mode *cur_dsi_mode,
 			struct dsi_display_mode *mode);
 
+extern int msm_drm_notifier_call_chain(unsigned long val, void *v);
 /**
  * dsi_display_set_mode() - Set mode on the display.
  * @display:           Handle to display.
@@ -589,6 +590,10 @@ int dsi_display_set_tpg_state(struct dsi_display *display, bool enable);
 
 int dsi_display_clock_gate(struct dsi_display *display, bool enable);
 int dsi_dispaly_static_frame(struct dsi_display *display, bool enable);
+uint64_t dsi_display_get_serial_number_id(uint64_t serial_number);
+
+int dsi_display_get_serial_number_AT(struct drm_connector *connector);
+
 
 /**
  * dsi_display_enable_event() - enable interrupt based connector event
@@ -712,4 +717,12 @@ int dsi_display_cont_splash_config(void *display);
 int dsi_display_get_panel_vfp(void *display,
 	int h_active, int v_active);
 
+extern int connector_state_crtc_index;
+extern int msm_drm_notifier_call_chain(unsigned long val, void *v);
+
+struct dsi_display *get_main_display(void);
+extern char gamma_para[2][413];
+int dsi_display_gamma_read(struct dsi_display *dsi_display);
+void dsi_display_gamma_read_work(struct work_struct *work);
+extern struct delayed_work *sde_esk_check_delayed_work;
 #endif /* _DSI_DISPLAY_H_ */

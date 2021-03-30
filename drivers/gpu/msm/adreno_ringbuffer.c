@@ -418,6 +418,7 @@ static void _adreno_ringbuffer_close(struct adreno_device *adreno_dev,
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 
 	kgsl_free_global(device, &rb->pagetable_desc);
+	kgsl_free_global(device, &rb->preemption_desc);
 	kgsl_free_global(device, &rb->profile_desc);
 	kgsl_free_global(device, &rb->buffer_desc);
 	kgsl_del_event_group(&rb->events);

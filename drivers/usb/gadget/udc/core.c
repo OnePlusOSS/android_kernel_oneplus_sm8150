@@ -637,6 +637,7 @@ int usb_gadget_vbus_draw(struct usb_gadget *gadget, unsigned mA)
 		goto out;
 	}
 
+	pr_info("%s USB setting current is %umA\n", __func__, mA);
 	ret = gadget->ops->vbus_draw(gadget, mA);
 	if (!ret)
 		gadget->mA = mA;

@@ -37,9 +37,6 @@ struct cam_kmd_buf_info {
 typedef int (*cam_packet_generic_blob_handler)(void *user_data,
 	uint32_t blob_type, uint32_t blob_size, uint8_t *blob_data);
 
-/* set resource bitmap callback function type */
-typedef void (*cam_fill_res_bitmap)(uint32_t res_type, unsigned long *bitmap);
-
 /**
  * cam_packet_util_get_cmd_mem_addr()
  *
@@ -62,13 +59,10 @@ int cam_packet_util_get_cmd_mem_addr(int handle, uint32_t **buf_addr,
  *
  * @packet:                Packet to be validated
  *
- * @remain_len:            CPU buff length after config offset
- *
  * @return:                0 for success
  *                         -EINVAL for Fail
  */
-int cam_packet_util_validate_packet(struct cam_packet *packet,
-	size_t remain_len);
+int cam_packet_util_validate_packet(struct cam_packet *packet);
 
 /**
  * cam_packet_util_validate_cmd_desc()
@@ -106,14 +100,12 @@ int cam_packet_util_get_kmd_buffer(struct cam_packet *packet,
  * @iommu_hdl:          IOMMU handle of the HW Device that received the packet
  * @sec_iommu_hdl:      Secure IOMMU handle of the HW Device that
  *                      received the packet
- * @pf_dump_flag:       if set, it will dump the info,
- *                      otherwise will do patching
  *
  * @return:             0: Success
  *                      Negative: Failure
  */
 int cam_packet_util_process_patches(struct cam_packet *packet,
-	int32_t iommu_hdl, int32_t sec_mmu_hdl, int pf_dump_flag);
+	int32_t iommu_hdl, int32_t sec_mmu_hdl);
 
 /**
  * cam_packet_util_process_generic_cmd_buffer()
@@ -134,21 +126,5 @@ int cam_packet_util_process_patches(struct cam_packet *packet,
 int cam_packet_util_process_generic_cmd_buffer(
 	struct cam_cmd_buf_desc *cmd_buf,
 	cam_packet_generic_blob_handler blob_handler_cb, void *user_data);
-
-/**
- * cam_packet_validate_plane_size()
- *
- * @brief:             Utility function to calculate and validate size of buffer
- *                     required for a format.
- * @io_cfg:            Contains IO config info
- * @plane_index        Plane index for which size is to be calculated
- *
- * @return:            Size of buffer
- *
- */
-int32_t cam_packet_validate_plane_size(
-	struct cam_buf_io_cfg *io_cfg,
-	int plane_index,
-	size_t size);
 
 #endif /* _CAM_PACKET_UTIL_H_ */

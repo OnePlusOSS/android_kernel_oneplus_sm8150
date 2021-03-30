@@ -730,7 +730,7 @@
 	};
 
 	soc {
-		polling-delay-passive = <100>;
+		polling-delay-passive = <1000>;
 		polling-delay = <0>;
 		thermal-governor = "low_limits_cap";
 		thermal-sensors = <&bcl_soc>;
@@ -739,7 +739,12 @@
 
 		trips {
 			soc_trip:soc-trip {
-				temperature = <10>;
+				temperature = <5>;
+				hysteresis = <0>;
+				type = "passive";
+			};
+			soc_trip2:soc-trip2 {
+				temperature = <15>;
 				hysteresis = <0>;
 				type = "passive";
 			};

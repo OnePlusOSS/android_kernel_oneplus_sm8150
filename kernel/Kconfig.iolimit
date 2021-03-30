@@ -1,0 +1,18 @@
+
+config CGROUP_IOLIMIT
+	bool "limit controller whitch use to turn the io-limit feature on"
+	default n
+	help
+	  This feature lets vfs recognize task groups and
+	  control IO bandwidth allocation to such task
+	  groups. It uses cgroups to group tasks. This
+	  is a limit controller whitch use to turn the
+	  io-limit feature on.
+
+config PANIC_FLUSH
+	bool "flush blk device in panic flow"
+	default y
+	help
+	  add flush behaviour in panic flow also contains
+	  the blk_issue_flush statistics information
+	  /proc/sysctl/blkdev_issue_flush_count.

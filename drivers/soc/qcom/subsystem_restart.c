@@ -41,7 +41,15 @@
 #include <asm/current.h>
 #include <linux/timer.h>
 
+
 #include "peripheral-loader.h"
+#include <linux/proc_fs.h>
+#include <linux/oem/param_rw.h>
+#include <linux/timer.h>
+#include <linux/timex.h>
+#include <linux/rtc.h>
+#include <linux/esoc_client.h>
+#include <linux/oneplus/boot_mode.h>
 
 #define DISABLE_SSR 0x9889deed
 /* If set to 0x9889deed, call to subsystem_restart_dev() returns immediately */
@@ -191,6 +199,7 @@ struct subsys_device {
 	struct wakeup_source ssr_wlock;
 	char wlname[64];
 	struct work_struct device_restart_work;
+	struct work_struct crash_record_work;
 	struct subsys_tracking track;
 
 	void *notify;
@@ -201,6 +210,7 @@ struct subsys_device {
 	int id;
 	int restart_level;
 	int crash_count;
+	char crash_reason[256];
 	struct subsys_soc_restart_order *restart_order;
 	bool do_ramdump_on_put;
 	struct cdev char_dev;
@@ -259,6 +269,13 @@ static ssize_t crash_count_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", to_subsys(dev)->crash_count);
 }
 static DEVICE_ATTR_RO(crash_count);
+
+static ssize_t crash_reason_show(struct device *dev, struct device_attribute *attr,
+		char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%s\n", to_subsys(dev)->crash_reason);
+}
+static DEVICE_ATTR_RO(crash_reason);
 
 static ssize_t
 restart_level_show(struct device *dev, struct device_attribute *attr, char *buf)
@@ -386,10 +403,45 @@ void subsys_default_online(struct subsys_device *dev)
 }
 EXPORT_SYMBOL(subsys_default_online);
 
+
+void subsys_send_uevent_notify(struct subsys_desc *desc)
+{
+	char *envp[4];
+	struct subsys_device *dev;
+
+	if (!desc)
+		return;
+
+	dev = find_subsys_device(desc->name);
+	if (!dev)
+		return;
+
+	envp[0] = kasprintf(GFP_KERNEL, "SUBSYSTEM=%s", desc->name);
+	envp[1] = kasprintf(GFP_KERNEL, "CRASHCOUNT=%d", dev->crash_count);
+	envp[2] = kasprintf(GFP_KERNEL, "CRASHREASON=%s", dev->crash_reason);
+	envp[3] = NULL;
+	kobject_uevent_env(&desc->dev->kobj, KOBJ_CHANGE, envp);
+	pr_err("%s %s %s\n", envp[0], envp[1], envp[2]);
+	kfree(envp[2]);
+	kfree(envp[1]);
+	kfree(envp[0]);
+}
+
+void subsys_store_crash_reason(struct subsys_device *dev, char *reason)
+{
+	if (dev == NULL)
+		return;
+
+	if (reason != NULL)
+		strlcpy(dev->crash_reason, reason, sizeof(dev->crash_reason));
+}
+EXPORT_SYMBOL(subsys_store_crash_reason);
+
 static struct attribute *subsys_attrs[] = {
 	&dev_attr_name.attr,
 	&dev_attr_state.attr,
 	&dev_attr_crash_count.attr,
+	&dev_attr_crash_reason.attr,
 	&dev_attr_restart_level.attr,
 	&dev_attr_firmware_name.attr,
 	&dev_attr_system_debug.attr,
@@ -774,6 +826,10 @@ static int subsystem_shutdown(struct subsys_device *dev, void *data)
 	subsys_set_state(dev, SUBSYS_OFFLINE);
 	disable_all_irqs(dev);
 
+	// We send esoc0 uevent in mdm_get_restart_reason()
+	if (strcmp(name, "esoc0"))
+		subsys_send_uevent_notify(dev->desc);
+
 	return 0;
 }
 
@@ -856,6 +912,200 @@ struct subsys_device *find_subsys_device(const char *str)
 	return dev ? to_subsys(dev) : NULL;
 }
 EXPORT_SYMBOL(find_subsys_device);
+
+static int val;
+struct delayed_work	op_restart_modem_work;
+
+static ssize_t proc_restart_level_all_read(struct file *p_file,
+	char __user *puser_buf, size_t count, loff_t *p_offset)
+{
+	ssize_t len = 0;
+
+	len = copy_to_user(puser_buf, val?"1":"0", 1);
+	pr_info("the restart level switch is:%d\n", val);
+	return len;
+}
+
+static ssize_t proc_restart_level_all_write(struct file *p_file,
+	const char __user *puser_buf,
+	size_t count, loff_t *p_offset)
+{
+	char temp[2] = {0};
+	struct subsys_device *subsys;
+	int rc;
+
+	if (copy_from_user(temp, puser_buf, 1))
+		return -EFAULT;
+
+	rc = kstrtoint(temp, 0, &val);
+	if (rc != 0)
+		return -EINVAL;
+
+	cancel_delayed_work_sync(&op_restart_modem_work);
+
+	if (!strncasecmp(&temp[0], "0", 1)) {
+		subsys = find_subsys_device("venus");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+		subsys = find_subsys_device("a640_zap");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+		subsys = find_subsys_device("ipa_fws");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+		subsys = find_subsys_device("adsp");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+		subsys = find_subsys_device("slpi");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+		subsys = find_subsys_device("modem");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+		subsys = find_subsys_device("cdsp");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+		subsys = find_subsys_device("spss");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+		subsys = find_subsys_device("npu");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+		subsys = find_subsys_device("esoc0");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+
+
+	} else if (!strncasecmp(&temp[0], "1", 1)) {
+		subsys = find_subsys_device("venus");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+		subsys = find_subsys_device("a640_zap");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+		subsys = find_subsys_device("ipa_fws");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+		subsys = find_subsys_device("adsp");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+		subsys = find_subsys_device("slpi");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+		subsys = find_subsys_device("modem");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+		subsys = find_subsys_device("cdsp");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+		subsys = find_subsys_device("spss");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+		subsys = find_subsys_device("npu");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+		subsys = find_subsys_device("esoc0");
+		if (!subsys)
+			return -ENODEV;
+		subsys->restart_level = RESET_SOC;
+
+	}
+
+	pr_info("write the restart level switch to :%d\n", val);
+	return count;
+}
+
+static const struct file_operations restart_level_all_operations = {
+	.read = proc_restart_level_all_read,
+	.write = proc_restart_level_all_write,
+};
+
+static void init_restart_level_all_node(void)
+{
+	if (!proc_create("restart_level_all", 0644, NULL,
+			 &restart_level_all_operations)){
+		pr_err("%s : Failed to register proc interface\n", __func__);
+	}
+}
+
+static int restart_level;/*system original val*/
+
+static void op_restart_modem_work_fun(struct work_struct *work)
+{
+	struct subsys_device *subsys = find_subsys_device("modem");
+
+	if (!subsys)
+		return;
+
+	subsys->restart_level = restart_level;
+	pr_err("%s:level=%d\n", __func__,subsys->restart_level);
+}
+
+int op_restart_modem_init(void)
+{
+	INIT_DELAYED_WORK(&op_restart_modem_work, op_restart_modem_work_fun);
+	return 0;
+}
+
+int op_restart_modem(void)
+{
+	struct subsys_device *subsys = find_subsys_device("modem");
+	if (get_oem_project() == 19861) {
+		pr_err("%s: Skip subsystem_restart(modem) for SDX55 platform\n",
+				__func__);
+		return 0;
+	}
+
+	if (!subsys)
+		return -ENODEV;
+	pr_err("%s:level=%d\n", __func__,subsys->restart_level);
+	restart_level = subsys->restart_level;
+	subsys->restart_level = RESET_SUBSYS_COUPLED;
+	if (subsystem_restart("modem") == -ENODEV)
+		pr_err("%s: SSR call failed\n", __func__);
+
+	schedule_delayed_work(&op_restart_modem_work,
+			msecs_to_jiffies(10*1000));
+	return 0;
+}
+EXPORT_SYMBOL(op_restart_modem);
 
 static int subsys_start(struct subsys_device *subsys)
 {
@@ -978,7 +1228,8 @@ void *__subsystem_get(const char *name, const char *fw_name)
 
 	if (!name)
 		return NULL;
-
+	if (fw_name && !strcmp(fw_name, "modem"))
+		msleep(3000);
 	subsys = retval = find_subsys_device(name);
 	if (!subsys)
 		return ERR_PTR(-ENODEV);
@@ -1231,8 +1482,108 @@ static void device_restart_work_hdlr(struct work_struct *work)
 	 * sync() and fclose() on attempting the dump.
 	 */
 	msleep(100);
-	panic("subsys-restart: Resetting the SoC - %s crashed.",
+	if (true == modem_5G_panic) {
+		panic("5G DUMP : The expected panic to get 5G dump. ");
+	} else {
+		panic("subsys-restart: Resetting the SoC - %s crashed.",
 							dev->desc->name);
+	}
+}
+
+#define KMSG_BUFSIZE 512
+#define MAX_RECORD_COUNT 16
+#define PARAM_CRASH_RECORD_SIZE 20
+
+struct crash_index_list {
+	const char *crash_log_name;
+	const char *crash_index;
+};
+
+static struct crash_index_list crash_index[] = {
+	{ "modem",     "08"},
+	{ "slpi",      "09"},
+	{ "adsp",      "10"},
+	{ "AR6320",    "11"},
+	{ 0,            0 },
+};
+
+void check_crash_restart(struct work_struct *work)
+{
+	struct subsys_device *dev = container_of(work, struct subsys_device,
+							crash_record_work);
+	const char *name = dev->desc->name;
+	char crash_time[19];
+	char param_value[21];
+	int split = 0, times = 0;
+	int rc = 0;
+	int i = 0;
+	int crash_record_count = 0;
+	int is_find_key_word = 0;
+
+	struct timespec64 tspec;
+	struct rtc_time tm;
+	extern struct timezone sys_tz;
+	uint32 param_crash_record_offset = 0;
+
+	for (i = 0; crash_index[i].crash_index; i++) {
+		if (!strcmp(name, crash_index[i].crash_log_name)) {
+
+			/* Clean param_value buffer*/
+			memset(param_value, 0, sizeof(param_value));
+
+			/* Get crash key word ID */
+			strlcat(param_value, crash_index[i].crash_index,
+				sizeof(param_value));
+
+			if (!strcmp("08", crash_index[i].crash_index))
+				add_restart_08_count();
+			else
+				add_restart_other_count();
+
+			__getnstimeofday64(&tspec);
+			if (sys_tz.tz_minuteswest < 0 ||
+				(tspec.tv_sec - sys_tz.tz_minuteswest*60) >= 0)
+				tspec.tv_sec -= sys_tz.tz_minuteswest * 60;
+			rtc_time_to_tm(tspec.tv_sec, &tm);
+			scnprintf(crash_time, sizeof(crash_time),
+				"%02d%02d%02d_%02d:%02d:%02d",
+				tm.tm_year + 1900, tm.tm_mon + 1,
+				tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+
+			strlcat(param_value, crash_time, sizeof(param_value));
+
+			/* If find crash keyword, store crash record flag */
+			is_find_key_word = 1;
+		}
+	}
+
+	if (is_find_key_word) {
+		get_param_by_index_and_offset(9, 0x18, &crash_record_count,
+			sizeof(crash_record_count));
+		param_crash_record_offset = 0x1C;
+		param_crash_record_offset = param_crash_record_offset +
+			(crash_record_count * PARAM_CRASH_RECORD_SIZE);
+
+		pr_err("subsystem_restart: check_crash_restart: param_value = %s\n",
+			param_value);
+
+		/* Write crash record to PARAM */
+		split = sizeof(param_value)/4;
+		for (times = 0; times < split; times++) {
+			rc = set_param_by_index_and_offset(9,
+				param_crash_record_offset,
+					&param_value[times*4], 4);
+			param_crash_record_offset =
+				param_crash_record_offset + 4;
+		}
+
+		/* Counter+1 */
+		crash_record_count = crash_record_count + 1;
+		crash_record_count = crash_record_count % MAX_RECORD_COUNT;
+		set_param_by_index_and_offset(9, 0x18, &crash_record_count,
+			sizeof(crash_record_count));
+	}
+
 }
 
 int subsystem_restart_dev(struct subsys_device *dev)
@@ -1250,6 +1601,8 @@ int subsystem_restart_dev(struct subsys_device *dev)
 	name = dev->desc->name;
 
 	send_early_notifications(dev->early_notify);
+
+	schedule_work(&dev->crash_record_work);
 
 	/*
 	 * If a system reboot/shutdown is underway, ignore subsystem errors.
@@ -1277,8 +1630,20 @@ int subsystem_restart_dev(struct subsys_device *dev)
 		__subsystem_restart_dev(dev);
 		break;
 	case RESET_SOC:
-		__pm_stay_awake(&dev->ssr_wlock);
-		schedule_work(&dev->device_restart_work);
+		pr_err("[OEM_MDM] RESET_SOC [%s]\n", name);
+		if (get_ssr_reason_state() && is_oem_esoc_ssr() == 0 &&
+				!(strcmp(name, "esoc0")) && oem_get_download_mode()) {
+			pr_err("[OEM_MDM] SDX5x %s force SSR to get dump\n",
+					name);
+			oem_set_esoc_ssr(1);
+			__subsystem_restart_dev(dev);
+		} else if (is_oem_esoc_ssr() == 1) {
+			pr_err(
+			"[OEM_MDM] Skip SS crash because SDX5x has collapsed\n");
+		} else {
+			__pm_stay_awake(&dev->ssr_wlock);
+			schedule_work(&dev->device_restart_work);
+		}
 		return 0;
 	default:
 		panic("subsys-restart: Unknown restart level!\n");
@@ -1837,6 +2202,7 @@ struct subsys_device *subsys_register(struct subsys_desc *desc)
 
 	snprintf(subsys->wlname, sizeof(subsys->wlname), "ssr(%s)", desc->name);
 	wakeup_source_init(&subsys->ssr_wlock, subsys->wlname);
+	INIT_WORK(&subsys->crash_record_work, check_crash_restart);
 	INIT_WORK(&subsys->work, subsystem_restart_wq_func);
 	INIT_WORK(&subsys->device_restart_work, device_restart_work_hdlr);
 	spin_lock_init(&subsys->track.s_lock);
@@ -1908,7 +2274,7 @@ struct subsys_device *subsys_register(struct subsys_desc *desc)
 		if (ret < 0)
 			goto err_setup_irqs;
 	}
-
+	op_restart_modem_init();
 	return subsys;
 err_setup_irqs:
 	if (subsys->desc->edge)
@@ -2001,6 +2367,7 @@ static int __init subsys_restart_init(void)
 	if (ret)
 		goto err_soc;
 
+	init_restart_level_all_node();
 	return 0;
 
 err_soc:

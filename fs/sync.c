@@ -17,6 +17,9 @@
 #include <linux/quotaops.h>
 #include <linux/backing-dev.h>
 #include "internal.h"
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+#include <linux/oem/oneplus_healthinfo.h>
+#endif
 
 #define VALID_FLAGS (SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE| \
 			SYNC_FILE_RANGE_WAIT_AFTER)
@@ -211,16 +214,28 @@ int vfs_fsync(struct file *file, int datasync)
 }
 EXPORT_SYMBOL(vfs_fsync);
 
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+extern void ohm_schedstats_record(int sched_type, struct task_struct *task, u64 delta_ms);
+#endif
+
 static int do_fsync(unsigned int fd, int datasync)
 {
 	struct fd f = fdget(fd);
 	int ret = -EBADF;
+
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+	unsigned long oneplus_fsync_time = jiffies;
+#endif
 
 	if (f.file) {
 		ret = vfs_fsync(f.file, datasync);
 		fdput(f);
 		inc_syscfs(current);
 	}
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+	ohm_schedstats_record(OHM_SCHED_FSYNC, current,
+			jiffies_to_msecs(jiffies - oneplus_fsync_time));
+#endif
 	return ret;
 }
 

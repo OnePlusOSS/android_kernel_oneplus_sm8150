@@ -42,11 +42,8 @@
 #define HFI_REG_UNCACHED_HEAP_PTR               0x5C
 #define HFI_REG_UNCACHED_HEAP_SIZE              0x60
 #define HFI_REG_QDSS_IOVA                       0x6C
-#define HFI_REG_SFR_PTR                         0x68
 #define HFI_REG_QDSS_IOVA_SIZE                  0x70
-#define HFI_REG_IO_REGION_IOVA                  0x74
-#define HFI_REG_IO_REGION_SIZE                  0x78
-
+#define HFI_REG_SFR_PTR                         0x68
 /* end of ICP CSR registers */
 
 /* flags for ICP CSR registers */

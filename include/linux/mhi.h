@@ -24,6 +24,8 @@ struct mhi_sfr_info;
 
 #define REG_WRITE_QUEUE_LEN 1024
 
+#define REG_WRITE_QUEUE_LEN 1024
+
 /**
  * enum MHI_CB - MHI callback
  * @MHI_CB_IDLE: MHI entered idle state
@@ -609,7 +611,6 @@ void mhi_device_get(struct mhi_device *mhi_dev, int vote);
  * @vote: requested vote (bus, device or both)
  */
 int mhi_device_get_sync(struct mhi_device *mhi_dev, int vote);
-
 /**
  * mhi_device_get_sync_atomic - Asserts device_wait and moves device to M0
  * @mhi_dev: Device associated with the channels

@@ -1827,10 +1827,15 @@ fetch_events:
 			}
 
 			spin_unlock_irqrestore(&ep->lock, flags);
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+			current->in_epoll = 1;
+#endif
 			if (!freezable_schedule_hrtimeout_range(to, slack,
 								HRTIMER_MODE_ABS))
 				timed_out = 1;
-
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+			current->in_epoll = 0;
+#endif
 			spin_lock_irqsave(&ep->lock, flags);
 		}
 

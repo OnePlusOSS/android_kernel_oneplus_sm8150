@@ -756,3 +756,6 @@ comment "LED Triggers"
 source "drivers/leds/trigger/Kconfig"
 
 endif # NEW_LEDS
+
+#step_motor
+#source "drivers/leds/step_motor/Kconfig"

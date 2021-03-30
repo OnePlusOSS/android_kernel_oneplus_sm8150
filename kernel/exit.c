@@ -61,12 +61,25 @@
 #include <linux/kcov.h>
 #include <linux/random.h>
 #include <linux/rcuwait.h>
+#ifdef CONFIG_ADJ_CHAIN
+#include <linux/oem/adj_chain.h>
+#endif
 #include <linux/compat.h>
 
 #include <linux/uaccess.h>
 #include <asm/unistd.h>
 #include <asm/pgtable.h>
 #include <asm/mmu_context.h>
+
+#ifdef CONFIG_HOUSTON
+#include <oneplus/houston/houston_helper.h>
+#endif
+
+#ifdef CONFIG_CONTROL_CENTER
+#include <oneplus/control_center/control_center_helper.h>
+#endif
+
+#include <linux/oem/im.h>
 
 static void __unhash_process(struct task_struct *p, bool group_dead)
 {
@@ -76,6 +89,9 @@ static void __unhash_process(struct task_struct *p, bool group_dead)
 		detach_pid(p, PIDTYPE_PGID);
 		detach_pid(p, PIDTYPE_SID);
 
+#ifdef CONFIG_ADJ_CHAIN
+		adj_chain_detach(p);
+#endif
 		list_del_rcu(&p->tasks);
 		list_del_init(&p->sibling);
 		__this_cpu_dec(process_counts);
@@ -185,6 +201,20 @@ void release_task(struct task_struct *p)
 {
 	struct task_struct *leader;
 	int zap_leader;
+
+#ifdef CONFIG_HOUSTON
+	ht_rtg_list_del(p);
+#endif
+#ifdef CONFIG_IM
+	if (!im_render_grouping_enable())
+		im_list_del_task(p);
+#endif
+	if (p->fpack) {
+		if (p->fpack->iname)
+			__putname(p->fpack->iname);
+		kfree(p->fpack);
+		p->fpack = NULL;
+	}
 repeat:
 	/* don't need to get the RCU readlock here - the process is dead and
 	 * can't be modifying its own credentials. But shut RCU-lockdep up */
@@ -879,6 +909,14 @@ void __noreturn do_exit(long code)
 	exit_task_namespaces(tsk);
 	exit_task_work(tsk);
 	exit_thread(tsk);
+
+#ifdef CONFIG_CONTROL_CENTER
+	cc_tsk_free((void*) tsk);
+#endif
+
+#ifdef CONFIG_HOUSTON
+	ht_perf_event_release(tsk);
+#endif
 
 	/*
 	 * Flush inherited counters to the parent - before the parent

@@ -447,8 +447,14 @@ struct page *__read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask,
 			/*
 			 * Initiate read into locked page and return.
 			 */
+
 			SetPageWorkingset(new_page);
-			lru_cache_add_anon(new_page);
+
+			if (memplus_enabled())
+				__lru_cache_add_active_or_unevictable(new_page, 0);
+			else
+				lru_cache_add_anon(new_page);
+
 			*new_page_allocated = true;
 			return new_page;
 		}

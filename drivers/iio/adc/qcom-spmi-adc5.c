@@ -761,6 +761,10 @@ static const struct adc_channels adc_chans_pmic5[ADC_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_CUR)
 	[ADC_AMUX_THM2]			= ADC_CHAN_TEMP("amux_thm2", 1,
 					SCALE_HW_CALIB_PM5_SMB_TEMP)
+	[ADC_GPIO2_PU1]			= ADC_CHAN_VOLT("gpio12_v", 1,
+					SCALE_HW_CALIB_DEFAULT)
+	[ADC_AMUX_THM4_PU1]		= ADC_CHAN_VOLT("gpio1_v", 1,
+					SCALE_HW_CALIB_DEFAULT)
 	[ADC_AMUX_THM3]			= ADC_CHAN_TEMP("amux_thm3", 1,
 					SCALE_HW_CALIB_PM5_SMB_TEMP)
 	[ADC_GPIO1_PU2]	= ADC_CHAN_TEMP("gpio1_pu2", 1,

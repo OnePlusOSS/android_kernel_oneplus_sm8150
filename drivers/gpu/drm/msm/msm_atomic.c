@@ -37,7 +37,7 @@ struct msm_commit {
 };
 
 static BLOCKING_NOTIFIER_HEAD(msm_drm_notifier_list);
-
+int connector_state_crtc_index;
 /**
  * msm_drm_register_client - register a client notifier
  * @nb: notifier block to callback on events
@@ -73,11 +73,12 @@ EXPORT_SYMBOL(msm_drm_unregister_client);
  * @v: notifier data, inculde display id and display blank
  *     event(unblank or power down).
  */
-static int msm_drm_notifier_call_chain(unsigned long val, void *v)
+int msm_drm_notifier_call_chain(unsigned long val, void *v)
 {
 	return blocking_notifier_call_chain(&msm_drm_notifier_list, val,
 					    v);
 }
+EXPORT_SYMBOL(msm_drm_notifier_call_chain);
 
 /* block until specified crtcs are no longer pending update, and
  * atomically mark them as pending update
@@ -263,6 +264,7 @@ msm_disable_outputs(struct drm_device *dev, struct drm_atomic_state *old_state)
 			blank = MSM_DRM_BLANK_POWERDOWN;
 			notifier_data.data = &blank;
 			notifier_data.id = crtc_idx;
+			connector_state_crtc_index = crtc_idx;
 			msm_drm_notifier_call_chain(MSM_DRM_EARLY_EVENT_BLANK,
 						     &notifier_data);
 		}
@@ -502,6 +504,8 @@ static void msm_atomic_helper_commit_modeset_enables(struct drm_device *dev,
 			notifier_data.id =
 				connector->state->crtc->index;
 			DRM_DEBUG_ATOMIC("Notify early unblank\n");
+			connector_state_crtc_index =
+				connector->state->crtc->index;
 			msm_drm_notifier_call_chain(MSM_DRM_EARLY_EVENT_BLANK,
 					    &notifier_data);
 		}
@@ -604,6 +608,8 @@ static void complete_commit(struct msm_commit *c)
 	kms->funcs->complete_commit(kms, state);
 
 	drm_atomic_state_put(state);
+
+	priv->commit_end_time =  ktime_get(); //commit end time
 
 	commit_destroy(c);
 }

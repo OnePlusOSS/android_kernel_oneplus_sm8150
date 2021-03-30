@@ -82,17 +82,16 @@ static inline int msm_msi_init(struct device *dev)
 #ifdef CONFIG_PCI_MSM
 
 /**
- * msm_pcie_allow_l1 - allow PCIe link to re-enter L1
- * @pci_dev:		client's pci device structure
+ * msm_pcie_allow_l1 - allow PCIe link to enter L1
+ * @pci_dev:          client's pci device structure
  *
- * This function gives PCIe clients the control to allow the link to re-enter
- * L1. Should only be used after msm_pcie_prevent_l1 has been called.
+ * This function gives PCIe clients the control to allow the link to enter L1.
  */
 void msm_pcie_allow_l1(struct pci_dev *pci_dev);
 
 /**
- * msm_pcie_request_not_enter_l1 - keeps PCIe link out of L1
- * @pci_dev:		client's pci device structure
+ * msm_pcie_prevent_l1 - keeps PCIe link out of L1
+ * @pci_dev:          client's pci device structure
  *
  * This function gives PCIe clients the control to exit and prevent the link
  * from entering L1.
@@ -238,11 +237,11 @@ static inline int msm_pcie_pm_control(enum msm_pcie_pm_opt pm_opt, u32 busnr,
 	return -ENODEV;
 }
 
-static inline void msm_pcie_request_allow_l1(struct pci_dev *pci_dev)
+static inline void msm_pcie_allow_l1(struct pci_dev *pci_dev)
 {
 }
 
-static inline int msm_pcie_request_not_enter_l1(struct pci_dev *pci_dev)
+static inline int msm_pcie_prevent_l1(struct pci_dev *pci_dev)
 {
 	return -ENODEV;
 }

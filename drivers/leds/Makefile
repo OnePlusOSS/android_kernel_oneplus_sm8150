@@ -88,3 +88,6 @@ obj-$(CONFIG_LEDS_USER)			+= uleds.o
 
 # LED Triggers
 obj-$(CONFIG_LEDS_TRIGGERS)		+= trigger/
+
+#step motor
+#obj-$(CONFIG_STEP_MOTOR)        += step_motor/

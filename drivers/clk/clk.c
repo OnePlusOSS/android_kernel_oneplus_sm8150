@@ -30,6 +30,11 @@
 
 #include "clk.h"
 
+#include <linux/kobject.h>
+#include <linux/sysfs.h>
+#include <linux/proc_fs.h>
+#include "../soc/qcom/rpmh_master_stat.h"
+
 #if defined(CONFIG_COMMON_CLK)
 
 static DEFINE_SPINLOCK(enable_lock);
@@ -40,6 +45,8 @@ static struct task_struct *enable_owner;
 
 static int prepare_refcnt;
 static int enable_refcnt;
+
+static unsigned int debug_suspend_flag;
 
 static HLIST_HEAD(clk_root_list);
 static HLIST_HEAD(clk_orphan_list);
@@ -2688,6 +2695,7 @@ EXPORT_SYMBOL_GPL(clk_set_flags);
 #include <linux/debugfs.h>
 
 static struct dentry *rootdir;
+static struct proc_dir_entry *procdir;
 static int inited = 0;
 static u32 debug_suspend;
 static DEFINE_MUTEX(clk_debug_lock);
@@ -3459,6 +3467,25 @@ void clock_debug_print_enabled(bool print_parent)
 }
 EXPORT_SYMBOL_GPL(clock_debug_print_enabled);
 
+static ssize_t debug_suspend_show(struct kobject *kobj,
+			struct kobj_attribute *attr, char *buf)
+{
+	return snprintf(buf, sizeof(buf), "%d\n", debug_suspend_flag);
+}
+
+static ssize_t debug_suspend_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	if (kstrtouint(buf, 10, &debug_suspend_flag))
+		return -EINVAL;
+
+	pr_info("debug_suspend flag: %d", debug_suspend_flag);
+	return count;
+}
+
+static struct kobj_attribute debug_suspend_attribute =
+__ATTR(debug_suspend, 0644, debug_suspend_show, debug_suspend_store);
+
 /**
  * clk_debug_init - lazily populate the debugfs clk directory
  *
@@ -3471,54 +3498,38 @@ EXPORT_SYMBOL_GPL(clock_debug_print_enabled);
 static int __init clk_debug_init(void)
 {
 	struct clk_core *core;
-	struct dentry *d;
+	int ret;
 
 	rootdir = debugfs_create_dir("clk", NULL);
 
-	if (!rootdir)
-		return -ENOMEM;
-
-	d = debugfs_create_file("clk_summary", 0444, rootdir, &all_lists,
-				&clk_summary_fops);
-	if (!d)
-		return -ENOMEM;
-
-	d = debugfs_create_file("clk_dump", 0444, rootdir, &all_lists,
-				&clk_dump_fops);
-	if (!d)
-		return -ENOMEM;
-
-	d = debugfs_create_file("clk_orphan_summary", 0444, rootdir,
-				&orphan_list, &clk_summary_fops);
-	if (!d)
-		return -ENOMEM;
-
-	d = debugfs_create_file("clk_orphan_dump", 0444, rootdir,
-				&orphan_list, &clk_dump_fops);
-	if (!d)
-		return -ENOMEM;
-
-	d = debugfs_create_file("clk_enabled_list", 0444, rootdir,
-				&clk_debug_list, &clk_enabled_list_fops);
-	if (!d)
-		return -ENOMEM;
-
-
-	d = debugfs_create_u32("debug_suspend", 0644, rootdir, &debug_suspend);
-	if (!d)
-		return -ENOMEM;
-
-	d = debugfs_create_file("trace_clocks", 0444, rootdir, &all_lists,
-				&clk_state_fops);
-	if (!d)
-		return -ENOMEM;
-
+	debugfs_create_file("clk_summary", 0444, rootdir, &all_lists,
+			&clk_summary_fops);
+	debugfs_create_file("clk_dump", 0444, rootdir, &all_lists,
+			&clk_dump_fops);
+	debugfs_create_file("clk_orphan_summary", 0444, rootdir,
+			&orphan_list, &clk_summary_fops);
+	debugfs_create_file("clk_orphan_dump", 0444, rootdir,
+			&orphan_list, &clk_dump_fops);
+	debugfs_create_file("clk_enabled_list", 0444, rootdir,
+		&clk_debug_list, &clk_enabled_list_fops);
+	debugfs_create_u32("debug_suspend", 0644, rootdir, &debug_suspend);
+	debugfs_create_file("trace_clocks", 0444, rootdir, &all_lists,
+			&clk_state_fops);
 	mutex_lock(&clk_debug_lock);
 	hlist_for_each_entry(core, &clk_debug_list, debug_node)
 		clk_debug_create_one(core, rootdir);
 
 	inited = 1;
 	mutex_unlock(&clk_debug_lock);
+
+	ret = sysfs_create_file(power_kobj, &debug_suspend_attribute.attr);
+	if (ret < 0)
+		pr_err("Failed to create debug_suspend sysfs.");
+	else
+		pr_err("Success to create debug_suspend sysfs.");
+
+	procdir = proc_mkdir("power", NULL);
+	proc_create("clk_enabled_list", 0444, procdir, &clk_enabled_list_fops);
 
 	return 0;
 }

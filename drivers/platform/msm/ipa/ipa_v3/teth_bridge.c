@@ -216,8 +216,7 @@ int ipa3_teth_bridge_connect(struct teth_bridge_connect_params *connect_params)
 		}
 		reg_params.group = IPA_PM_GROUP_MODEM;
 		reg_params.skip_clk_vote = true;
-		res = ipa_pm_register(&reg_params,
-			pm);
+		res = ipa_pm_register(&reg_params, pm);
 		if (res) {
 			TETH_ERR("fail to register with PM %d\n", res);
 			return res;

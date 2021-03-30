@@ -280,6 +280,11 @@ ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	if (ret > 0)
 		ret = generic_write_sync(iocb, ret);
 
+	if (memcmp(current->group_leader->comm, "logd", 4) &&
+		memcmp(current->group_leader->comm, "logcat", 6)) {
+		current->compensate_need = 1;
+		current->compensate_time += 4000000;
+	}
 	return ret;
 
 out:

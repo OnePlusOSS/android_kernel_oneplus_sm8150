@@ -1656,6 +1656,15 @@ config SLUB_DEBUG
 	  SLUB sysfs support. /sys/slab will not exist and there will be
 	  no support for cache validation etc.
 
+config SLAB_STAT_DEBUG
+	default n
+	bool "Enable Collect SLUB debug information statisticst" if EXPERT
+	depends on !SLUB_DEBUG
+	help
+	  If open SLUB_DEBUG, there are more code and will degradte perforance.
+	  To get more slab details, such as the total objects, this option is
+	  to collect slab info on SLUB_DEBUG is closed.
+
 config SLUB_MEMCG_SYSFS_ON
 	default n
 	bool "Enable memcg SLUB sysfs support by default" if EXPERT
@@ -1824,7 +1833,7 @@ config HAVE_GENERIC_DMA_COHERENT
 config SLABINFO
 	bool
 	depends on PROC_FS
-	depends on SLAB || SLUB_DEBUG
+	depends on SLAB || SLUB_DEBUG || SLAB_STAT_DEBUG
 	default y
 
 config RT_MUTEXES

@@ -549,7 +549,7 @@
 	};
 
 	chosen {
-		bootargs = "rcupdate.rcu_expedited=1 rcu_nocbs=0-7 cgroup.memory=nokmem,nosocket";
+		bootargs = "rcupdate.rcu_expedited=1 rcu_nocbs=0-7 cgroup.memory=nokmem,nosocket kpti=off";
 	};
 
 	soc: soc { };
@@ -565,7 +565,7 @@
 				compatible = "android,fstab";
 				vendor {
 					compatible = "android,vendor";
-					dev = "/dev/block/platform/soc/8804000.sdhci/by-name/vendor";
+					dev = "/dev/block/platform/soc/1d84000.sdhci/by-name/vendor";
 					type = "ext4";
 					mnt_flags = "ro,barrier=1,discard";
 					fsmgr_flags = "wait,slotselect,avb";
@@ -2421,6 +2421,7 @@
 		compatible = "qcom,msm-fastrpc-compute";
 		qcom,fastrpc-adsp-audio-pdr;
 		qcom,rpc-latency-us = <235>;
+		qcom,secure-domains = <0x0F>;
 
 		qcom,msm_fastrpc_compute_cb1 {
 			compatible = "qcom,msm-fastrpc-compute-cb";
@@ -3026,7 +3027,8 @@
 
 	qcom_seecom: qseecom@87900000 {
 		compatible = "qcom,qseecom";
-		reg = <0x87900000 0x2200000>;
+		/* enlarge TA memory size from 34M to 62M on 2018/11/22 */
+		reg = <0x87900000 0x3E00000>;
 		reg-names = "secapp-region";
 		memory-region = <&qseecom_mem>;
 		qcom,hlos-num-ce-hw-instances = <1>;
@@ -3043,7 +3045,8 @@
 
 	qcom_smcinvoke: smcinvoke@87900000 {
 		compatible = "qcom,smcinvoke";
-		reg = <0x87900000 0x2200000>;
+		/* enlarge TA memory size from 34M to 62M on 2018/11/22 */
+		reg = <0x87900000 0x3E00000>;
 		reg-names = "secapp-region";
 	};
 

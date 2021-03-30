@@ -34,6 +34,19 @@
 #include <linux/regulator/of_regulator.h>
 #include <linux/qpnp/qpnp-pbs.h>
 #include <linux/qpnp/qpnp-misc.h>
+#include <linux/power/oem_external_fg.h>
+
+#include <linux/syscalls.h>
+#include <linux/atomic.h>
+#include <linux/oem/param_rw.h>
+#include <linux/oneplus/boot_mode.h>
+
+#include <linux/oem_force_dump.h>
+
+#include <linux/sched/debug.h>
+#include <linux/msm_drm_notify.h>
+
+#include "../../power/reset/msm-poweroff.h"
 
 #define PMIC_VER_8941				0x01
 #define PMIC_VERSION_REG			0x0105
@@ -200,7 +213,7 @@ struct pon_regulator {
 	u32			bit;
 	bool			enabled;
 };
-
+/*
 struct qpnp_pon {
 	struct device		*dev;
 	struct regmap		*regmap;
@@ -244,7 +257,7 @@ struct qpnp_pon {
 	struct notifier_block	pon_nb;
 	bool			legacy_hard_reset_offset;
 };
-
+*/
 static int pon_ship_mode_en;
 module_param_named(
 	ship_mode_en, pon_ship_mode_en, int, 0600
@@ -977,6 +990,17 @@ static int qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 	switch (cfg->pon_type) {
 	case PON_KPDPWR:
 		pon_rt_bit = QPNP_PON_KPDPWR_N_SET;
+		if ((pon_rt_sts & pon_rt_bit) == 0) {
+			pr_info("Power-Key UP\n");
+			set_pwr_status(key_released);
+			schedule_work(&pon->up_work);
+			cancel_delayed_work(&pon->press_work);
+			cancel_delayed_work(&pon->press_pwr);
+		} else {
+			pr_info("Power-Key DOWN\n");
+			schedule_delayed_work(&pon->press_work, msecs_to_jiffies(4000));
+			schedule_delayed_work(&pon->press_pwr, msecs_to_jiffies(6000));
+		}
 		break;
 	case PON_RESIN:
 		pon_rt_bit = QPNP_PON_RESIN_N_SET;
@@ -1013,6 +1037,7 @@ static int qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 	input_sync(pon->pon_input);
 
 	cfg->old_state = !!key_status;
+	oem_check_force_dump_key(cfg->key_code, key_status);
 
 	return 0;
 }
@@ -1162,6 +1187,129 @@ static void bark_work_func(struct work_struct *work)
 	}
 }
 
+int check_powerkey_count(int press)
+{
+    int ret=0;
+    int param_poweroff_count=0;
+
+    ret = get_param_by_index_and_offset(13, 0x30, &param_poweroff_count,
+        sizeof(param_poweroff_count));
+
+    if(press)
+        param_poweroff_count ++ ;
+    else
+        param_poweroff_count -- ;
+
+    ret = set_param_by_index_and_offset(13, 0x30, &param_poweroff_count,
+        sizeof(param_poweroff_count));
+    pr_info("param_poweroff_count=%d \n",param_poweroff_count);
+    return 0;
+}
+
+int qpnp_powerkey_state_check(struct qpnp_pon *pon,int up)
+{
+    int rc =0;
+
+    if (get_boot_mode() !=  MSM_BOOT_MODE__NORMAL)
+        return 0;
+
+    if ( up ) {
+        rc = atomic_read(&pon->press_count);
+        if (rc < 1) {
+            atomic_inc(&pon->press_count);
+            check_powerkey_count(1);
+        }
+    }
+    else {
+        rc = atomic_read(&pon->press_count);
+        if(rc > 0) {
+            atomic_dec(&pon->press_count);
+            check_powerkey_count(0);
+        }
+    }
+    return 0;
+}
+
+static void up_work_func(struct work_struct *work)
+{
+    struct qpnp_pon *pon =
+        container_of(work, struct qpnp_pon, up_work);
+
+    qpnp_powerkey_state_check(pon,0);
+    return;
+}
+
+static void press_work_func(struct work_struct *work)
+{
+	int display_bl, boot_mode;
+	int rc;
+	uint pon_rt_sts = 0;
+	struct qpnp_pon_config *cfg;
+	struct qpnp_pon *pon =
+		container_of(work, struct qpnp_pon, press_work.work);
+
+	cfg = qpnp_get_cfg(pon, PON_KPDPWR);
+	if (!cfg) {
+		dev_err(pon->dev, "Invalid config pointer\n");
+		goto err_return;
+	}
+	/* check the RT status to get the current status of the line */
+	rc = regmap_read(pon->regmap, QPNP_PON_RT_STS(pon), &pon_rt_sts);
+	if (rc) {
+		dev_err(pon->dev, "Unable to read PON RT status\n");
+		goto err_return;
+	}
+	if ((pon_rt_sts & QPNP_PON_KPDPWR_N_SET) == 1) {
+		qpnp_powerkey_state_check(pon, 1);
+		dev_err(pon->dev, "after 4s Power-Key is still DOWN\n");
+		display_bl = dsi_panel_backlight_get();
+		boot_mode = get_boot_mode();
+		if (display_bl == 0 && boot_mode == MSM_BOOT_MODE__NORMAL) {
+			oem_force_minidump_mode();
+			show_state_filter(TASK_UNINTERRUPTIBLE);
+			send_sig_to_get_trace("system_server");
+			panic("power key still pressed\n");
+		}
+	}
+	msleep(20);
+	sys_sync();
+err_return:
+	return;
+}
+
+static void press_pwr_func(struct work_struct *work)
+{
+	int rc;
+	uint pon_rt_sts = 0;
+	struct qpnp_pon_config *cfg;
+	struct qpnp_pon *pon =
+		container_of(work, struct qpnp_pon, press_pwr.work);
+
+	cfg = qpnp_get_cfg(pon, PON_KPDPWR);
+	if (!cfg) {
+		dev_err(pon->dev, "Invalid config pointer\n");
+		goto err_return;
+	}
+	/* check the RT status to get the current status of the line */
+	rc = regmap_read(pon->regmap, QPNP_PON_RT_STS(pon), &pon_rt_sts);
+	if (rc) {
+		dev_err(pon->dev, "Unable to read PON RT status\n");
+		goto err_return;
+	}
+
+	if ((pon_rt_sts & QPNP_PON_KPDPWR_N_SET) == 1) {
+		qpnp_powerkey_state_check(pon, 1);
+		dev_err(pon->dev, "after 8s Power-Key is still DOWN\n");
+		set_pwr_status(key_pressed);
+		compound_key_to_get_trace("system_server");
+	}
+	msleep(20);
+	sys_sync();
+err_return:
+	return;
+}
+
+
 static irqreturn_t qpnp_resin_bark_irq(int irq, void *_pon)
 {
 	struct qpnp_pon *pon = _pon;
@@ -1192,6 +1340,84 @@ static irqreturn_t qpnp_resin_bark_irq(int irq, void *_pon)
 
 	return IRQ_HANDLED;
 }
+static int qpnp_config_reset(struct qpnp_pon *pon, struct qpnp_pon_config *cfg);
+
+static unsigned int pwr_dump_enabled = -1;
+static unsigned int long_pwr_dump_enabled = -1;
+
+static  int param_set_pwr_dump_enabled(const char *val, const struct kernel_param *kp)
+{
+	unsigned long enable;
+	struct qpnp_pon *pon = sys_reset_dev;
+	struct qpnp_pon_config *cfg = NULL;
+	int rc;
+
+	if (!val || kstrtoul(val, 0, &enable) || enable > 1)
+		return -EINVAL;
+
+	cfg = qpnp_get_cfg(pon, 0); /*0 means pwr key */
+	if (!cfg)
+		return -EINVAL;
+	pr_info("pwr_dump_enabled = %d and request enable = %d\n",
+			pwr_dump_enabled, (unsigned int)enable);
+	if (pwr_dump_enabled != enable) {
+		cfg->s1_timer = 1352; /*reduce this time */
+		cfg->s2_type = 1;/*change s2 type to warm reset*/
+		rc = qpnp_config_reset(pon, cfg);
+
+		/*if we need enable this feature, */
+		/*we should disable wakeup capability */
+		if (enable)
+			disable_irq_wake(cfg->state_irq);
+		else
+			enable_irq_wake(cfg->state_irq);
+		pwr_dump_enabled = enable;
+	}
+	return 0;
+}
+
+static  int param_set_long_press_pwr_dump_enabled
+(const char *val,const struct kernel_param *kp)
+{
+	unsigned long enable;
+	struct qpnp_pon *pon = sys_reset_dev;
+	struct qpnp_pon_config *cfg = NULL;
+	int rc;
+
+	if (!val || kstrtoul(val, 0, &enable) || enable > 1)
+		return -EINVAL;
+
+	cfg = qpnp_get_cfg(pon, PON_KPDPWR); /*0 means pwr key*/
+	if (!cfg)
+		return -EINVAL;
+
+	pr_info("long_pwr_dump_enabled = %d enable = %d s1_timer =%d\n",
+			long_pwr_dump_enabled,
+			(unsigned int)enable, cfg->s1_timer);
+
+	if (long_pwr_dump_enabled != enable) {
+
+		if (enable) {
+			cfg->s1_timer = 10256; /*reduce this time */
+			cfg->s2_timer = 2000;
+			cfg->s2_type = PON_POWER_OFF_TYPE_WARM_RESET; /*change s2 type warm reset*/
+			rc = qpnp_config_reset(pon, cfg);
+
+		} else {
+			/* Disable S2 reset */
+			rc = qpnp_pon_masked_write(pon, cfg->s2_cntl2_addr, QPNP_PON_S2_CNTL_EN,0);
+		}
+		long_pwr_dump_enabled = enable;
+	}
+	return 0;
+}
+
+module_param_call(pwr_dump_enabled,
+param_set_pwr_dump_enabled, param_get_uint, &pwr_dump_enabled, 0644);
+
+module_param_call(long_pwr_dump_enabled,
+param_set_long_press_pwr_dump_enabled,
+param_get_uint, &long_pwr_dump_enabled, 0644);
 
 static int qpnp_config_pull(struct qpnp_pon *pon, struct qpnp_pon_config *cfg)
 {
@@ -2082,6 +2308,191 @@ static int pon_register_twm_notifier(struct qpnp_pon *pon)
 	return rc;
 }
 
+static bool created_pwr_on_off_obj;
+
+#define PMIC_SID_NUM 3
+#define QPNP_PON_POFF_BUFFER_SIZE 128
+
+static struct qpnp_pon *g_pon[PMIC_SID_NUM];
+static bool g_is_cold_boot[PMIC_SID_NUM];
+
+static ssize_t pwron_reason_show(struct kobject *kobj,
+		struct kobj_attribute *attr,
+		char *buf)
+{
+	int i;
+	int index;
+	u32 pon_sts = 0;
+	int rc;
+	char *pbuf = buf;
+	int ret = 0;
+
+	snprintf(pbuf, QPNP_PON_POFF_BUFFER_SIZE, "qpnp_pon_reason :\n");
+	ret += strlen(pbuf);
+	pbuf += strlen(pbuf);
+
+	for (i = 0 ; i < ARRAY_SIZE(qpnp_pon_reason) ; i++) {
+		snprintf(pbuf, QPNP_PON_POFF_BUFFER_SIZE,
+		"[%d] : %s\n", i, qpnp_pon_reason[i]);
+		ret += strlen(pbuf);
+		pbuf += strlen(pbuf);
+	}
+
+	for (i = 0 ; i < PMIC_SID_NUM ; i++) {
+		 /* PON reason */
+		if (g_pon[i] == NULL || g_pon[i]->regmap == NULL)
+		continue;
+
+		/* PON reason */
+		rc = regmap_read(g_pon[i]->regmap,
+			QPNP_PON_REASON1(g_pon[i]), &pon_sts);
+		if (rc) {
+			snprintf(pbuf, QPNP_PON_POFF_BUFFER_SIZE,
+				"PMIC@SID%d Unable to read PON_RESASON1 reg and rc: %d\n",
+			to_spmi_device(g_pon[i]->dev)->usid,
+			rc);
+			ret += strlen(pbuf);
+			pbuf += strlen(pbuf);
+			continue;
+		}
+
+		index = ffs(pon_sts) - 1;
+		cold_boot = !qpnp_pon_is_warm_reset();
+		if (index >= ARRAY_SIZE(qpnp_pon_reason) || index < 0) {
+			snprintf(pbuf, QPNP_PON_POFF_BUFFER_SIZE,
+			"PMIC@SID%d PON_REASON1 regs :[0x%x] and Power-on reason: Unknown and '%s' boot\n",
+			to_spmi_device(g_pon[i]->dev)->usid,
+			pon_sts,
+			cold_boot ? "cold" : "warm");
+			ret += strlen(pbuf);
+			pbuf += strlen(pbuf);
+			continue;
+		} else {
+			g_pon[i]->pon_trigger_reason = index;
+			snprintf(pbuf, QPNP_PON_POFF_BUFFER_SIZE,
+			"PMIC@SID%d PON_REASON1 regs :[0x%x] and Power-on reason: '%s' boot and ",
+			to_spmi_device(g_pon[i]->dev)->usid,
+			pon_sts,
+			cold_boot ? "cold" : "warm");
+			ret += strlen(pbuf);
+			pbuf += strlen(pbuf);
+		}
+
+		for_each_set_bit(index, (unsigned long *)&pon_sts,
+			ARRAY_SIZE(qpnp_pon_reason)) {
+			snprintf(pbuf, QPNP_PON_POFF_BUFFER_SIZE,
+			"[%d] ", index);
+			ret += strlen(pbuf);
+			pbuf += strlen(pbuf);
+		}
+		snprintf(pbuf, QPNP_PON_POFF_BUFFER_SIZE, "\n");
+		ret += strlen(pbuf);
+		pbuf += strlen(pbuf);
+	}
+
+	if (ret)
+		*(buf+ret-1) = '\n';
+
+	return ret;
+}
+
+static ssize_t pwroff_reason_show(struct kobject *kobj,
+	struct kobj_attribute *attr,
+	char *buf)
+{
+	int i;
+	int j;
+	int index;
+	int rc;
+	u8 temp_buf[2];
+	u16 poff_sts = 0;
+	char *pbuf = buf;
+	int ret = 0;
+	int reason_index_offset = 0;
+
+	snprintf(pbuf, QPNP_PON_POFF_BUFFER_SIZE, "qpnp_poff_reason :\n");
+	ret += strlen(pbuf);
+	pbuf += strlen(pbuf);
+
+	for	(j = 0; j < ARRAY_SIZE(qpnp_poff_reason); j++) {
+		snprintf(pbuf, QPNP_PON_POFF_BUFFER_SIZE,
+		"[%d] : %s\n", j, qpnp_poff_reason[j]);
+		ret += strlen(pbuf);
+		pbuf += strlen(pbuf);
+	}
+
+	for	(i = 0; i < PMIC_SID_NUM; i++) {
+		/* POFF reason */
+		if	(g_pon[i] == NULL || g_pon[i]->regmap == NULL)
+			continue;
+
+		/* POFF reason */
+		if (!is_pon_gen1(g_pon[i]) && g_pon[i]->subtype != PON_1REG) {
+			rc = qpnp_pon_read_gen2_pon_off_reason(g_pon[i], &poff_sts,
+							&reason_index_offset);
+			if (rc)
+				return rc;
+		} else {
+		rc = regmap_bulk_read(g_pon[i]->regmap,
+		QPNP_POFF_REASON1(g_pon[i]),
+		temp_buf, 2);
+			if (rc) {
+				dev_err(g_pon[i]->dev, "Unable to read POFF_REASON regs rc:%d\n",
+					rc);
+				return rc;
+			}
+			poff_sts = temp_buf[0] | (temp_buf[1] << 8);
+		}
+		index = ffs(poff_sts) - 1 + reason_index_offset;
+		if (index >= ARRAY_SIZE(qpnp_poff_reason) || index < 0) {
+			snprintf(pbuf, QPNP_PON_POFF_BUFFER_SIZE,
+			"PMIC@SID%d POFF_REASON regs :[0x%x] and Power-off reason: Unknown\n",
+			to_spmi_device(g_pon[i]->dev)->usid,
+			poff_sts);
+			ret += strlen(pbuf);
+			pbuf += strlen(pbuf);
+			continue;
+		} else {
+			snprintf(pbuf, QPNP_PON_POFF_BUFFER_SIZE,
+			"PMIC@SID%d POFF_REASON regs :[0x%x] and Power-off reason: ",
+			to_spmi_device(g_pon[i]->dev)->usid,
+			poff_sts);
+			ret += strlen(pbuf);
+			pbuf += strlen(pbuf);
+		}
+		if (index < ARRAY_SIZE(qpnp_poff_reason) && index >= 0) {
+		snprintf(pbuf, QPNP_PON_POFF_BUFFER_SIZE,
+			"[%d] ", index);
+			ret += strlen(pbuf);
+			pbuf += strlen(pbuf);
+		}
+		snprintf(pbuf, QPNP_PON_POFF_BUFFER_SIZE, "\n");
+		ret += strlen(pbuf);
+		pbuf += strlen(pbuf);
+	}
+
+	if (ret)
+		*(buf+ret-1) = '\n';
+
+	return ret;
+}
+
+static struct kobj_attribute pwron_reason_attribute =
+	__ATTR(pwron_reason, 0444, pwron_reason_show, NULL);
+static struct kobj_attribute pwroff_reason_attribute =
+	__ATTR(pwroff_reason, 0444, pwroff_reason_show, NULL);
+
+static struct attribute *pwr_on_off_attrs[] = {
+		&pwron_reason_attribute.attr,
+		&pwroff_reason_attribute.attr,
+		NULL,
+};
+
+static struct attribute_group pwr_on_off_attrs_group = {
+		.attrs = pwr_on_off_attrs,
+};
+static struct kobject *pwr_on_off_kobj;
+
 static int qpnp_pon_configure_s3_reset(struct qpnp_pon *pon)
 {
 	struct device *dev = pon->dev;
@@ -2199,16 +2610,23 @@ static int qpnp_pon_read_hardware_info(struct qpnp_pon *pon, bool sys_reset)
 	index = ffs(pon_sts) - 1;
 	cold_boot = sys_reset_dev ? !_qpnp_pon_is_warm_reset(sys_reset_dev)
 				  : !_qpnp_pon_is_warm_reset(pon);
-	if (index >= ARRAY_SIZE(qpnp_pon_reason) || index < 0) {
-		dev_info(dev, "PMIC@SID%d Power-on reason: Unknown and '%s' boot\n",
-			 to_spmi_device(dev->parent)->usid,
-			 cold_boot ? "cold" : "warm");
-	} else {
-		pon->pon_trigger_reason = index;
-		dev_info(dev, "PMIC@SID%d Power-on reason: %s and '%s' boot\n",
-			 to_spmi_device(dev->parent)->usid,
-			 qpnp_pon_reason[index],
-			 cold_boot ? "cold" : "warm");
+	for_each_set_bit(index, (unsigned long *)&pon_sts,
+		ARRAY_SIZE(qpnp_pon_reason)) {
+		if (index >= ARRAY_SIZE(qpnp_pon_reason) || index < 0) {
+			dev_info(pon->dev,
+				"PMIC@SID%d PON_REASON1 regs :[0x%x] and Power-on reason: Unknown and '%s' boot\n",
+				to_spmi_device(pon->dev)->usid,
+				pon_sts,
+				cold_boot ? "cold" : "warm");
+		} else {
+			pon->pon_trigger_reason = index;
+			dev_info(pon->dev,
+				"PMIC@SID%d PON_REASON1 regs :[0x%x] and Power-on reason: %s and '%s' boot\n",
+				to_spmi_device(pon->dev)->usid,
+				pon_sts,
+				qpnp_pon_reason[index],
+				cold_boot ? "cold" : "warm");
+		}
 	}
 
 	/* POFF reason */
@@ -2227,15 +2645,29 @@ static int qpnp_pon_read_hardware_info(struct qpnp_pon *pon, bool sys_reset)
 		}
 		poff_sts = buf[0] | (buf[1] << 8);
 	}
+
+
 	index = ffs(poff_sts) - 1 + reason_index_offset;
 	if (index >= ARRAY_SIZE(qpnp_poff_reason) || index < 0) {
-		dev_info(dev, "PMIC@SID%d: Unknown power-off reason\n",
-			 to_spmi_device(dev->parent)->usid);
+		dev_info(pon->dev,
+			"PMIC@SID%d: POFF_REASON regs :[0x%x] and Unknown Power-off reason\n",
+			to_spmi_device(pon->dev)->usid,
+			poff_sts);
 	} else {
 		pon->pon_power_off_reason = index;
-		dev_info(dev, "PMIC@SID%d: Power-off reason: %s\n",
-			 to_spmi_device(dev->parent)->usid,
-			 qpnp_poff_reason[index]);
+		dev_info(pon->dev,
+			"PMIC@SID%d: POFF_REASON regs :[0x%x] and Power-off reason: %s\n",
+			to_spmi_device(pon->dev)->usid,
+			poff_sts,
+			qpnp_poff_reason[index]);
+	}
+
+
+	if (to_spmi_device(pon->dev)->usid < PMIC_SID_NUM) {
+		g_pon[to_spmi_device(pon->dev)->usid] = pon;
+		g_is_cold_boot[to_spmi_device(pon->dev)->usid] =
+			cold_boot;
+
 	}
 
 	if ((pon->pon_trigger_reason == PON_SMPL ||
@@ -2387,10 +2819,11 @@ static int qpnp_pon_probe(struct platform_device *pdev)
 			return -EINVAL;
 		}
 	}
-	dev_dbg(dev, "PON@SID%d: num_pon_config=%d, num_pon_reg=%d\n",
+	dev_err(dev, "PON@SID%d: num_pon_config=%d, num_pon_reg=%d\n",
 		to_spmi_device(dev->parent)->usid, pon->num_pon_config,
 		pon->num_pon_reg);
-
+	if (to_spmi_device(dev->parent)->usid == 0)
+		op_pm8998_regmap_register(pon->regmap);
 	rc = qpnp_pon_read_hardware_info(pon, sys_reset);
 	if (rc)
 		return rc;
@@ -2406,6 +2839,9 @@ static int qpnp_pon_probe(struct platform_device *pdev)
 	dev_set_drvdata(dev, pon);
 
 	INIT_DELAYED_WORK(&pon->bark_work, bark_work_func);
+	INIT_DELAYED_WORK(&pon->press_work, press_work_func);
+	INIT_DELAYED_WORK(&pon->press_pwr, press_pwr_func);
+	INIT_WORK(&pon->up_work, up_work_func);
 
 	rc = qpnp_pon_parse_dt_power_off_config(pon);
 	if (rc)
@@ -2449,6 +2885,19 @@ static int qpnp_pon_probe(struct platform_device *pdev)
 	rc = qpnp_pon_config_init(pon, pdev);
 	if (rc)
 		return rc;
+
+	if (!created_pwr_on_off_obj) {
+		pwr_on_off_kobj = kobject_create_and_add("pwr_on_off_reason",
+		NULL);
+		if (!pwr_on_off_kobj)
+			dev_err(&pdev->dev, "kobject_create_and_add for pwr_on_off_reason failed.\n");
+		else if (sysfs_create_group(pwr_on_off_kobj,
+			&pwr_on_off_attrs_group)) {
+			dev_err(&pdev->dev, "sysfs_create_group for pwr_on_off_reason failed.\n");
+			kobject_put(pwr_on_off_kobj);
+		}
+		created_pwr_on_off_obj = true;
+	}
 
 	rc = device_create_file(dev, &dev_attr_debounce_us);
 	if (rc) {

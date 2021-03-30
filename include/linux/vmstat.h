@@ -372,12 +372,35 @@ static inline void drain_zonestat(struct zone *zone,
 			struct per_cpu_pageset *pset) { }
 #endif		/* CONFIG_SMP */
 
+#ifdef CONFIG_DEFRAG
+static inline int is_migrate_defrag(int migratetype)
+{
+	return migratetype == MIGRATE_UNMOVABLE_DEFRAG_POOL;
+}
+static inline void defrag_update_zone_free(int migratetype,
+		 struct zone *zone, int nr_pages)
+{
+	if (is_migrate_defrag(migratetype))
+		__mod_zone_page_state(zone, NR_FREE_DEFRAG_POOL, nr_pages);
+}
+#else  /* !CONFIG_DEFRAG */
+static inline int is_migrate_defrag(int migratetype)
+{
+	return 0;
+}
+static inline void defrag_update_zone_free(int migratetype,
+		 struct zone *zone, int nr_pages)
+{
+}
+#endif /* end CONFIG_DEFRAG */
+
 static inline void __mod_zone_freepage_state(struct zone *zone, int nr_pages,
 					     int migratetype)
 {
 	__mod_zone_page_state(zone, NR_FREE_PAGES, nr_pages);
 	if (is_migrate_cma(migratetype))
 		__mod_zone_page_state(zone, NR_FREE_CMA_PAGES, nr_pages);
+	defrag_update_zone_free(migratetype, zone, nr_pages);
 }
 
 extern const char * const vmstat_text[];

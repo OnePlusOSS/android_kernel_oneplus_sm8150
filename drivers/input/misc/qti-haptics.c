@@ -30,6 +30,9 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
+#include <linux/proc_fs.h>
+
+struct qti_hap_chip *g_qti_chip;
 
 enum actutor_type {
 	ACT_LRA,
@@ -60,6 +63,7 @@ enum haptics_custom_effect_param {
 	CUSTOM_DATA_LEN,
 };
 
+#define REG_HAP_LRA_AUTO_RES	0x0B
 /* common definitions */
 #define HAP_BRAKE_PATTERN_MAX		4
 #define HAP_WAVEFORM_BUFFER_MAX		8
@@ -73,6 +77,7 @@ enum haptics_custom_effect_param {
 #define HAP_SC_DET_TIME_US		1000000
 #define FF_EFFECT_COUNT_MAX		32
 #define HAP_DISABLE_DELAY_USEC		1000
+#define HAP_VMAX_MV_WAEK		1000 /*OP set weak vibraton vmax*/
 
 /* haptics module register definitions */
 #define REG_HAP_STATUS1			0x0A
@@ -236,6 +241,8 @@ struct qti_hap_chip {
 	bool				vdd_enabled;
 	bool				twm_state;
 	bool				haptics_ext_pin_twm;
+	bool				test_mode;
+	int				resonant_frequency;
 };
 
 struct hap_addr_val {
@@ -513,6 +520,9 @@ static int qti_haptics_config_vmax(struct qti_hap_chip *chip, int vmax_mv)
 
 	addr = REG_HAP_VMAX_CFG;
 	mask = HAP_VMAX_MV_MASK;
+	if (chip->test_mode)/*op for factory test*/
+		val = (2820 / HAP_VMAX_MV_LSB) << HAP_VMAX_MV_SHIFT;
+	else
 	val = (vmax_mv / HAP_VMAX_MV_LSB) << HAP_VMAX_MV_SHIFT;
 	rc = qti_haptics_masked_write(chip, addr, mask, val);
 	if (rc < 0)
@@ -551,10 +561,20 @@ static int qti_haptics_config_play_rate_us(struct qti_hap_chip *chip,
 	tmp = play_rate_us / HAP_PLAY_RATE_US_LSB;
 	val[0] = tmp & 0xff;
 	val[1] = (tmp >> 8) & 0xf;
+	if (true){/*op for use check rf*/
+		rc = qti_haptics_read(chip, REG_HAP_LRA_AUTO_RES, val, 2);
+		if (rc < 0)
+			dev_err(chip->dev, "read lra_auto_res failed, rc=%d\n", rc);
+		dev_info(chip->dev, "haptic val[0]=0x%x,val[1]=0x%x",val[0],val[1]);
+		val[1] = ((val[1] & 0xF0) >> 4);
 	rc = qti_haptics_write(chip, addr, val, 2);
 	if (rc < 0)
 		dev_err(chip->dev, "write play_rate failed, rc=%d\n", rc);
-
+	} else {
+		rc = qti_haptics_write(chip, addr, val, 2);
+		if (rc < 0)
+			dev_err(chip->dev, "write play_rate failed, rc=%d\n", rc);
+	}
 	return rc;
 }
 
@@ -605,6 +625,7 @@ static int qti_haptics_lra_auto_res_enable(struct qti_hap_chip *chip, bool en)
 	addr = REG_HAP_AUTO_RES_CTRL;
 	mask = HAP_AUTO_RES_EN_BIT;
 	val = en ? HAP_AUTO_RES_EN_BIT : 0;
+	val = 0;/*op force disable AUTIO RES*/
 	rc = qti_haptics_masked_write(chip, addr, mask, val);
 	if (rc < 0)
 		dev_err(chip->dev, "set AUTO_RES_CTRL failed, rc=%d\n", rc);
@@ -634,7 +655,11 @@ static int qti_haptics_clear_settings(struct qti_hap_chip *chip)
 			HAP_WAVEFORM_BUFFER_MAX);
 	if (rc < 0)
 		return rc;
-
+/*GCEB-243 abnormal vibration begin*/
+	rc = qti_haptics_config_vmax(chip, HAP_VMAX_MV_WAEK);
+	if (rc < 0)
+		return rc;
+/*GCEB-243 abnormal vibration end*/
 	rc = qti_haptics_play(chip, true);
 	if (rc < 0)
 		return rc;
@@ -681,6 +706,8 @@ static int qti_haptics_load_constant_waveform(struct qti_hap_chip *chip)
 		play->playing_pattern = false;
 		play->effect = NULL;
 	} else {
+		play->effect = &chip->predefined[5];
+		rc = qti_haptics_config_brake(chip, play->effect->brake);
 		rc = qti_haptics_config_vmax(chip, config->vmax_mv);
 		if (rc < 0)
 			return rc;
@@ -885,7 +912,7 @@ static int qti_haptics_upload_effect(struct input_dev *dev,
 		level = effect->u.constant.level;
 		tmp = level * config->vmax_mv;
 		play->vmax_mv = tmp / 0x7fff;
-		dev_dbg(chip->dev, "upload constant effect, length = %dus, vmax_mv=%d\n",
+		dev_info(chip->dev, "upload constant effect, length = %dus, vmax_mv=%d\n",
 				play->length_us, play->vmax_mv);
 
 		rc = qti_haptics_load_constant_waveform(chip);
@@ -924,7 +951,7 @@ static int qti_haptics_upload_effect(struct input_dev *dev,
 		tmp = level * chip->predefined[i].vmax_mv;
 		play->vmax_mv = tmp / 0x7fff;
 
-		dev_dbg(chip->dev, "upload effect %d, vmax_mv=%d\n",
+		dev_info(chip->dev, "upload effect %d, vmax_mv=%d\n",
 				chip->predefined[i].id, play->vmax_mv);
 		rc = qti_haptics_load_predefined_effect(chip, i);
 		if (rc < 0) {
@@ -976,7 +1003,7 @@ static int qti_haptics_playback(struct input_dev *dev, int effect_id, int val)
 	unsigned long nsecs;
 	int rc = 0;
 
-	dev_dbg(chip->dev, "playback, val = %d\n", val);
+	dev_info(chip->dev, "playback, val = %d\n", val);
 	if (!!val) {
 		rc = qti_haptics_module_en(chip, true);
 		if (rc < 0)
@@ -1916,6 +1943,94 @@ cleanup:
 }
 #endif
 
+#define PAGESIZE 512
+
+static ssize_t op_haptic_read(struct file *file,
+			char __user *user_buf, size_t count, loff_t *ppos)
+{
+	return 0;
+}
+
+static ssize_t op_haptic_write(struct file *file,
+			const char __user *buffer, size_t count, loff_t *ppos)
+{
+	int ret = 0;
+	char buf[4] = {0};
+
+	if (!g_qti_chip)
+		return ret;
+	if (count > 2)
+		return count;
+
+	if (copy_from_user(buf, buffer, count)) {
+		pr_err("%s: write proc haptic error.\n", __func__);
+		return count;
+	}
+
+	if (-1 == sscanf(buf, "%d", &ret)) {
+		pr_err("%s sscanf error\n", __func__);
+		return count;
+	}
+
+	if ((ret == 0) || (ret == 1))
+		g_qti_chip->test_mode = ret;
+	pr_info("%s:haptic g_qti_chip->test_mode is = %d\n",
+			__func__,g_qti_chip->test_mode);
+	return count;
+}
+
+static const struct file_operations qit_haptic_operations = {
+	.read = op_haptic_read,
+	.write = op_haptic_write,
+};
+
+static void init_op_haptic_node(void)
+{
+	if (!proc_create("qti_haptic", 0644, NULL,
+			 &qit_haptic_operations))
+		pr_err("Failed to register haptic  node\n");
+}
+
+static ssize_t op_haptic_rf_read(struct file *file,
+			char __user *user_buf, size_t count, loff_t *ppos)
+{
+	int ret = 0, tmp = 0;
+	char page[PAGESIZE];
+	u8 val[2];
+
+	if (!g_qti_chip)
+		return ret;
+	ret= qti_haptics_read(g_qti_chip, REG_HAP_LRA_AUTO_RES, val, 2);
+	if (ret < 0)
+		dev_err(g_qti_chip->dev, "read lra_auto_res failed, rc=%d\n", ret);
+	val[1] = ((val[1] & 0xF0) >> 4);
+	tmp = (val[1] << 8) | (val[0] & 0xFF);
+	g_qti_chip->resonant_frequency = ((19200/96)*1000)/tmp;
+	dev_info(g_qti_chip->dev, "resonant_frequency=%d\n", g_qti_chip->resonant_frequency);
+	ret = snprintf(page, 255, "%d", g_qti_chip->resonant_frequency);
+	ret = simple_read_from_buffer(user_buf,
+			count, ppos, page, strlen(page));
+	return ret;
+}
+
+static ssize_t op_haptic_rf_write(struct file *file,
+			const char __user *buffer, size_t count, loff_t *ppos)
+{
+	return 0;
+}
+
+static const struct file_operations qit_haptic_rf_operations = {
+	.read = op_haptic_rf_read,
+	.write = op_haptic_rf_write,
+};
+
+static void init_op_haptic_rf_node(void)
+{
+	if (!proc_create("qti_haptic_rf", 0644, NULL,
+			 &qit_haptic_rf_operations))
+		pr_err("Failed to register haptic  node\n");
+}
+
 static int qti_haptics_probe(struct platform_device *pdev)
 {
 	struct qti_hap_chip *chip;
@@ -1938,7 +2053,7 @@ static int qti_haptics_probe(struct platform_device *pdev)
 		dev_err(chip->dev, "Failed to get regmap handle\n");
 		return -ENXIO;
 	}
-
+	g_qti_chip = chip;
 	rc = qti_haptics_parse_dt(chip);
 	if (rc < 0) {
 		dev_err(chip->dev, "parse device-tree failed, rc=%d\n", rc);
@@ -2023,6 +2138,9 @@ static int qti_haptics_probe(struct platform_device *pdev)
 	if (rc < 0)
 		dev_dbg(chip->dev, "create debugfs failed, rc=%d\n", rc);
 #endif
+	init_op_haptic_node();
+	init_op_haptic_rf_node();
+	pr_info("qti_haptics_probe done\n");
 	return 0;
 
 destroy_ff:

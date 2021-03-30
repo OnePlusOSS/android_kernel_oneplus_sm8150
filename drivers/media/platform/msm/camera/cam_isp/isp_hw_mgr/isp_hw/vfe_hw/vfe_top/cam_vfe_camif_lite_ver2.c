@@ -101,7 +101,6 @@ int cam_vfe_camif_lite_ver2_acquire_resource(
 	acquire_data = (struct cam_vfe_acquire_args *)acquire_param;
 
 	camif_lite_data->sync_mode   = acquire_data->vfe_in.sync_mode;
-	camif_lite_res->rdi_only_ctx = 0;
 
 	CAM_DBG(CAM_ISP, "hw id:%d sync_mode=%d",
 		camif_lite_res->hw_intf->hw_idx,

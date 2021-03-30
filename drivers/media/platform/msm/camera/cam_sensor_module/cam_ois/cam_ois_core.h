@@ -16,8 +16,6 @@
 #include <linux/dma-contiguous.h>
 #include "cam_ois_dev.h"
 
-#define OIS_NAME_LEN 32
-
 /**
  * @power_info: power setting info to control the power
  *

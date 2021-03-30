@@ -6,3 +6,4 @@ config_data.gz
 kheaders.md5
 timeconst.h
 hz.bc
+panic_flush.c

@@ -26,6 +26,8 @@
 #include <net/genetlink.h>
 #include <linux/suspend.h>
 
+#include <linux/pm_qos.h>
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/thermal.h>
 
@@ -37,6 +39,9 @@ MODULE_DESCRIPTION("Generic thermal management sysfs support");
 MODULE_LICENSE("GPL v2");
 
 #define THERMAL_MAX_ACTIVE	16
+#define THERMAL_MAX_MASK	(1UL<<8)
+#define THERMAL_TRIP_POINT	(1UL<<7)
+#define THERMAL_TEMP_MASK	0x7F
 
 static DEFINE_IDA(thermal_tz_ida);
 static DEFINE_IDA(thermal_cdev_ida);
@@ -53,6 +58,10 @@ static atomic_t in_suspend;
 static bool power_off_triggered;
 
 static struct thermal_governor *def_governor;
+
+static struct thermal_zone_device *msm_tz, *skin_tz;
+static struct thermal_zone_device *xo_mmw1_tz, *modem_mmw2_tz;
+static struct thermal_zone_device *modem_skin_tz, *pa1_mmw0_tz;
 
 static struct workqueue_struct *thermal_passive_wq;
 
@@ -1325,6 +1334,23 @@ thermal_zone_device_register(const char *type, int trips, int mask,
 	atomic_set(&tz->need_update, 1);
 
 	dev_set_name(&tz->device, "thermal_zone%d", tz->id);
+	if (strcmp(tz->type, "skin-therm") ==  0) {
+		skin_tz = tz;
+		dev_set_name(&tz->device, tz->type);
+	} else if (strcmp(tz->type, "msm-therm") ==  0) {
+		msm_tz = tz;
+		dev_set_name(&tz->device, tz->type);
+	} else if (strcmp(tz->type, "mmw-pa1-usr") ==  0)
+		xo_mmw1_tz = tz;
+	else if (strcmp(tz->type, "modem-mmw2-usr") ==  0)
+		modem_mmw2_tz = tz;
+	else if (strcmp(tz->type, "mmw-pa1-usr") ==  0)
+		pa1_mmw0_tz = tz;
+	else if (strcmp(tz->type, "skin-therm-usr") ==  0)
+		modem_skin_tz = tz;
+	else if (strcmp(tz->type, "camera-flash-therm") == 0)
+		dev_set_name(&tz->device, tz->type);
+
 	result = device_register(&tz->device);
 	if (result)
 		goto remove_device_groups;
@@ -1621,6 +1647,119 @@ static struct notifier_block thermal_pm_nb = {
 	.notifier_call = thermal_pm_notify,
 };
 
+static int update_thermal_target(struct thermal_zone_device *tz,
+	unsigned long val, int thermal_type)
+{
+	int ret = -1;
+	int temperature = 0, trip = 0;
+
+	pr_info("%s::val = %ul, thermal_type = %d\n",
+			__func__, val, thermal_type);
+
+	if (val > THERMAL_MAX_MASK - 1) {
+		pr_err("%s: The input parameter is illegal, val = %ul\n",
+					__func__, val);
+		return -EINVAL;
+	}
+
+	if (!tz->ops->set_trip_temp) {
+		pr_err("%s: set_trip_temp is NULL!\n", __func__);
+		return -EINVAL;
+	}
+
+	trip = (val & THERMAL_TRIP_POINT) >> 7;
+	temperature = THERMAL_TEMP_MASK & val;
+
+
+	pr_err("%s: trip = %d, temp = %d\n", __func__, trip, temperature);
+
+	if (temperature < 30) {
+		pr_err("%s: temp trip is too small!!\n", __func__);
+		return -EPERM;
+	}
+
+	if (((temperature > 86) && (thermal_type == 0))|
+		((temperature > 61) && (thermal_type == 1))) {
+		pr_err("%s: temp trip is too larger!!\n", __func__);
+		return -EPERM;
+	}
+
+	ret = tz->ops->set_trip_temp(tz, trip, temperature*1000);
+	if (ret)
+		return ret;
+
+	thermal_zone_device_update(tz, THERMAL_EVENT_UNSPECIFIED);
+	pr_notice("%s: update_thermal config successful\n", __func__);
+	return ret;
+}
+
+static int pa1_mmw0_thermal_qos_handler(struct notifier_block *b, unsigned long val, void *v)
+{
+	return update_thermal_target(pa1_mmw0_tz, val, 0);
+}
+
+static struct notifier_block pa1_mmw0_thermal_qos_notifier = {
+	.notifier_call = pa1_mmw0_thermal_qos_handler,
+};
+
+static int xo_mmw1_thermal_qos_handler(struct notifier_block *b, unsigned long val, void *v)
+{
+	return update_thermal_target(xo_mmw1_tz, val, 0);
+}
+
+static struct notifier_block xo_mmw1_thermal_qos_notifier = {
+	.notifier_call = xo_mmw1_thermal_qos_handler,
+};
+
+static int modem_skin_thermal_qos_handler(struct notifier_block *b, unsigned long val, void *v)
+{
+	return update_thermal_target(modem_skin_tz, val, 0);
+}
+
+static struct notifier_block modem_skin_thermal_qos_notifier = {
+	.notifier_call = modem_skin_thermal_qos_handler,
+};
+
+static int modem_mmw2_qos_handler(struct notifier_block *b, unsigned long val, void *v)
+{
+	return update_thermal_target(modem_mmw2_tz, val, 0);
+}
+
+static struct notifier_block modem_mmw2_qos_notifier = {
+	.notifier_call = modem_mmw2_qos_handler,
+};
+
+static int msm_thermal_qos_handler(struct notifier_block *b, unsigned long val, void *v)
+{
+	return update_thermal_target(msm_tz, val, 0);
+}
+
+static struct notifier_block msm_thermal_qos_notifier = {
+	.notifier_call = msm_thermal_qos_handler,
+};
+
+static int skin_thermal_qos_handler(struct notifier_block *b, unsigned long val, void *v)
+{
+	return update_thermal_target(skin_tz, val, 1);
+}
+
+static struct notifier_block skin_thermal_qos_notifier = {
+	.notifier_call = skin_thermal_qos_handler,
+};
+
+void add_therm_pm_qos_notifier(void)
+{
+	pr_err("register_pm_qos_notifier\n");
+	/*Power Teams add dynamic thermal qos notify */
+	pm_qos_add_notifier(PM_QOS_MSM_THERMAL, &msm_thermal_qos_notifier);
+	pm_qos_add_notifier(PM_QOS_SKIN_THERMAL, &skin_thermal_qos_notifier);
+	pm_qos_add_notifier(PM_QOS_MODEM_SKIN_THERMAL, &modem_skin_thermal_qos_notifier);
+	pm_qos_add_notifier(PM_QOS_MMW1_THERMAL, &xo_mmw1_thermal_qos_notifier);
+	pm_qos_add_notifier(PM_QOS_MMW0_THERMAL,
+				&pa1_mmw0_thermal_qos_notifier);
+	pm_qos_add_notifier(PM_QOS_MMW2_THERMAL, &modem_mmw2_qos_notifier);
+}
+
 static int __init thermal_init(void)
 {
 	int result;
@@ -1651,6 +1790,8 @@ static int __init thermal_init(void)
 	if (result)
 		pr_warn("Thermal: Can not register suspend notifier, return %d\n",
 			result);
+
+	add_therm_pm_qos_notifier();
 
 	return 0;
 

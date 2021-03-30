@@ -403,7 +403,8 @@ static int cam_cci_platform_probe(struct platform_device *pdev)
 		sizeof(new_cci_dev->device_name));
 	new_cci_dev->v4l2_dev_str.name =
 		new_cci_dev->device_name;
-	new_cci_dev->v4l2_dev_str.sd_flags = V4L2_SUBDEV_FL_HAS_EVENTS;
+	new_cci_dev->v4l2_dev_str.sd_flags =
+		(V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS);
 	new_cci_dev->v4l2_dev_str.ent_function =
 		CAM_CCI_DEVICE_TYPE;
 	new_cci_dev->v4l2_dev_str.token =
@@ -425,7 +426,7 @@ static int cam_cci_platform_probe(struct platform_device *pdev)
 
 	g_cci_subdev[soc_info->index] = &new_cci_dev->v4l2_dev_str.sd;
 	mutex_init(&(new_cci_dev->init_mutex));
-	CAM_INFO(CAM_CCI, "Device Type :%d", soc_info->index);
+	CAM_ERR(CAM_CCI, "Device Type :%d", soc_info->index);
 
 	cam_register_subdev_fops(&cci_v4l2_subdev_fops);
 	cci_v4l2_subdev_fops.unlocked_ioctl = cam_cci_subdev_fops_ioctl;
@@ -447,7 +448,6 @@ static int cam_cci_platform_probe(struct platform_device *pdev)
 	CAM_DBG(CAM_CCI, "CPAS registration successful handle=%d",
 		cpas_parms.client_handle);
 	new_cci_dev->cpas_handle = cpas_parms.client_handle;
-
 	return rc;
 cci_no_resource:
 	kfree(new_cci_dev);

@@ -36,6 +36,7 @@
 #include <soc/qcom/restart.h>
 #include <soc/qcom/watchdog.h>
 #include <soc/qcom/minidump.h>
+#include "msm-poweroff.h"
 
 #define EMERGENCY_DLOAD_MAGIC1    0x322A4F99
 #define EMERGENCY_DLOAD_MAGIC2    0xC67E4350
@@ -105,6 +106,11 @@ struct reset_attribute {
 module_param_call(download_mode, dload_set, param_get_int,
 			&download_mode, 0644);
 
+int oem_get_download_mode(void)
+{
+	return download_mode && (dload_type & SCM_DLOAD_FULLDUMP);
+}
+
 static int panic_prep_restart(struct notifier_block *this,
 			      unsigned long event, void *ptr)
 {
@@ -123,7 +129,6 @@ int scm_set_dload_mode(int arg1, int arg2)
 		.args[1] = arg2,
 		.arginfo = SCM_ARGS(2),
 	};
-
 	if (!scm_dload_supported) {
 		if (tcsr_boot_misc_detect)
 			return scm_io_write(tcsr_boot_misc_detect, arg1);
@@ -141,25 +146,51 @@ int scm_set_dload_mode(int arg1, int arg2)
 static void set_dload_mode(int on)
 {
 	int ret;
+	u64 read_ret;
+	pr_info("set_dload_mode %s\n", on ? "ON" : "OFF");
 
+	pr_err("[MDM] on [%d] dload_mode_addr [%p]\n", on, dload_mode_addr);
 	if (dload_mode_addr) {
-		__raw_writel(on ? 0xE47B337D : 0, dload_mode_addr);
-		__raw_writel(on ? 0xCE14091A : 0,
-		       dload_mode_addr + sizeof(unsigned int));
+		pr_err("[MDM] modem_5G_panic is [%d]\n", modem_5G_panic);
+		if (modem_5G_panic == true) {
+			__raw_writel(on ? 0xABCDABCD : 0, dload_mode_addr);
+			pr_err("[MDM] modem_5G_panic enter\n");
+		} else {
+			__raw_writel(on ? 0x0 : 0, dload_mode_addr);
+		}
 		/* Make sure the download cookie is updated */
 		mb();
+		read_ret = __raw_readl(dload_mode_addr);
+		pr_err("[MDM] read_ret is [0x%X]\n", read_ret);
 	}
 
 	ret = scm_set_dload_mode(on ? dload_type : 0, 0);
 	if (ret)
-		pr_err("Failed to set secure DLOAD mode: %d\n", ret);
+		pr_err("[MDM] Failed to set secure DLOAD mode: %d\n", ret);
 
 	dload_mode_enabled = on;
 }
 
+/* [OSP-3675]: ext4 fsync */
+int get_download_mode(void)
+{
+	return download_mode && (dload_type & SCM_DLOAD_FULLDUMP);
+}
+EXPORT_SYMBOL(get_download_mode);
+
 static bool get_dload_mode(void)
 {
 	return dload_mode_enabled;
+}
+
+void oem_force_minidump_mode(void)
+{
+	if (dload_type == SCM_DLOAD_FULLDUMP) {
+		pr_err("force minidump mode\n");
+		dload_type = SCM_DLOAD_MINIDUMP;
+		set_dload_mode(dload_type);
+		__raw_writel(EMMC_DLOAD_TYPE, dload_type_addr);
+	}
 }
 
 static void enable_emergency_dload_mode(void)
@@ -343,6 +374,30 @@ static void msm_restart_prepare(const char *cmd)
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_KEYS_CLEAR);
 			__raw_writel(0x7766550a, restart_reason);
+		} else if (!strcmp(cmd, "sbllowmemtest")) {
+			pr_info("[op aging mem test] lunch ddr sbllowmemtest!!comm: %s, pid: %d\n"
+				, current->comm, current->pid);
+			qpnp_pon_set_restart_reason(
+					PON_RESTART_REASON_SBL_DDR_CUS);
+			__raw_writel(0x7766550b, restart_reason);
+		} else if (!strcmp(cmd, "sblmemtest")) {//op factory aging test
+			pr_info("[op aging mem test] lunch ddr sblmemtest!!comm: %s, pid: %d\n"
+				, current->comm, current->pid);
+			qpnp_pon_set_restart_reason(
+					PON_RESTART_REASON_SBL_DDRTEST);
+		__raw_writel(0x7766550b, restart_reason);
+		} else if (!strcmp(cmd, "usermemaging")) {
+			pr_info("[op aging mem test] lunch ddr usermemaging!!comm: %s, pid: %d\n"
+				, current->comm, current->pid);
+			qpnp_pon_set_restart_reason(
+					PON_RESTART_REASON_MEM_AGING);
+			__raw_writel(0x7766550b, restart_reason);
+		} else if (!strncmp(cmd, "rf", 2)) {
+			qpnp_pon_set_restart_reason(PON_RESTART_REASON_RF);
+			__raw_writel(RF_MODE, restart_reason);
+		} else if (!strncmp(cmd, "ftm", 3)) {
+			qpnp_pon_set_restart_reason(PON_RESTART_REASON_FACTORY);
+			__raw_writel(FACTORY_MODE, restart_reason);
 		} else if (!strncmp(cmd, "oem-", 4)) {
 			unsigned long code;
 			int ret;

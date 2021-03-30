@@ -145,6 +145,66 @@ TRACE_EVENT(block_rq_complete,
 		  __entry->nr_sector, __entry->error)
 );
 
+/* block io time trace to collect a request information */
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+/*
+ * block_time - trace block io latency during send request to complete request
+ * @q: queue containing the block operation request
+ * @rq: block operations request
+ * @delta_us: block io latency
+ * @nr_bytes: number of completed bytes
+ *
+ * The block_time tracepoint event can collect each request information.
+ * it include uid,sector,nr_sector,bytes,errors,delta_us,flash_io_latency,tag,now time,
+ * rwbs,cmd and so on.
+ */
+
+TRACE_EVENT(block_time,
+
+	TP_PROTO(struct request_queue *q, struct request *rq,
+		u64 delta_us, unsigned int nr_bytes),
+
+	TP_ARGS(q, rq, delta_us, nr_bytes),
+
+	TP_STRUCT__entry(
+		__field(dev_t, dev)
+		__field(u32, current_uid)
+		__field(sector_t, sector)
+		__field(unsigned int, nr_sector)
+		__field(unsigned int, bytes)
+		__field(u64, delta_us)
+		__field(u64, flash_io_latency)
+		__field(int, tag)
+		__field(u64, now)
+		__array(char, rwbs, RWBS_LEN)
+		__dynamic_array(char, cmd, 1)
+	),
+
+	TP_fast_assign(
+		__entry->dev		= rq->rq_disk ? disk_devt(rq->rq_disk) : 0;
+		__entry->current_uid = from_kuid_munged(current_user_ns(), current_uid());
+		__entry->sector	 = blk_rq_trace_sector(rq);
+		__entry->nr_sector = blk_rq_trace_nr_sectors(rq);
+		__entry->bytes = blk_rq_bytes(rq);
+		__entry->delta_us = delta_us;
+		__entry->flash_io_latency = rq->flash_io_latency;
+		__entry->tag = rq->tag;
+		__entry->now = ktime_to_us(ktime_get());
+
+		blk_fill_rwbs(__entry->rwbs, rq->cmd_flags, blk_rq_bytes(rq));
+		__get_str(cmd)[0] = '\0';
+	),
+
+	TP_printk("%d,%d,%d,%llu,%llu,%d,%llu,%s,(%s),%llu,%u,%u",
+		MAJOR(__entry->dev), MINOR(__entry->dev),
+		__entry->current_uid, __entry->flash_io_latency,
+		__entry->delta_us, __entry->tag,
+		__entry->now, __entry->rwbs, __get_str(cmd),
+		(unsigned long long)__entry->sector,
+		__entry->nr_sector, __entry->bytes)
+);
+#endif
+
 DECLARE_EVENT_CLASS(block_rq,
 
 	TP_PROTO(struct request_queue *q, struct request *rq),

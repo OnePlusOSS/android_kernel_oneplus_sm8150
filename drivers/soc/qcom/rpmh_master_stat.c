@@ -25,6 +25,8 @@
 #include <linux/uaccess.h>
 #include <linux/soc/qcom/smem.h>
 #include <asm/arch_timer.h>
+#include <linux/kobject.h>
+#include <linux/sysfs.h>
 #include "rpmh_master_stat.h"
 
 #define UNIT_DIST 0x14
@@ -41,7 +43,6 @@ enum master_smem_id {
 	SLPI,
 	GPU,
 	DISPLAY,
-	SLPI_ISLAND = 613,
 };
 
 enum master_pid {
@@ -71,10 +72,8 @@ struct msm_rpmh_master_data {
 static const struct msm_rpmh_master_data rpmh_masters[] = {
 	{"MPSS", MPSS, PID_MPSS},
 	{"ADSP", ADSP, PID_ADSP},
-	{"ADSP_ISLAND", SLPI_ISLAND, PID_ADSP},
 	{"CDSP", CDSP, PID_CDSP},
 	{"SLPI", SLPI, PID_SLPI},
-	{"SLPI_ISLAND", SLPI_ISLAND, PID_SLPI},
 	{"GPU", GPU, PID_GPU},
 	{"DISPLAY", DISPLAY, PID_DISPLAY},
 };
@@ -102,11 +101,11 @@ static void __iomem *rpmh_unit_base;
 
 static DEFINE_MUTEX(rpmh_stats_mutex);
 
-static ssize_t msm_rpmh_master_stats_print_data(char *prvbuf, ssize_t length,
+static void msm_rpmh_master_stats_print_data(struct seq_file *s,
 				struct msm_rpmh_master_stats *record,
 				const char *name)
 {
-	uint64_t accumulated_duration = record->accumulated_duration;
+	uint64_t temp_accumulated_duration = record->accumulated_duration;
 	/*
 	 * If a master is in sleep when reading the sleep stats from SMEM
 	 * adjust the accumulated sleep duration to show actual sleep time.
@@ -114,50 +113,52 @@ static ssize_t msm_rpmh_master_stats_print_data(char *prvbuf, ssize_t length,
 	 * the purpose of computing battery utilization.
 	 */
 	if (record->last_entered > record->last_exited)
-		accumulated_duration +=
+		temp_accumulated_duration +=
 				(arch_counter_get_cntvct()
 				- record->last_entered);
 
-	return snprintf(prvbuf, length, "%s\n\tVersion:0x%x\n"
+	seq_printf(s, "%s\n\tVersion:0x%x\n"
 			"\tSleep Count:0x%x\n"
 			"\tSleep Last Entered At:0x%llx\n"
 			"\tSleep Last Exited At:0x%llx\n"
 			"\tSleep Accumulated Duration:0x%llx\n\n",
-			name, record->version_id, record->counts,
-			record->last_entered, record->last_exited,
-			accumulated_duration);
+			name, record->version_id,
+			record->counts, record->last_entered,
+			record->last_exited, temp_accumulated_duration);
 }
 
-static ssize_t msm_rpmh_master_stats_show(struct kobject *kobj,
-				struct kobj_attribute *attr, char *buf)
+static int rpmh_master_stats_show(struct seq_file *s, void *data)
 {
-	ssize_t length;
 	int i = 0;
+	size_t size = 0;
 	struct msm_rpmh_master_stats *record = NULL;
 
 	mutex_lock(&rpmh_stats_mutex);
-
 	/* First Read APSS master stats */
+	msm_rpmh_master_stats_print_data(s, &apss_master_stats,
+		"APSS");
 
-	length = msm_rpmh_master_stats_print_data(buf, PAGE_SIZE,
-						&apss_master_stats, "APSS");
-
-	/* Read SMEM data written by other masters */
+	/*
+	 * Read SMEM data written by masters
+	 */
 
 	for (i = 0; i < ARRAY_SIZE(rpmh_masters); i++) {
 		record = (struct msm_rpmh_master_stats *) qcom_smem_get(
 					rpmh_masters[i].pid,
-					rpmh_masters[i].smem_id, NULL);
-		if (!IS_ERR_OR_NULL(record) && (PAGE_SIZE - length > 0))
-			length += msm_rpmh_master_stats_print_data(
-					buf + length, PAGE_SIZE - length,
-					record,
-					rpmh_masters[i].master_name);
+					rpmh_masters[i].smem_id, &size);
+		if (!IS_ERR_OR_NULL(record))
+			msm_rpmh_master_stats_print_data(s, record,
+			rpmh_masters[i].master_name);
 	}
 
 	mutex_unlock(&rpmh_stats_mutex);
 
-	return length;
+	return 0;
+}
+
+int rpmh_master_stats_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, rpmh_master_stats_show, inode->i_private);
 }
 
 static inline void msm_rpmh_apss_master_stats_update(
@@ -202,72 +203,84 @@ void msm_rpmh_master_stats_update(void)
 }
 EXPORT_SYMBOL(msm_rpmh_master_stats_update);
 
-static int msm_rpmh_master_stats_probe(struct platform_device *pdev)
+ssize_t master_stats_show(struct kobject *kobj,
+					  struct kobj_attribute *attr, char *buf)
 {
-	struct rpmh_master_stats_prv_data *prvdata = NULL;
-	struct kobject *rpmh_master_stats_kobj = NULL;
-	int ret = -ENOMEM;
+	int i = 0;
+	size_t size = 0;
+	struct msm_rpmh_master_stats *record = NULL;
+	char stats_buf[1024];
+	uint64_t temp_accumulated_duration = 0;
 
-	if (!pdev)
-		return -EINVAL;
+	mutex_lock(&rpmh_stats_mutex);
 
-	prvdata = devm_kzalloc(&pdev->dev, sizeof(*prvdata), GFP_KERNEL);
-	if (!prvdata)
-		return ret;
+	/* First Read APSS master stats */
 
-	rpmh_master_stats_kobj = kobject_create_and_add(
-					"rpmh_stats",
-					power_kobj);
-	if (!rpmh_master_stats_kobj)
-		return ret;
+	temp_accumulated_duration = apss_master_stats.accumulated_duration;
 
-	prvdata->kobj = rpmh_master_stats_kobj;
+	if (apss_master_stats.last_entered > apss_master_stats.last_exited)
+		temp_accumulated_duration +=
+				(arch_counter_get_cntvct()
+				- apss_master_stats.last_entered);
 
-	sysfs_attr_init(&prvdata->ka.attr);
-	prvdata->ka.attr.mode = 0444;
-	prvdata->ka.attr.name = "master_stats";
-	prvdata->ka.show = msm_rpmh_master_stats_show;
-	prvdata->ka.store = NULL;
+	snprintf(stats_buf, sizeof(stats_buf),
+			"APSS\n\tVersion:0x%x\n"
+			"\tSleep Count:0x%x\n"
+			"\tSleep Last Entered At:0x%llx\n"
+			"\tSleep Last Exited At:0x%llx\n"
+			"\tSleep Accumulated Duration:0x%llx\n\n",
+			apss_master_stats.version_id,
+			apss_master_stats.counts, apss_master_stats.last_entered,
+			apss_master_stats.last_exited, temp_accumulated_duration);
+	/*
+	 * Read SMEM data written by masters
+	 */
 
-	ret = sysfs_create_file(prvdata->kobj, &prvdata->ka.attr);
-	if (ret) {
-		pr_err("sysfs_create_file failed\n");
-		goto fail_sysfs;
+	for (i = 0; i < ARRAY_SIZE(rpmh_masters); i++) {
+		record = (struct msm_rpmh_master_stats *) qcom_smem_get(
+					rpmh_masters[i].pid,
+					rpmh_masters[i].smem_id, &size);
+		if (!IS_ERR_OR_NULL(record)) {
+			temp_accumulated_duration = record->accumulated_duration;
+
+			if (record->last_entered > record->last_exited)
+				temp_accumulated_duration +=
+						(arch_counter_get_cntvct()
+						- record->last_entered);
+
+			snprintf(stats_buf + strlen(stats_buf), sizeof(stats_buf),
+					"%s\n\tVersion:0x%x\n"
+					"\tSleep Count:0x%x\n"
+					"\tSleep Last Entered At:0x%llx\n"
+					"\tSleep Last Exited At:0x%llx\n"
+					"\tSleep Accumulated Duration:0x%llx\n\n",
+					rpmh_masters[i].master_name, record->version_id,
+					record->counts, record->last_entered,
+					record->last_exited, temp_accumulated_duration);
+		}
 	}
 
+	mutex_unlock(&rpmh_stats_mutex);
+
+	return snprintf(buf, sizeof(stats_buf), "%s", stats_buf);
+}
+
+static int msm_rpmh_master_stats_probe(struct platform_device *pdev)
+{
 	rpmh_unit_base = of_iomap(pdev->dev.of_node, 0);
 	if (!rpmh_unit_base) {
 		pr_err("Failed to get rpmh_unit_base\n");
-		ret = -ENOMEM;
-		goto fail_iomap;
+		return -ENOMEM;
 	}
 
 	apss_master_stats.version_id = 0x1;
-	platform_set_drvdata(pdev, prvdata);
-	return ret;
 
-fail_iomap:
-	sysfs_remove_file(prvdata->kobj, &prvdata->ka.attr);
-fail_sysfs:
-	kobject_put(prvdata->kobj);
-	return ret;
+	return 0;
 }
 
 static int msm_rpmh_master_stats_remove(struct platform_device *pdev)
 {
-	struct rpmh_master_stats_prv_data *prvdata;
-
-	if (!pdev)
-		return -EINVAL;
-
-	prvdata = (struct rpmh_master_stats_prv_data *)
-				platform_get_drvdata(pdev);
-
-	sysfs_remove_file(prvdata->kobj, &prvdata->ka.attr);
-	kobject_put(prvdata->kobj);
-	platform_set_drvdata(pdev, NULL);
 	iounmap(rpmh_unit_base);
-	rpmh_unit_base = NULL;
 
 	return 0;
 }

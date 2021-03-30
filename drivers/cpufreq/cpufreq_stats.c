@@ -29,8 +29,8 @@ struct cpufreq_stats {
 
 static void cpufreq_stats_update(struct cpufreq_stats *stats)
 {
-	unsigned long long cur_time = get_jiffies_64();
 	unsigned long flags;
+	unsigned long long cur_time = get_jiffies_64();
 
 	spin_lock_irqsave(&cpufreq_stats_lock, flags);
 	stats->time_in_state[stats->last_index] += cur_time - stats->last_time;
@@ -232,7 +232,7 @@ void cpufreq_stats_record_transition(struct cpufreq_policy *policy,
 	new_index = freq_table_get_index(stats, new_freq);
 
 	/* We can't do stats->time_in_state[-1]= .. */
-	if (old_index == -1 || new_index == -1 || old_index == new_index)
+	if (new_index == -1)
 		return;
 
 	cpufreq_stats_update(stats);

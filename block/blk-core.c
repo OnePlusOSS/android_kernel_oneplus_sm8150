@@ -47,8 +47,22 @@
 
 #include <linux/math64.h>
 
+#ifdef CONFIG_MEMPLUS
+#include <oneplus/memplus/memplus_helper.h>
+#endif
+
 #ifdef CONFIG_DEBUG_FS
 struct dentry *blk_debugfs_root;
+#endif
+
+/* io information */
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+extern void ohm_iolatency_record(struct request *req, unsigned int nr_bytes, int fg, u64 delta_us);
+static u64 latency_count;
+static u32 io_print_count;
+bool       io_print_flag;
+#define PRINT_LATENCY 500000 /* 500*1000 */
+#define COUNT_TIME 86400000 /* 24*60*60*1000 */
 #endif
 
 EXPORT_TRACEPOINT_SYMBOL_GPL(block_bio_remap);
@@ -119,6 +133,8 @@ void blk_rq_init(struct request_queue *q, struct request *rq)
 	memset(rq, 0, sizeof(*rq));
 
 	INIT_LIST_HEAD(&rq->queuelist);
+
+	INIT_LIST_HEAD(&rq->fg_list);
 	INIT_LIST_HEAD(&rq->timeout_list);
 	rq->cpu = -1;
 	rq->q = q;
@@ -901,6 +917,9 @@ static void blk_rq_timed_out_timer(unsigned long data)
 	kblockd_schedule_work(&q->timeout_work);
 }
 
+
+#define FG_CNT_DEF 20
+#define BOTH_CNT_DEF 10
 struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id)
 {
 	struct request_queue *q;
@@ -930,6 +949,11 @@ struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id)
 			(VM_MAX_READAHEAD * 1024) / PAGE_SIZE;
 	q->backing_dev_info->capabilities = BDI_CAP_CGROUP_WRITEBACK;
 	q->backing_dev_info->name = "block";
+
+	q->fg_count_max = FG_CNT_DEF;
+	q->both_count_max = BOTH_CNT_DEF;
+	q->fg_count = FG_CNT_DEF;
+	q->both_count = BOTH_CNT_DEF;
 	q->node = node_id;
 
 	setup_timer(&q->backing_dev_info->laptop_mode_wb_timer,
@@ -937,6 +961,8 @@ struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id)
 	setup_timer(&q->timeout, blk_rq_timed_out_timer, (unsigned long) q);
 	INIT_WORK(&q->timeout_work, NULL);
 	INIT_LIST_HEAD(&q->queue_head);
+
+	INIT_LIST_HEAD(&q->fg_head);
 	INIT_LIST_HEAD(&q->timeout_list);
 	INIT_LIST_HEAD(&q->icq_list);
 #ifdef CONFIG_BLK_CGROUP
@@ -1873,6 +1899,8 @@ void blk_init_request_from_bio(struct request *req, struct bio *bio)
 {
 	struct io_context *ioc = rq_ioc(bio);
 
+	if (bio->bi_opf & REQ_FG)
+		req->cmd_flags |= REQ_FG;
 	if (bio->bi_opf & REQ_RAHEAD)
 		req->cmd_flags |= REQ_FAILFAST_MASK;
 
@@ -2373,6 +2401,83 @@ out:
 }
 EXPORT_SYMBOL(generic_make_request);
 
+
+#define SYSTEM_APP_UID 1000
+static bool is_system_uid(struct task_struct *t)
+{
+	int cur_uid;
+
+	cur_uid = task_uid(t).val;
+	if (cur_uid ==  SYSTEM_APP_UID)
+		return true;
+
+	return false;
+}
+
+static bool is_zygote_process(struct task_struct *t)
+{
+	const struct cred *tcred = __task_cred(t);
+
+	struct task_struct *first_child = NULL;
+
+	if (t->children.next && t->children.next !=
+		(struct list_head *)&t->children.next)
+		first_child =
+			container_of(t->children.next,
+			struct task_struct, sibling);
+	if (!strcmp(t->comm, "main") && (tcred->uid.val == 0) &&
+		(t->parent != 0 && !strcmp(t->parent->comm, "init")))
+		return true;
+	else
+		return false;
+	return false;
+}
+
+static bool is_system_process(struct task_struct *t)
+{
+	if (is_system_uid(t)) {
+		if (t->group_leader && (
+			!strncmp(t->group_leader->comm, "system_server", 13) ||
+			!strncmp(t->group_leader->comm, "surfaceflinger", 14) ||
+			!strncmp(t->group_leader->comm, "servicemanager", 14) ||
+			!strncmp(t->group_leader->comm, "ndroid.systemui", 15)))
+			return true;
+	}
+	return false;
+}
+
+bool is_critial_process(struct task_struct *t)
+{
+	if (is_zygote_process(t) || is_system_process(t))
+		return true;
+
+	return false;
+}
+
+bool is_filter_process(struct task_struct *t)
+{
+	if (!strncmp(t->comm, "logcat", TASK_COMM_LEN))
+		return true;
+
+	return false;
+}
+static bool high_prio_for_task(struct task_struct *t)
+{
+	int cur_uid;
+
+	if (!sysctl_fg_io_opt)
+		return false;
+
+	cur_uid = task_uid(t).val;
+	if ((is_fg(cur_uid) && !is_system_uid(t) &&
+		!is_filter_process(t)) ||
+		is_critial_process(t))
+		return true;
+
+	return false;
+}
+
+
 /**
  * submit_bio - submit a bio to the block device layer for I/O
  * @bio: The &struct bio which describes the I/O
@@ -2419,6 +2524,17 @@ blk_qc_t submit_bio(struct bio *bio)
 		}
 	}
 
+
+
+#ifdef CONFIG_MEMPLUS
+        if (current_is_swapind())
+                bio->bi_opf |= REQ_FG;
+        else if (high_prio_for_task(current))
+                bio->bi_opf |= REQ_FG;
+#else
+        if (high_prio_for_task(current))
+                bio->bi_opf |= REQ_FG;
+#endif
 	/*
 	 * If we're reading data that is part of the userspace
 	 * workingset, count submission time as memory stall. When the
@@ -2711,6 +2827,10 @@ struct request *blk_peek_request(struct request_queue *q)
 			 * not be passed by new incoming requests
 			 */
 			rq->rq_flags |= RQF_STARTED;
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+			/* request start ktime */
+			rq->block_io_start = ktime_get();
+#endif
 			trace_block_rq_issue(q, rq);
 		}
 
@@ -2784,6 +2904,9 @@ static void blk_dequeue_request(struct request *rq)
 	BUG_ON(ELV_ON_HASH(rq));
 
 	list_del_init(&rq->queuelist);
+
+	if (sysctl_fg_io_opt && (rq->cmd_flags & REQ_FG))
+		list_del_init(&rq->fg_list);
 
 	/*
 	 * the time frame between a request being removed from the lists
@@ -2874,8 +2997,47 @@ bool blk_update_request(struct request *req, blk_status_t error,
 		unsigned int nr_bytes)
 {
 	int total_bytes;
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+	/*request complete ktime*/
+	ktime_t now;
+	u64 delta_us;
+	char rwbs[RWBS_LEN];
+#endif
 
 	trace_block_rq_complete(req, blk_status_to_errno(error), nr_bytes);
+
+/*request complete ktime*/
+#ifdef CONFIG_ONEPLUS_HEALTHINFO
+	if (req->tag >= 0 && req->block_io_start > 0) {
+		io_print_flag = false;
+		now = ktime_get();
+		delta_us = ktime_us_delta(now, req->block_io_start);
+		ohm_iolatency_record(req, nr_bytes, current_is_fg(), ktime_us_delta(now, req->block_io_start));
+		trace_block_time(req->q, req, delta_us, nr_bytes);
+
+		if (delta_us > PRINT_LATENCY) {
+			if ((ktime_to_ms(now)) < COUNT_TIME)
+				latency_count++;
+			else
+				latency_count = 0;
+
+			io_print_flag = true;
+			blk_fill_rwbs(rwbs, req->cmd_flags, nr_bytes);
+
+			/*if log is continuous, printk the first log.*/
+			if (!io_print_count)
+				pr_info("[IO Latency]UID:%u,slot:%d,outstanding=0x%lx,IO_Type:%s,Block IO/Flash Latency:(%llu/%llu)LBA:%llu,length:%d size:%d,count=%lld\n",
+						(from_kuid_munged(current_user_ns(), current_uid())),
+						req->tag, ufs_outstanding, rwbs, delta_us, req->flash_io_latency,
+						(unsigned long long)blk_rq_pos(req),
+						nr_bytes >> 9, blk_rq_bytes(req), latency_count);
+			io_print_count++;
+		}
+
+		if (!io_print_flag && io_print_count)
+			io_print_count = 0;
+	}
+#endif
 
 	if (!req->bio)
 		return false;
