@@ -16,23 +16,33 @@ typedef     __u8        uint8;
 extern unsigned long totalram_pages;
 
 struct project_info {
-    char project_name[8];  //eg, 16859
-    uint32  hw_version;  //PCB number, T0, EVT
-    uint32  rf_v1;   //v1 for mainboard_rf_version
-    uint32  rf_v2;   //v2 for aboard_rf_version
+    char project_name[8];
+    char project_codename[20];
+    char reservename[12];
+    uint32  prj_version;
+    uint32  hw_version;
+    uint32  rf_v1;
+    uint32  rf_v2;
     uint32  rf_v3;
-    uint32  modem;
-    uint32  operator;
+    uint32  uart_boot_mode;
+    uint32  platform_id;
     uint32  ddr_manufacture_info;
     uint32  ddr_row;
     uint32  ddr_column;
     uint32  ddr_fw_version;
     uint32  ddr_reserve_info;
-    uint32  platform_id;
-    uint32  ftm_uart_boot_mode;
-    uint32  feature_id;
+    uint32  ddr_type;
+    uint32  reserve02; /*reserve for feture use*/
+    uint32  reserve03;
+    uint32  reserve04;
+    uint32  reserve05;
+    /*for 8150R FOTA*/
     uint32  a_board_version;
-    uint32  prj_version;
+    uint32  feature_id;
+    uint32  ftm_uart_boot_mode;
+    uint32  operator;
+    uint32  modem;
+    /*for 8150R FOTA*/
 };
 
 #define DUMP_REASON_SIZE 256
