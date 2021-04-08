@@ -53,6 +53,9 @@
 #include <asm/sysreg.h>
 #include <trace/events/exception.h>
 
+/* Save pt_regs ptr to get panic info for display in xbl mode */
+void *panic_info = NULL;
+
 static const char *handler[]= {
 	"Synchronous Abort",
 	"IRQ",
@@ -195,6 +198,10 @@ static int __die(const char *str, int err, struct pt_regs *regs)
 	struct task_struct *tsk = current;
 	static int die_counter;
 	int ret;
+
+	/* Save regs to display in xbl mode */
+	if (!panic_info)
+		panic_info = (void *)regs;
 
 	pr_emerg("Internal error: %s: %x [#%d]" S_PREEMPT S_SMP "\n",
 		 str, err, ++die_counter);
