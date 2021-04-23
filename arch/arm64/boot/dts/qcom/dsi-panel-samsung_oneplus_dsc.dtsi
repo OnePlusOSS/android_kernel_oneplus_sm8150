@@ -1036,10 +1036,10 @@
 				14 14 14 14
 				15 00 00 00 00 00 02 B0 17
 				15 00 00 00 00 00 02 95 30
-				29 01 00 00 10 00 03 F0 A5 A5			/* Level2 key Access Disable */
+				29 01 00 00 0C 00 03 F0 A5 A5			/* Level2 key Access Disable */
 				/* HBM MODE ON */
 				15 00 00 00 00 00 02 53 30				/* 0x30 Normal transition(90Hz) */
-				29 01 00 00 0C 00 03 51 0F FF			/* 600nit */
+				29 01 00 00 06 00 03 51 0F FF			/* 600nit */
 				/* HBM 670 ON */
 				29 00 00 00 00 00 03 F0 5A 5A
 				15 00 00 00 00 00 02 92 00				/* HBM_670 ON */
@@ -2287,10 +2287,10 @@
 				14 14 14 14
 				15 00 00 00 00 00 02 B0 17
 				15 00 00 00 00 00 02 95 30
-				29 01 00 00 10 00 03 F0 A5 A5			/* Level2 key Access Disable */
+				29 01 00 00 0C 00 03 F0 A5 A5			/* Level2 key Access Disable */
 				/* HBM MODE ON */
 				15 00 00 00 00 00 02 53 30				/* 0x30 Normal transition(90Hz) */
-				29 01 00 00 0C 00 03 51 0F FF			/* 600nit */
+				29 01 00 00 06 00 03 51 0F FF			/* 600nit */
 				/* HBM 670 ON */
 				29 00 00 00 00 00 03 F0 5A 5A
 				15 00 00 00 00 00 02 92 00				/* HBM_670 ON */

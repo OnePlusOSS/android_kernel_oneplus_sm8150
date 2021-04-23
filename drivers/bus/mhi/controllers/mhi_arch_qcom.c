@@ -78,21 +78,18 @@ void mhi_reg_write_work(struct work_struct *w)
 	if (!info->valid)
 		return;
 
-	if (!mhi_is_active(mhi_cntrl->mhi_dev))
-		return;
-
-	if (msm_pcie_prevent_l1(pci_dev))
+	if (mhi_is_active(mhi_cntrl->mhi_dev) && msm_pcie_prevent_l1(pci_dev))
 		return;
 
 	while (info->valid) {
 		if (!mhi_is_active(mhi_cntrl->mhi_dev))
-			break;
+			return;
 
 		writel_relaxed(info->val, info->reg_addr);
 		info->valid = false;
 		mhi_cntrl->read_idx =
-				(mhi_cntrl->read_idx + 1) &
-						(REG_WRITE_QUEUE_LEN - 1);
+			(mhi_cntrl->read_idx + 1) &
+			(REG_WRITE_QUEUE_LEN - 1);
 		info = &mhi_cntrl->reg_write_q[mhi_cntrl->read_idx];
 	}
 
