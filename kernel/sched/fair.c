@@ -5945,14 +5945,11 @@ bias_to_this_cpu(struct task_struct *p, int cpu, struct cpumask *rtg_target)
 	bool rtg_test = rtg_target && cpumask_test_cpu(cpu, rtg_target);
 
 #ifdef CONFIG_TPD
-	struct root_domain *rd = cpu_rq(smp_processor_id())->rd;
+
 	cpumask_t mask = CPU_MASK_ALL;
 
 	if (is_tpd_enable() && is_tpd_task(p)) {
-
-		tpd_mask(p, rd->min_cap_orig_cpu,
-			rd->mid_cap_orig_cpu == -1 ? rd->max_cap_orig_cpu : rd->mid_cap_orig_cpu,
-			rd->max_cap_orig_cpu, &mask, nr_cpu_ids);
+		tpd_mask(p, &mask);
 		base_test = cpumask_test_cpu(cpu, &mask) && cpu_active(cpu);
 	}
 #endif
@@ -7599,9 +7596,7 @@ static int start_cpu(struct task_struct *p, bool boosted,
 
 #ifdef CONFIG_TPD
 if ((is_dynamic_tpd_task(p) || is_tpd_task(p)) && is_tpd_enable()) {
-	start_cpu = tpd_suggested(p, rd->min_cap_orig_cpu,
-		rd->mid_cap_orig_cpu == -1 ? rd->max_cap_orig_cpu : rd->mid_cap_orig_cpu,
-		rd->max_cap_orig_cpu, start_cpu);
+	start_cpu = tpd_suggested_cpu(p, start_cpu);
 }
 #endif
 
@@ -7641,9 +7636,6 @@ static inline int find_best_target(struct task_struct *p, int *backup_cpu,
 	bool next_group_higher_cap = false;
 	int isolated_candidate = -1;
 	cpumask_t new_allowed_cpus;
-#ifdef CONFIG_TPD
-	struct root_domain *rd = cpu_rq(smp_processor_id())->rd;
-#endif
 
 	*backup_cpu = -1;
 
@@ -7694,9 +7686,7 @@ static inline int find_best_target(struct task_struct *p, int *backup_cpu,
 	cpumask_copy(&new_allowed_cpus, &p->cpus_allowed);
 #ifdef CONFIG_TPD
 	if (is_tpd_enable() && is_tpd_task(p)) {
-		tpd_mask(p, rd->min_cap_orig_cpu,
-			rd->mid_cap_orig_cpu == -1 ? rd->max_cap_orig_cpu : rd->mid_cap_orig_cpu,
-			rd->max_cap_orig_cpu, &new_allowed_cpus, nr_cpu_ids);
+		tpd_mask(p, &new_allowed_cpus);
 	}
 #endif
 
@@ -8474,7 +8464,7 @@ static int find_energy_efficient_cpu(struct sched_domain *sd,
 			(rtg_target && (!cpumask_test_cpu(prev_cpu, rtg_target) ||
 			cpumask_test_cpu(target_cpu, rtg_target))) || is_uxtop ||
 			__cpu_overutilized(prev_cpu, delta) ||
-			!task_fits_max(p, prev_cpu) || cpu_isolated(prev_cpu) || is_tpd_enable())
+			!task_fits_max(p, prev_cpu) || cpu_isolated(prev_cpu) || (is_tpd_enable() && is_tpd_task(p)))
 #else
 //morison@ASTI, 2019/7/24, modify for uxrealm CONFIG_OPCHAIN
 		if (task_placement_boost_enabled(p) || need_idle || boosted ||
@@ -9378,13 +9368,9 @@ static inline int migrate_degrades_locality(struct task_struct *p,
 static inline bool can_migrate_tpd_task(struct task_struct *p,
 		int src_cpu, int dst_cpu)
 {
-	struct root_domain *rd = cpu_rq(smp_processor_id())->rd;
-	int mid_core;
-
 	if (is_tpd_enable() && is_tpd_task(p)) {
 		/*avoid task migrate to wrong tpd suggested cpu*/
-		mid_core = rd->mid_cap_orig_cpu == -1 ? rd->max_cap_orig_cpu : rd->mid_cap_orig_cpu;
-		if (tpd_check(p, dst_cpu, rd->min_cap_orig_cpu, mid_core, rd->max_cap_orig_cpu))
+		if (tpd_check(p, dst_cpu))
 			return false;
 	}
 
