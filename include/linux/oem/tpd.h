@@ -3,6 +3,7 @@
 
 #include <linux/cpumask.h>
 #include <linux/sched.h>
+#include <linux/cpufreq.h>
 
 #define TPD_CLUSTER_0 (1 << 0)
 #define TPD_CLUSTER_1 (1 << 1)
@@ -50,25 +51,24 @@ enum dynamic_tpd_type {
 
 #ifdef CONFIG_TPD
 extern bool is_tpd_enable(void);
-extern int tpd_suggested(struct task_struct* tsk, int min_idx, int mid_idx,
-		int max_idx, int request_cpu);
-extern void tpd_mask(struct task_struct* tsk, int min_idx, int mid_idx, int max_idx,
-		cpumask_t *request, int nrcpu);
-extern bool tpd_check(struct task_struct *tsk, int dest_cpu, int min_idx, int mid_idx, int max_idx);
+extern int tpd_suggested(struct task_struct* tsk, int request_cluster);
+extern int tpd_suggested_cpu(struct task_struct* tsk, int request_cpu);
+extern void tpd_mask(struct task_struct* tsk, cpumask_t *request);
+extern bool tpd_check(struct task_struct *tsk, int dest_cpu);
 extern bool is_dynamic_tpd_task(struct task_struct *tsk);
-static inline bool is_tpd_task(struct task_struct *tsk) { return tsk ? (tsk->tpd != 0) : false; }
+static inline bool is_tpd_task(struct task_struct *tsk) { return tsk ? (tsk->tpd > 0) : false; }
 extern void tpd_tglist_del(struct task_struct *tsk);
+extern void tpd_init_policy(struct cpufreq_policy *policy);
 #else
 static inline bool is_tpd_enable(void) { return false; }
-static inline int tpd_suggested(struct task_struct* tsk, int min_idx, int mid_idx,
-			int max_idx, int request_cpu) { return request_cpu; }
-static inline void tpd_mask(struct task_struct* tsk, int min_idx, int mid_idx, int max_idx,
-			cpumask_t *request, int nrcpu) {}
-static inline bool tpd_check(struct task_struct *tsk, int dest_cpu, int min_idx,
-			int mid_idx, int max_idx) { return false; }
+static inline int tpd_suggested(struct task_struct* tsk, int request_cluster) { return request_cluster; }
+static inline int tpd_suggested_cpu(struct task_struct* tsk, int request_cpu) { return request_cpu; }
+static inline void tpd_mask(struct task_struct* tsk, cpumask_t *request) {}
+static inline bool tpd_check(struct task_struct *tsk, int dest_cpu) { return false; }
 static inline bool is_dynamic_tpd_task(struct task_struct *tsk) { return false; }
 static inline bool is_tpd_task(struct task_struct *tsk) { return false; }
 static inline void tpd_tglist_del(struct task_struct *tsk) {};
+static inline void tpd_init_policy(struct cpufreq_policy *policy) {}
 #endif
 
 #endif
