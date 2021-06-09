@@ -58,6 +58,10 @@ extern unsigned int ht_fuse_boost;
 #include <linux/oem/control_center.h>
 #endif
 
+#ifdef CONFIG_TPD
+#include <linux/oem/tpd.h>
+#endif
+
 #ifdef CONFIG_SMP
 static inline bool task_fits_max(struct task_struct *p, int cpu);
 #endif /* CONFIG_SMP */
@@ -5940,6 +5944,19 @@ bias_to_this_cpu(struct task_struct *p, int cpu, struct cpumask *rtg_target)
 			cpu_active(cpu) && task_fits_max(p, cpu);
 	bool rtg_test = rtg_target && cpumask_test_cpu(cpu, rtg_target);
 
+#ifdef CONFIG_TPD
+	struct root_domain *rd = cpu_rq(smp_processor_id())->rd;
+	cpumask_t mask = CPU_MASK_ALL;
+
+	if (is_tpd_enable() && is_tpd_task(p)) {
+
+		tpd_mask(p, rd->min_cap_orig_cpu,
+			rd->mid_cap_orig_cpu == -1 ? rd->max_cap_orig_cpu : rd->mid_cap_orig_cpu,
+			rd->max_cap_orig_cpu, &mask, nr_cpu_ids);
+		base_test = cpumask_test_cpu(cpu, &mask) && cpu_active(cpu);
+	}
+#endif
+
 	return base_test && (!rtg_target || rtg_test);
 }
 
@@ -7580,6 +7597,14 @@ static int start_cpu(struct task_struct *p, bool boosted,
 	else
 		start_cpu = rd->max_cap_orig_cpu;
 
+#ifdef CONFIG_TPD
+if ((is_dynamic_tpd_task(p) || is_tpd_task(p)) && is_tpd_enable()) {
+	start_cpu = tpd_suggested(p, rd->min_cap_orig_cpu,
+		rd->mid_cap_orig_cpu == -1 ? rd->max_cap_orig_cpu : rd->mid_cap_orig_cpu,
+		rd->max_cap_orig_cpu, start_cpu);
+}
+#endif
+
 	return start_cpu;
 }
 
@@ -7615,6 +7640,10 @@ static inline int find_best_target(struct task_struct *p, int *backup_cpu,
 	int prev_cpu = task_cpu(p);
 	bool next_group_higher_cap = false;
 	int isolated_candidate = -1;
+	cpumask_t new_allowed_cpus;
+#ifdef CONFIG_TPD
+	struct root_domain *rd = cpu_rq(smp_processor_id())->rd;
+#endif
 
 	*backup_cpu = -1;
 
@@ -7662,8 +7691,18 @@ static inline int find_best_target(struct task_struct *p, int *backup_cpu,
 
 	/* Scan CPUs in all SDs */
 	sg = sd->groups;
+	cpumask_copy(&new_allowed_cpus, &p->cpus_allowed);
+#ifdef CONFIG_TPD
+	if (is_tpd_enable() && is_tpd_task(p)) {
+		tpd_mask(p, rd->min_cap_orig_cpu,
+			rd->mid_cap_orig_cpu == -1 ? rd->max_cap_orig_cpu : rd->mid_cap_orig_cpu,
+			rd->max_cap_orig_cpu, &new_allowed_cpus, nr_cpu_ids);
+	}
+#endif
+
 	do {
-		for_each_cpu_and(i, &p->cpus_allowed, sched_group_span(sg)) {
+		//for_each_cpu_and(i, &p->cpus_allowed, sched_group_span(sg)) {
+		for_each_cpu_and(i, &new_allowed_cpus, sched_group_span(sg)) {
 			unsigned long capacity_curr = capacity_curr_of(i);
 			unsigned long capacity_orig = capacity_orig_of(i);
 			unsigned long wake_util, new_util, new_util_cuml;
@@ -8430,11 +8469,20 @@ static int find_energy_efficient_cpu(struct sched_domain *sd,
 			delta = task_util(p);
 #endif
 
+#ifdef CONFIG_TPD
+		if (task_placement_boost_enabled(p) || need_idle || boosted ||
+			(rtg_target && (!cpumask_test_cpu(prev_cpu, rtg_target) ||
+			cpumask_test_cpu(target_cpu, rtg_target))) || is_uxtop ||
+			__cpu_overutilized(prev_cpu, delta) ||
+			!task_fits_max(p, prev_cpu) || cpu_isolated(prev_cpu) || is_tpd_enable())
+#else
+//morison@ASTI, 2019/7/24, modify for uxrealm CONFIG_OPCHAIN
 		if (task_placement_boost_enabled(p) || need_idle || boosted ||
 		    (rtg_target && (!cpumask_test_cpu(prev_cpu, rtg_target) ||
 		    cpumask_test_cpu(target_cpu, rtg_target))) || is_uxtop ||
 		    __cpu_overutilized(prev_cpu, delta) ||
 		    !task_fits_max(p, prev_cpu) || cpu_isolated(prev_cpu))
+#endif
 			goto out;
 
 		/* Place target into NEXT slot */
@@ -9326,6 +9374,24 @@ static inline int migrate_degrades_locality(struct task_struct *p,
 }
 #endif
 
+#ifdef CONFIG_TPD
+static inline bool can_migrate_tpd_task(struct task_struct *p,
+		int src_cpu, int dst_cpu)
+{
+	struct root_domain *rd = cpu_rq(smp_processor_id())->rd;
+	int mid_core;
+
+	if (is_tpd_enable() && is_tpd_task(p)) {
+		/*avoid task migrate to wrong tpd suggested cpu*/
+		mid_core = rd->mid_cap_orig_cpu == -1 ? rd->max_cap_orig_cpu : rd->mid_cap_orig_cpu;
+		if (tpd_check(p, dst_cpu, rd->min_cap_orig_cpu, mid_core, rd->max_cap_orig_cpu))
+			return false;
+	}
+
+	return true;
+}
+#endif
+
 /*
  * can_migrate_task - may task p from runqueue rq be migrated to this_cpu?
  */
@@ -9345,6 +9411,11 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 	 */
 	if (throttled_lb_pair(task_group(p), env->src_cpu, env->dst_cpu))
 		return 0;
+
+#ifdef CONFIG_TPD
+	if (!can_migrate_tpd_task(p, env->src_cpu, env->dst_cpu))
+		return 0;
+#endif
 
 	if (!cpumask_test_cpu(env->dst_cpu, &p->cpus_allowed)) {
 		int cpu;

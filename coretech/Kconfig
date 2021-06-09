@@ -50,3 +50,8 @@ config UXCHAIN
 config PCCORE
 	default n
 	bool "pccore feature"
+config TPD
+	default n
+	bool "a task placement decision for cpu limitation"
+	help
+	  task affinity by decison

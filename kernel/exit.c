@@ -75,6 +75,11 @@
 #include <oneplus/houston/houston_helper.h>
 #endif
 
+#ifdef CONFIG_TPD
+#include <linux/oem/tpd.h>
+#endif
+
+// tedlin@ASTI 2019/06/12 add for CONFIG_CONTROL_CENTER
 #ifdef CONFIG_CONTROL_CENTER
 #include <oneplus/control_center/control_center_helper.h>
 #endif
@@ -190,6 +195,10 @@ static void __exit_signal(struct task_struct *tsk)
 static void delayed_put_task_struct(struct rcu_head *rhp)
 {
 	struct task_struct *tsk = container_of(rhp, struct task_struct, rcu);
+
+#ifdef CONFIG_TPD
+	tpd_tglist_del(tsk);
+#endif
 
 	perf_event_delayed_put(tsk);
 	trace_sched_process_free(tsk);

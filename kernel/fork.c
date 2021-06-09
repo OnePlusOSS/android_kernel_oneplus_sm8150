@@ -609,6 +609,11 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	tsk->claim_cpu = -1;
 	tsk->utask_slave = 0;
 #endif
+#ifdef CONFIG_TPD
+	tsk->tpd = 0;
+	tsk->dtpd = 0;
+	tsk->dtpdg = -1;
+#endif
 #ifdef CONFIG_UXCHAIN
 	tsk->static_ux = 0;
 	tsk->dynamic_ux = 0;
