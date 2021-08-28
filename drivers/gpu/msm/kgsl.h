@@ -235,6 +235,7 @@ struct kgsl_memdesc {
 	struct page **pages;
 	unsigned int page_count;
 	unsigned int cur_bindings;
+	spinlock_t lock;
 };
 
 /*
