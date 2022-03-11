@@ -1,10 +1,5 @@
 /*
-<<<<<<< HEAD   (eb8a2c [SYSTEM.Stability.Patch.GooglePatch][(1/1)]{Apply google pat)
- * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
-=======
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
-
->>>>>>> CHANGE (352e3c [BSP.Stability.CVE][1/1]{CVE-2021-30337})
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
