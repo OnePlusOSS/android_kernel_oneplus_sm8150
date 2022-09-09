@@ -1,3 +1,6 @@
+#if defined(OP_8150_ADAPT)
+#include "cam_isp_op.h"
+#else
 #ifndef __UAPI_CAM_ISP_H__
 #define __UAPI_CAM_ISP_H__
 
@@ -552,4 +555,5 @@ struct cam_isp_init_frame_drop_config {
 	uint32_t                       init_frame_drop;
 } __attribute__((packed));
 
+#endif
 #endif /* __UAPI_CAM_ISP_H__ */

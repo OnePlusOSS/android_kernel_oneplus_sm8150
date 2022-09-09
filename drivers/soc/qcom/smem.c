@@ -22,6 +22,13 @@
 #include <linux/slab.h>
 #include <linux/soc/qcom/smem.h>
 
+#ifdef OPLUS_FEATURE_AGINGTEST
+#include <linux/string.h>
+#include <linux/kallsyms.h>
+
+#define SMEM_DUMP_INFO    129
+#endif /*OPLUS_FEATURE_AGINGTEST*/
+
 /*
  * The Qualcomm shared memory system is a allocate only heap structure that
  * consists of one of more memory areas that can be accessed by the processors
@@ -752,6 +759,68 @@ phys_addr_t qcom_smem_virt_to_phys(void *addr)
 	return phys_addr;
 }
 EXPORT_SYMBOL(qcom_smem_virt_to_phys);
+#ifdef OPLUS_FEATURE_AGINGTEST
+static char caller_function_name[KSYM_SYMBOL_LEN];
+char *parse_function_builtin_return_address(unsigned long function_address)
+{
+	char *cur = caller_function_name;
+
+	if (!function_address)
+		return NULL;
+
+	sprint_symbol(caller_function_name, function_address);
+	strsep(&cur, "+");
+
+	return caller_function_name;
+}
+EXPORT_SYMBOL(parse_function_builtin_return_address);
+
+void save_dump_reason_to_smem(char *reason, char *function_name)
+{
+	int reason_len = 0, name_len = 0;
+	int ret;
+	size_t size;
+	static int flag = 0;
+	struct dump_info *dp_info;
+
+	if (flag)
+		return;
+
+	size = sizeof(struct dump_info);
+	ret = qcom_smem_alloc(QCOM_SMEM_HOST_ANY, SMEM_DUMP_INFO, size);
+	if (ret < 0 && ret != -EEXIST) {
+		pr_err("%s:unable to allocate dp_info \n", __func__);
+		return;
+	}
+
+	dp_info = qcom_smem_get(QCOM_SMEM_HOST_ANY, SMEM_DUMP_INFO, &size);
+	if (IS_ERR_OR_NULL(dp_info))
+		pr_err("%s: get dp_info failure\n", __func__);
+	else {
+		if (reason != NULL) {
+			pr_err("%s: info : %s\n",__func__, reason);
+			reason_len = strlen(reason);
+			reason_len = (reason_len < DUMP_REASON_SIZE)? reason_len:DUMP_REASON_SIZE;
+			if (((strlen(dp_info->dump_reason) + reason_len) < DUMP_REASON_SIZE)) {
+				strcat(dp_info->dump_reason, reason);
+			}
+		}
+		if (function_name != NULL) {
+			name_len = strlen(function_name);
+			name_len = (name_len < DUMP_REASON_SIZE)? name_len:DUMP_REASON_SIZE;
+			if (((strlen(dp_info->dump_reason) + name_len + 1) < DUMP_REASON_SIZE)) {
+				strcat(dp_info->dump_reason, ":");
+				strcat(dp_info->dump_reason, function_name);
+			}
+		}
+	}
+	pr_err("\r%s: dump_reason : %s reason_len=%d function caused panic :%s name_len=%d \n", __func__,
+							(reason != NULL)?reason:"unknown", reason_len, (function_name != NULL)?function_name:"unknown", name_len);
+	/* Make sure save_dump_reason_to_smem() is called only once  during subsystem crash */
+	flag++;
+}
+EXPORT_SYMBOL(save_dump_reason_to_smem);
+#endif /*OPLUS_FEATURE_AGINGTEST*/
 
 static int qcom_smem_get_sbl_version(struct qcom_smem *smem)
 {

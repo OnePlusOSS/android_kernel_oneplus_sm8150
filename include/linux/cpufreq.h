@@ -151,6 +151,13 @@ struct cpufreq_policy {
 
 	/* For cpufreq driver's internal use */
 	void			*driver_data;
+#ifdef OPLUS_FEATURE_HEALTHINFO
+#ifdef CONFIG_OPLUS_HEALTHINFO
+	/* For get changed freq info */
+	char 			change_comm[TASK_COMM_LEN];
+	unsigned int 	org_max;
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 };
 
 /* Only for ACPI */
@@ -930,6 +937,10 @@ extern void arch_set_freq_scale(struct cpumask *cpus, unsigned long cur_freq,
 				unsigned long max_freq);
 extern void arch_set_max_freq_scale(struct cpumask *cpus,
 				    unsigned long policy_max_freq);
+
+#ifdef OPLUS_FEATURE_HEALTHINFO
+struct list_head *get_cpufreq_policy_list(void);
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 
 /* the following are really really optional */
 extern struct freq_attr cpufreq_freq_attr_scaling_available_freqs;

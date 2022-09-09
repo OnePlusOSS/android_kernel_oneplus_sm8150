@@ -1135,5 +1135,10 @@ config VIRTIO_REGULATOR
 	---help---
 	  This is the virtual regulator driver for virtio.
 
+config REGULATOR_KTD2151
+	bool "KTD2151 regulator driver"
+	help
+	  lcd support power for 19696.
+
 endif
 

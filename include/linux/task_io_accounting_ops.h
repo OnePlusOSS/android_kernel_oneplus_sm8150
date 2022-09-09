@@ -6,11 +6,17 @@
 #define __TASK_IO_ACCOUNTING_OPS_INCLUDED
 
 #include <linux/sched.h>
+#if defined(OPLUS_FEATURE_IOMONITOR) && defined(CONFIG_IOMONITOR)
+#include <linux/iomonitor/iomonitor.h>
+#endif /*OPLUS_FEATURE_IOMONITOR*/
 
 #ifdef CONFIG_TASK_IO_ACCOUNTING
 static inline void task_io_account_read(size_t bytes)
 {
 	current->ioac.read_bytes += bytes;
+#if defined(OPLUS_FEATURE_IOMONITOR) && defined(CONFIG_IOMONITOR)
+	iomonitor_record_task_io(current, bytes, false);
+#endif /*OPLUS_FEATURE_IOMONITOR*/
 }
 
 /*
@@ -25,6 +31,10 @@ static inline unsigned long task_io_get_inblock(const struct task_struct *p)
 static inline void task_io_account_write(size_t bytes)
 {
 	current->ioac.write_bytes += bytes;
+#if defined(OPLUS_FEATURE_IOMONITOR) && defined(CONFIG_IOMONITOR)
+	iomonitor_record_task_io(current, bytes, true);
+#endif /*OPLUS_FEATURE_IOMONITOR*/
+
 }
 
 /*

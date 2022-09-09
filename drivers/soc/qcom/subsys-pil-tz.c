@@ -744,6 +744,10 @@ static int pil_shutdown_trusted(struct pil_desc *pil)
 	u32 proc, scm_ret = 0;
 	int rc;
 	struct scm_desc desc = {0};
+	#ifdef OPLUS_FEATURE_MODEM_MINIDUMP
+	int i = 0;
+	struct md_ss_toc *toc = NULL;
+	#endif
 
 	if (d->subsys_desc.no_auth)
 		return 0;
@@ -772,6 +776,18 @@ static int pil_shutdown_trusted(struct pil_desc *pil)
 	if (rc)
 		goto err_clks;
 
+	#ifdef OPLUS_FEATURE_MODEM_MINIDUMP
+	if ( pil->minidump_id ==3 ) {  //only check for modem . currently 3 is modem
+		pil->minidump_ss->md_ss_enable_status = 0;
+		pil->minidump_ss->encryption_status = 0;
+
+		for ( i = 0; i < pil->num_aux_minidump_ids; i++ ) {
+			toc = pil->aux_minidump[i];
+			toc->md_ss_enable_status = 0;
+			toc->encryption_status  = 0;
+		}
+	}
+	#endif
 
 	if (!is_scm_armv8()) {
 		rc = scm_call(SCM_SVC_PIL, PAS_SHUTDOWN_CMD, &proc,
@@ -781,7 +797,18 @@ static int pil_shutdown_trusted(struct pil_desc *pil)
 			       &desc);
 		scm_ret = desc.ret[0];
 	}
+	#ifdef OPLUS_FEATURE_MODEM_MINIDUMP
+	if( pil->minidump_id == 3 ) {  //only check for modem . currently 3 is modem
+		pil->minidump_ss->md_ss_enable_status  =MD_SS_ENABLED;
+		pil->minidump_ss->encryption_status =MD_SS_ENCR_DONE;
 
+		for (i = 0; i < pil->num_aux_minidump_ids; i++) {
+			toc = pil->aux_minidump[i];
+			toc->md_ss_enable_status = MD_SS_ENABLED;
+			toc->encryption_status  = MD_SS_ENCR_DONE;
+		}
+	}
+	#endif
 	disable_unprepare_clocks(d->proxy_clks, d->proxy_clk_count);
 	disable_regulators(d, d->proxy_regs, d->proxy_reg_count, false);
 	if (d->bus_client)
@@ -846,10 +873,17 @@ static struct pil_reset_ops pil_ops_trusted = {
 	.deinit_image = pil_deinit_image_trusted,
 };
 
+#ifdef OPLUS_FEATURE_MODEM_MINIDUMP
+bool SKIP_GENERATE_RAMDUMP = false;
+extern void mdmreason_set(char * buf);
+#endif
 static void log_failure_reason(const struct pil_tz_data *d)
 {
 	size_t size;
 	char *smem_reason, reason[MAX_SSR_REASON_LEN];
+	#ifdef OPLUS_FEATURE_AGINGTEST
+	char *function_name;
+	#endif /*OPLUS_FEATURE_AGINGTEST*/
 	const char *name = d->subsys_desc.name;
 
 	if (d->smem_id == -1)
@@ -863,11 +897,33 @@ static void log_failure_reason(const struct pil_tz_data *d)
 	}
 	if (!smem_reason[0]) {
 		pr_err("%s SFR: (unknown, empty string found).\n", name);
+		#ifdef OPLUS_FEATURE_MODEM_MINIDUMP
+		subsystem_send_uevent(d->subsys, 0);
+		#endif /*OPLUS_FEATURE_MODEM_MINIDUMP*/
 		return;
 	}
 
 	strlcpy(reason, smem_reason, min(size, (size_t)MAX_SSR_REASON_LEN));
+	#ifdef OPLUS_FEATURE_AGINGTEST
+	function_name = parse_function_builtin_return_address((unsigned long)__builtin_return_address(0));
+	save_dump_reason_to_smem(reason, function_name);
+	#endif /*OPLUS_FEATURE_AGINGTEST*/
 	pr_err("%s subsystem failure reason: %s.\n", name, reason);
+	#ifdef OPLUS_FEATURE_MODEM_MINIDUMP
+	subsystem_send_uevent(d->subsys, reason);
+	#endif /*OPLUS_FEATURE_MODEM_MINIDUMP*/
+    #ifdef OPLUS_FEATURE_MODEM_MINIDUMP
+    if (!strncmp(name, "modem", 4)) {
+        mdmreason_set(reason);
+
+        pr_err("oplus debug modem subsystem failure reason: %s.\n", reason);
+
+        if(strstr(reason, "OPLUS_MODEM_NO_RAMDUMP_EXPECTED") || strstr(reason, "oppomsg:go_to_error_fatal")){
+            pr_err("%s will subsys reset",__func__);
+            SKIP_GENERATE_RAMDUMP = true;
+        }
+    }
+    #endif
 }
 
 static int subsys_shutdown(const struct subsys_desc *subsys, bool force_stop)

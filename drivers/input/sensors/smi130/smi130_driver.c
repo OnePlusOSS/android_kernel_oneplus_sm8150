@@ -109,7 +109,6 @@
  * performance or error has been made.
  *
  * @filename smi130_driver.c
- * @date     2016/08/01 14:40
  * @Modification Date 2018/08/28 18:20
  * @id       "b5ff23a"
  * @version  1.3

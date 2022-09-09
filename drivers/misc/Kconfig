@@ -607,7 +607,37 @@ source "drivers/misc/mic/Kconfig"
 source "drivers/misc/genwqe/Kconfig"
 source "drivers/misc/echo/Kconfig"
 source "drivers/misc/cxl/Kconfig"
+source "drivers/misc/aw8697_haptic/Kconfig"
 source "drivers/misc/fpr_FingerprintCard/Kconfig"
+source "drivers/misc/tri_state_key/Kconfig"
+
+#ifdef OPLUS_FEATURE_CHG_BASIC
+source "drivers/misc/oplus_motor/Kconfig"
+#endif
+
+#ifdef OPLUS_FEATURE_TP_BASIC
+config OPLUS_RF_CABLE_MONITOR
+	bool "OPLUS rf cable monitor system"
+	depends on OF
+	select PINMUX
+	default n
+	help
+	  Say Y here to enable OPLUS rf cable monitor system support
+#endif /* OPLUS_FEATURE_TP_BASIC */
+
+#ifdef OPLUS_FEATURE_TP_BASIC
+config SIM_DETECT
+	tristate "SIM_DETECT system"
+	default n
+	help
+	  Say Y here to enable sim detect system support
+#endif /* OPLUS_FEATURE_TP_BASIC */
+
+#ifdef OPLUS_FEATURE_MM_ULTRASOUND
+	config AUDIO_SENSOR
+	tristate "support sensor notify audio to control ultrasound"
+	default y
+#endif
 endmenu
 
 config OKL4_USER_VIPC

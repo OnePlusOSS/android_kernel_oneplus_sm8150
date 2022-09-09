@@ -7,7 +7,6 @@
  * available at http://www.fsf.org/copyleft/gpl.html
  *
  * @filename bstclass.c
- * @date     2015/11/17 13:44
  * @id       "836294d"
  * @version  1.5.9
  *

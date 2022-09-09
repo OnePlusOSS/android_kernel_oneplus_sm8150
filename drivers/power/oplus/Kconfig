@@ -1,0 +1,48 @@
+menuconfig OPLUS_CHARGER
+	bool "OPLUS charging system"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Say Y here to enable OPLUS charging system support
+
+if OPLUS_CHARGER
+config OPLUS_CHARGER_MTK
+	bool "OPLUS charger on MTK"
+	help
+	  Say Y here to declare charging system is on MTK
+	  
+config OPLUS_SHORT_C_BATT_CHECK
+	bool "OPLUS batt short "
+	help
+	  Say Y here to declare OPLUS batt short	  
+
+config OPLUS_STANDARD_BATTERY_CHECK_ADC
+	bool "OPLUS Official Standard Battery check by ADC"
+	help
+	  Say Y here to support Official Standard Battery check by ADC
+
+config OPLUS_SHORT_IC_CHECK
+	bool "OPLUS short ic"
+	help
+	  Say Y here to declare OPLUS batt short
+
+config OPLUS_SHORT_HW_CHECK
+	bool "OPLUS batt HW SHORT "
+	help
+	  Say Y here to declare charging system is on MTK
+
+config OPLUS_SHORT_USERSPACE
+	bool "OPLUS batt userspace"
+	help
+	  Say Y to include support
+
+config OPLUS_CHIP_SOC_NODE
+	bool "OPLUS chip soc node"
+	help
+	  Say Y to include support
+
+config OPLUS_CHARGER_OPTIGA
+	bool "OPLUS OPTIGA soc node"
+	help
+	  Say Y to include support
+endif #OPLUS_CHARGER

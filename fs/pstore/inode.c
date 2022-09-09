@@ -373,6 +373,12 @@ int pstore_mkfile(struct dentry *root, struct pstore_record *record)
 		scnprintf(name, sizeof(name), "powerpc-opal-%s-%llu",
 			  record->psi->name, record->id);
 		break;
+#ifdef OPLUS_FEATURE_DUMPDEVICE
+	case PSTORE_TYPE_DEVICE_INFO:
+		scnprintf(name, sizeof(name), "device-info-%s-%lld", record->psi->name, record->id);
+		break;
+#endif
+
 	case PSTORE_TYPE_UNKNOWN:
 		scnprintf(name, sizeof(name), "unknown-%s-%llu",
 			  record->psi->name, record->id);

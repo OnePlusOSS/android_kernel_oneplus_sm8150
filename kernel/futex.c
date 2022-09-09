@@ -73,6 +73,11 @@
 
 #include "locking/rtmutex_common.h"
 
+#ifdef OPLUS_FEATURE_UIFIRST
+#include <linux/uifirst/uifirst_sched_futex.h>
+#include <linux/uifirst/uifirst_sched_common.h>
+#endif /* OPLUS_FEATURE_UIFIRST */
+
 /*
  * READ this before attempting to hack on futexes!
  *
@@ -243,6 +248,10 @@ struct futex_q {
 	struct plist_node list;
 
 	struct task_struct *task;
+#ifdef OPLUS_FEATURE_UIFIRST
+	struct task_struct *wait_for;
+	atomic_t ux_waitings;
+#endif /* OPLUS_FEATURE_UIFIRST */
 	spinlock_t *lock_ptr;
 	union futex_key key;
 	struct futex_pi_state *pi_state;
@@ -1034,7 +1043,8 @@ static inline void exit_pi_state_list(struct task_struct *curr) { }
  *	FUTEX_OWNER_DIED bit. See [4]
  *
  * [10] There is no transient state which leaves owner and user space
- *	TID out of sync.
+ *	TID out of sync. Except one error case where the kernel is denied
+ *	write access to the user address, see fixup_pi_state_owner().
  *
  *
  * Serialization and lifetime rules:
@@ -1704,6 +1714,14 @@ futex_wake(u32 __user *uaddr, unsigned int flags, int nr_wake, u32 bitset)
 			if (!(this->bitset & bitset))
 				continue;
 
+#ifdef OPLUS_FEATURE_UIFIRST
+			if (sysctl_uifirst_enabled) {
+				int ux_waitings = atomic_read(&(this->ux_waitings));
+				if (ux_waitings > 0) {
+					futex_unset_inherit_ux_refs(current, ux_waitings);
+				}
+			}
+#endif /* OPLUS_FEATURE_UIFIRST */
 			mark_wake_futex(&wake_q, this);
 			if (++ret >= nr_wake)
 				break;
@@ -2357,6 +2375,11 @@ static inline void __queue_me(struct futex_q *q, struct futex_hash_bucket *hb)
 	 * the others are woken last, in FIFO order.
 	 */
 	prio = min(current->normal_prio, MAX_RT_PRIO);
+#ifdef OPLUS_FEATURE_UIFIRST
+	if (sysctl_uifirst_enabled && test_task_ux(current)) {
+		prio = min(current->normal_prio, MAX_RT_PRIO - 1);
+	}
+#endif /* OPLUS_FEATURE_UIFIRST */
 
 	plist_node_init(&q->list, prio);
 	plist_add(&q->list, &hb->chain);
@@ -2702,6 +2725,16 @@ static void futex_wait_queue_me(struct futex_hash_bucket *hb, struct futex_q *q,
 	 * access to the hash list and forcing another memory barrier.
 	 */
 	set_current_state(TASK_INTERRUPTIBLE);
+#ifdef OPLUS_FEATURE_UIFIRST
+	if (sysctl_uifirst_enabled) {
+		if (!timeout) {
+			futex_set_inherit_ux_refs(q->wait_for, current);
+			if (test_set_dynamic_ux(current)) {
+				atomic_inc(&(q->ux_waitings));
+			}
+		}
+	}
+#endif /* OPLUS_FEATURE_UIFIRST */
 	queue_me(q, hb);
 
 	/* Arm the timer */
@@ -2718,8 +2751,20 @@ static void futex_wait_queue_me(struct futex_hash_bucket *hb, struct futex_q *q,
 		 * flagged for rescheduling. Only call schedule if there
 		 * is no timeout, or if it has yet to expire.
 		 */
-		if (!timeout || timeout->task)
+		if (!timeout || timeout->task) {
+#ifdef OPLUS_FEATURE_HEALTHINFO
+#ifdef CONFIG_OPLUS_JANK_INFO
+			current->in_futex = 1;
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 			freezable_schedule();
+#ifdef OPLUS_FEATURE_HEALTHINFO
+#ifdef CONFIG_OPLUS_JANK_INFO
+			current->in_futex = 0;
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
+		}
+
 	}
 	__set_current_state(TASK_RUNNING);
 }
@@ -2800,8 +2845,30 @@ out:
 	return ret;
 }
 
+#ifdef OPLUS_FEATURE_UIFIRST
+static struct task_struct* get_futex_owner_by_pid_local(u32 owner_tid) {
+	struct task_struct* futex_owner = NULL;
+
+	if (owner_tid > 0 && owner_tid <= PID_MAX_DEFAULT) {
+		rcu_read_lock();
+		futex_owner = find_task_by_vpid(owner_tid);
+		if (futex_owner) {
+			get_task_struct(futex_owner);
+		}
+		rcu_read_unlock();
+	}
+
+	return futex_owner;
+}
+#endif /* OPLUS_FEATURE_UIFIRST */
+
+#ifndef OPLUS_FEATURE_UIFIRST
 static int futex_wait(u32 __user *uaddr, unsigned int flags, u32 val,
 		      ktime_t *abs_time, u32 bitset)
+#else /* OPLUS_FEATURE_UIFIRST */
+static int futex_wait(u32 __user *uaddr, unsigned int flags, u32 val,
+		ktime_t *abs_time, u32 bitset, u32 owner_tid)
+#endif /* OPLUS_FEATURE_UIFIRST */
 {
 	struct hrtimer_sleeper timeout, *to = NULL;
 	struct restart_block *restart;
@@ -2812,6 +2879,18 @@ static int futex_wait(u32 __user *uaddr, unsigned int flags, u32 val,
 	if (!bitset)
 		return -EINVAL;
 	q.bitset = bitset;
+#ifdef OPLUS_FEATURE_UIFIRST
+	if (sysctl_uifirst_enabled && (bitset == FUTEX_BITSET_MATCH_ANY) && test_task_ux(current)) {
+		struct task_struct* owner_task = get_futex_owner_by_pid_local(owner_tid);
+		if (owner_task != NULL) {
+			if ((current->tgid == owner_task->tgid) || (flags & FLAGS_SHARED)) {
+				q.wait_for = owner_task;
+			} else {
+				put_task_struct(owner_task);
+			}
+		}
+	}
+#endif /* OPLUS_FEATURE_UIFIRST */
 
 	if (abs_time) {
 		to = &timeout;
@@ -2863,6 +2942,9 @@ retry:
 	restart->futex.time = *abs_time;
 	restart->futex.bitset = bitset;
 	restart->futex.flags = flags | FLAGS_HAS_TIMEOUT;
+#ifdef OPLUS_FEATURE_UIFIRST
+	restart->futex.uaddr2 = (u32*)(long)owner_tid;
+#endif /* OPLUS_FEATURE_UIFIRST */
 
 	ret = -ERESTART_RESTARTBLOCK;
 
@@ -2871,6 +2953,10 @@ out:
 		hrtimer_cancel(&to->timer);
 		destroy_hrtimer_on_stack(&to->timer);
 	}
+#ifdef OPLUS_FEATURE_UIFIRST
+	if (q.wait_for)
+		put_task_struct(q.wait_for);
+#endif /* OPLUS_FEATURE_UIFIRST */
 	return ret;
 }
 
@@ -2886,8 +2972,13 @@ static long futex_wait_restart(struct restart_block *restart)
 	}
 	restart->fn = do_no_restart_syscall;
 
+#ifndef OPLUS_FEATURE_UIFIRST
 	return (long)futex_wait(uaddr, restart->futex.flags,
 				restart->futex.val, tp, restart->futex.bitset);
+#else /* OPLUS_FEATURE_UIFIRST */
+	return (long)futex_wait(uaddr, restart->futex.flags,
+				restart->futex.val, tp, restart->futex.bitset, (u32)(restart->futex.uaddr2));
+#endif /* OPLUS_FEATURE_UIFIRST */
 }
 
 
@@ -2904,7 +2995,6 @@ static int futex_lock_pi(u32 __user *uaddr, unsigned int flags,
 			 ktime_t *time, int trylock)
 {
 	struct hrtimer_sleeper timeout, *to = NULL;
-	struct futex_pi_state *pi_state = NULL;
 	struct task_struct *exiting = NULL;
 	struct rt_mutex_waiter rt_waiter;
 	struct futex_hash_bucket *hb;
@@ -3046,24 +3136,8 @@ no_block:
 	 */
 	if (res)
 		ret = (res < 0) ? res : 0;
-
-	/*
-	 * If fixup_owner() faulted and was unable to handle the fault, unlock
-	 * it and return the fault to userspace.
-	 */
-	if (ret && (rt_mutex_owner(&q.pi_state->pi_mutex) == current)) {
-		pi_state = q.pi_state;
-		get_pi_state(pi_state);
-	}
-
 	/* Unqueue and drop the lock */
 	unqueue_me_pi(&q);
-
-	if (pi_state) {
-		rt_mutex_futex_unlock(&pi_state->pi_mutex);
-		put_pi_state(pi_state);
-	}
-
 	goto out_put_key;
 
 out_unlock_put_key:
@@ -3329,7 +3403,6 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, unsigned int flags,
 				 u32 __user *uaddr2)
 {
 	struct hrtimer_sleeper timeout, *to = NULL;
-	struct futex_pi_state *pi_state = NULL;
 	struct rt_mutex_waiter rt_waiter;
 	struct futex_hash_bucket *hb;
 	union futex_key key2 = FUTEX_KEY_INIT;
@@ -3414,10 +3487,6 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, unsigned int flags,
 		if (q.pi_state && (q.pi_state->owner != current)) {
 			spin_lock(q.lock_ptr);
 			ret = fixup_pi_state_owner(uaddr2, &q, current);
-			if (ret && rt_mutex_owner(&q.pi_state->pi_mutex) == current) {
-				pi_state = q.pi_state;
-				get_pi_state(pi_state);
-			}
 			/*
 			 * Drop the reference to the pi state which
 			 * the requeue_pi() code acquired for us.
@@ -3454,23 +3523,8 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, unsigned int flags,
 		if (res)
 			ret = (res < 0) ? res : 0;
 
-		/*
-		 * If fixup_pi_state_owner() faulted and was unable to handle
-		 * the fault, unlock the rt_mutex and return the fault to
-		 * userspace.
-		 */
-		if (ret && rt_mutex_owner(&q.pi_state->pi_mutex) == current) {
-			pi_state = q.pi_state;
-			get_pi_state(pi_state);
-		}
-
 		/* Unqueue and drop the lock. */
 		unqueue_me_pi(&q);
-	}
-
-	if (pi_state) {
-		rt_mutex_futex_unlock(&pi_state->pi_mutex);
-		put_pi_state(pi_state);
 	}
 
 	if (ret == -EINTR) {
@@ -3917,7 +3971,11 @@ long do_futex(u32 __user *uaddr, int op, u32 val, ktime_t *timeout,
 	case FUTEX_WAIT:
 		val3 = FUTEX_BITSET_MATCH_ANY;
 	case FUTEX_WAIT_BITSET:
-		return futex_wait(uaddr, flags, val, timeout, val3);
+#ifndef OPLUS_FEATURE_UIFIRST
+	return futex_wait(uaddr, flags, val, timeout, val3);
+#else /* OPLUS_FEATURE_UIFIRST */
+	return futex_wait(uaddr, flags, val, timeout, val3, (u32)uaddr2);
+#endif /* OPLUS_FEATURE_UIFIRST */
 	case FUTEX_WAKE:
 		val3 = FUTEX_BITSET_MATCH_ANY;
 	case FUTEX_WAKE_BITSET:

@@ -82,6 +82,7 @@ static struct kmem_cache *skbuff_fclone_cache __read_mostly;
 int sysctl_max_skb_frags __read_mostly = MAX_SKB_FRAGS;
 EXPORT_SYMBOL(sysctl_max_skb_frags);
 
+
 /**
  *	skb_panic - private function for out-of-line support
  *	@skb:	buffer
@@ -624,6 +625,7 @@ void skb_release_head_state(struct sk_buff *skb)
 		WARN_ON(in_irq());
 		skb->destructor(skb);
 	}
+
 #if IS_ENABLED(CONFIG_NF_CONNTRACK)
 	nf_conntrack_put(skb_nfct(skb));
 #endif
@@ -813,6 +815,8 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
 	new->sp			= secpath_get(old->sp);
 #endif
 	__nf_copy(new, old, false);
+
+
 
 	/* Note : this field could be in headers_start/headers_end section
 	 * It is not yet because we do not want to have a 16 bit hole

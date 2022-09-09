@@ -60,6 +60,9 @@ struct sugov_policy {
 	bool work_in_progress;
 
 	bool need_freq_update;
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+	unsigned int flags;
+#endif
 };
 
 struct sugov_cpu {
@@ -130,6 +133,10 @@ static bool sugov_should_update_freq(struct sugov_policy *sg_policy, u64 time)
 	 * to the separate rate limits.
 	 */
 
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+	if (sg_policy->flags & SCHED_CPUFREQ_BOOST)
+		return true;
+#endif
 	delta_ns = time - sg_policy->last_freq_update_time;
 	return delta_ns >= sg_policy->min_rate_limit_ns;
 }
@@ -140,6 +147,11 @@ static bool sugov_up_down_rate_limit(struct sugov_policy *sg_policy, u64 time,
 	s64 delta_ns;
 
 	delta_ns = time - sg_policy->last_freq_update_time;
+
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+	if (sg_policy->flags & SCHED_CPUFREQ_BOOST)
+		return false;
+#endif
 
 	if (next_freq > sg_policy->next_freq &&
 	    delta_ns < sg_policy->up_rate_delay_ns)
@@ -426,7 +438,9 @@ static void sugov_update_single(struct update_util_data *hook, u64 time,
 	flags &= ~SCHED_CPUFREQ_RT_DL;
 	sugov_set_iowait_boost(sg_cpu, time, flags);
 	sg_cpu->last_update = time;
-
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+	sg_policy->flags = flags;
+#endif
 	if (!sugov_should_update_freq(sg_policy, time))
 		return;
 
@@ -563,7 +577,9 @@ static void sugov_update_shared(struct update_util_data *hook, u64 time,
 	trace_sugov_util_update(sg_cpu->cpu, sg_cpu->util, sg_policy->avg_cap,
 				max, sg_cpu->walt_load.nl,
 				sg_cpu->walt_load.pl, flags);
-
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+	sg_policy->flags = flags;
+#endif
 	if (sugov_should_update_freq(sg_policy, time) &&
 		!(flags & SCHED_CPUFREQ_CONTINUE)) {
 		if (flags & SCHED_CPUFREQ_RT_DL)
@@ -1039,7 +1055,9 @@ static int sugov_start(struct cpufreq_policy *policy)
 	sg_policy->work_in_progress = false;
 	sg_policy->need_freq_update = false;
 	sg_policy->cached_raw_freq = 0;
-
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+	sg_policy->flags	= 0;
+#endif
 	for_each_cpu(cpu, policy->cpus) {
 		struct sugov_cpu *sg_cpu = &per_cpu(sugov_cpu, cpu);
 

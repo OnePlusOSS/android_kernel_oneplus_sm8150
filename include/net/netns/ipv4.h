@@ -131,6 +131,10 @@ struct netns_ipv4 {
 	struct inet_timewait_death_row tcp_death_row;
 	int sysctl_max_syn_backlog;
 
+	#ifdef OPLUS_BUG_STABILITY
+	int sysctl_tcp_random_timestamp;
+	#endif /* OPLUS_BUG_STABILITY */
+
 #ifdef CONFIG_NET_L3_MASTER_DEV
 	int sysctl_udp_l3mdev_accept;
 #endif

@@ -1,0 +1,209 @@
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&tlmm {
+	motor_pins:motor_pins {
+		free_fall_input:free_fall_input {
+			mux {
+				pins = "gpio68";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio68";
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+
+		hall0_interrupt_input:hall0_interrupt_input {
+			mux {
+				pins = "gpio93";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio93";
+				drive-strength = <2>;
+				input-enable;
+				bias-disable;
+			};
+		};
+
+		hall1_interrupt_input:hall1_interrupt_input {
+			mux {
+				pins = "gpio88";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio88";
+				drive-strength = <2>;
+				input-enable;
+				bias-disable;
+			};
+		};
+	};
+
+	vol_pins:vol_pins {
+		key_vol_down_default:key_vol_down_default {
+			mux {
+				pins = "gpio64";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio64";
+				drive-strength = <2>;
+				input-enable;
+				bias-pull-up;
+			};
+		};
+	};
+
+	rf_cable_pins:rf_cable_pins {
+		rf_cable0_active: rf_cable0_active {
+			mux {
+				pins = "gpio84";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio84";
+				drive-strength = <2>;
+				input-enable;
+				bias-pull-up;
+			};
+		};
+
+		rf_cable1_active: rf_cable1_active {
+			mux {
+				pins = "gpio58";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio58";
+				drive-strength = <2>;
+				input-enable;
+				bias-pull-up;
+			};
+		};
+	};
+};
+
+&pm6150_gpios {
+	motor_pm_pins:motor_pm_pins {
+		boost:boost {
+			pins = "gpio2";
+			function = "normal";
+			input-disable;
+			power-source = <1>;
+			output-high; //digital output, no invert
+			qcom,drive-strength = <3>;//0.15
+		};
+
+		boost_active:boost_active {
+			pins = "gpio2";
+			function = "normal";
+			input-disable;
+			power-source = <1>;
+			output-high; //digital output, no invert
+			qcom,drive-strength = <3>;//0.15
+		};
+
+		boost_sleep:boost_sleep {
+			pins = "gpio2";
+			function = "normal";
+			input-disable;
+			power-source = <1>;
+			output-low; //digital output, no invert
+			qcom,drive-strength = <3>;//0.15
+		};
+	};
+
+	adc_default {
+		pm6150_adc_default:pm6150_adc_default {
+			pins = "gpio8";
+			function = "normal";
+			bias-high-impedance;
+			bias-disable;
+		};
+	};
+};
+
+&pm6150_gpios {
+	/* #ifdef VENDOR_EDIT */
+	dspg_sleep_clk {
+		dspg_sleep_clk_default: dspg_sleep_clk_default{
+			pins = "gpio6";
+			function = "func1"; /* Special Function 1 */
+			bias-disable; /* No Pull */
+			power-source = <0>; /* VIN0 */
+			output-low; /* digital output, no invert */
+			input-disable; /* prevent GPIO from being set to DIO */
+		};
+	};
+	/* #endif VENDOR_EDIT */
+};
+
+&pm6150l_gpios {
+	motor_pml_pins:motor_pml_pins {
+		pwm_config:pwm_config {
+			pins = "gpio10";
+			function = "func1";//Special Function 1,pwm
+			bias-disable;
+			power-source = <1>;//VIN1
+			output-low; //digital output, no invert
+			qcom,drive-strength = <3>; //LOW strength
+			drive-push-pull;//CMOS
+		};
+
+		pwm_config_as_gpio:pwm_config_as_gpio {
+			pins = "gpio10";
+			function = "normal";
+			bias-disable;
+			power-source = <1>;//VIN1
+			output-low; //digital output, no invert
+			qcom,drive-strength = <3>; //LOW strength
+			drive-push-pull;//CMOS
+		};
+
+		enable_gpio:enable_gpio {
+			pins = "gpio1";
+			function = "normal";
+			bias-disable;
+			power-source = <1>;//VIN1
+			output-low; //digital output, no invert
+			qcom,drive-strength = <3>; //LOW strength
+			drive-push-pull;//CMOS
+		};
+
+		dir_gpio:dir_gpio {
+			pins = "gpio12";
+			function = "normal";
+			bias-disable;
+			power-source = <0>;//VIN1
+			output-low;
+			qcom,drive-strength = <3>; //LOW strength
+			drive-push-pull;//CMOS
+		};
+
+		standby_gpio:standby_gpio {
+			pins = "gpio11";
+			function = "normal";
+			bias-disable;
+			power-source = <1>;//VIN1
+			output-low; //digital output, no invert
+			qcom,drive-strength = <3>; //LOW strength
+			drive-push-pull;//CMOS
+		};
+	};
+};

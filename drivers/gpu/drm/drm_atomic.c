@@ -469,8 +469,11 @@ int drm_atomic_crtc_set_property(struct drm_crtc *crtc,
 	bool replaced = false;
 	int ret;
 
-	if (property == config->prop_active)
+	if (property == config->prop_active) {
 		state->active = val;
+		pr_err("[CRTC:%d:%s] [pid:%d] active=%d\n",
+				 crtc->base.id, crtc->name, current->pid, val);
+	}
 	else if (property == config->prop_mode_id) {
 		struct drm_property_blob *mode =
 			drm_property_lookup_blob(dev, val);

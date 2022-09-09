@@ -1,3 +1,107 @@
 source "drivers/power/avs/Kconfig"
 source "drivers/power/reset/Kconfig"
 source "drivers/power/supply/Kconfig"
+
+
+#ifdef VENDOR_EDIT
+
+config OPLUS_SM8150Q_CHARGER
+	tristate "OPLUS SM8150 charger driver"
+	depends on MFD_SPMI_PMIC
+	help
+	  Enables support for the oplus charging framework
+	  
+config OPLUS_WPC_INTERFACE_ENABLE
+	tristate "OPLUS WPC INTERFACE ENABLE"
+	default n
+	depends on MFD_SPMI_PMIC
+	help
+	  Say Y to include support
+
+config OPLUS_SM7150R_CHARGER
+	tristate "OPLUS SM7125R charger driver"
+	depends on MFD_SPMI_PMIC
+	help
+	  Enables support for the OPLUS charging framework
+
+config OPLUS_SM7125R_CHARGER
+	tristate "OPLUS SM7125R charger driver"
+	depends on MFD_SPMI_PMIC
+	help
+	  Enables support for the OPLUS charging framework
+
+config OPLUS_SM8150R_CHARGER
+	tristate "OPLUS SM8150 charger driver"
+	depends on MFD_SPMI_PMIC
+	help
+	  Enables support for the oplus charging framework
+	  
+config OPLUS_SHORT_C_BATT_CHECK
+	tristate "OPLUS_SHORT_C_BATT CHECK SUPPORT"
+	default n
+	depends on MFD_SPMI_PMIC
+	help
+	  Say Y to include support
+
+config OPLUS_CALL_MODE_SUPPORT
+	bool "OPLUS call mode support"
+	help
+	  Say Y to include support
+
+config OPLUS_SMART_CHARGER_SUPPORT
+	bool "OPLUS smart charger support"
+	help
+	  Say Y to include support
+
+config OPLUS_SHORT_HW_CHECK
+	tristate "OPLUS_SHORT_HW CHECK SUPPORT"
+	default n
+	depends on MFD_SPMI_PMIC
+	help
+	  Say Y to include support
+
+config OPLUS_CHIP_SOC_NODE
+	bool "OPLUS chip soc node"
+	help
+	  Say Y to include support
+
+config OPLUS_SHORT_IC_CHECK
+	tristate "OPLUS_SHORT_IC CHECK SUPPORT"
+	default n
+	depends on MFD_SPMI_PMIC
+	help
+	  Say Y to include support
+
+config OPLUS_RTC_DET_SUPPORT
+	tristate "OPLUS RTC DET SUPPORT"
+	default n
+	depends on MFD_SPMI_PMIC
+	help
+	  Say Y to include support
+
+config OPLUS_CHECK_CHARGERID_VOLT
+	tristate "OPLUS CHECK CHARGERID VOLT"
+	default n
+	depends on MFD_SPMI_PMIC
+	help
+	  Say Y to include support
+
+config OPLUS_SHIP_MODE_SUPPORT
+	tristate "OPLUS_SHIP_MODE_SUPPORT"
+	default n
+	depends on MFD_SPMI_PMIC
+	help
+	  Say Y to include support
+
+config OPLUS_SHORT_USERSPACE
+	bool "OPLUS batt userspace"
+	help
+	  Say Y to include support
+
+config OPLUS_SMOOTH_SOC
+	bool "OPLUS SMOOTH SOC "
+	help
+	  Say Y to include support
+source "drivers/power/oplus/Kconfig"
+#endif
+

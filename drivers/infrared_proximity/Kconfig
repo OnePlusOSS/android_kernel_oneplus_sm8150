@@ -1,0 +1,6 @@
+config INFRARED_PROXIMITY
+	bool "Oneplus infrared proximity power control"
+	help
+	 Add support for oneplus infrared proximity power control.
+	 This driver is used to control the infrared proximity
+	 led power.

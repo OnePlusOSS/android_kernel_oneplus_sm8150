@@ -25,6 +25,12 @@
 #include <linux/regulator/machine.h>
 #include <linux/regulator/of_regulator.h>
 #include <linux/string.h>
+#ifdef VENDOR_EDIT
+#include <linux/gpio.h>
+#include <linux/of_gpio.h>
+#include <linux/mutex.h>
+#include <soc/oplus/system/oplus_project.h>
+#endif
 
 #define pm8008_err(reg, message, ...) \
 	pr_err("%s: " message, (reg)->rdesc.name, ##__VA_ARGS__)
@@ -52,6 +58,8 @@
 #define MODE_STATE_BYPASS		0
 
 #define LDO_VSET_LB_REG(base)		(base + 0x40)
+
+#define LDO_VSET_VALID_LB_REG(base)	(base + 0x42)
 
 #define LDO_MODE_CTL1_REG(base)		(base + 0x45)
 #define MODE_PRIMARY_MASK		GENMASK(2, 0)
@@ -108,6 +116,53 @@ static struct regulator_data reg_data[] = {
 			{"pm8008_l7", "vdd_l7", 10000, 300000},
 };
 
+#ifdef VENDOR_EDIT
+struct pm8008_reset_info  {
+	struct platform_device *pdev;
+	int reset_gpio;
+};
+
+static struct pm8008_reset_info g_pm8008_reset_info[2];
+struct regmap *g_reset_regmap = NULL;
+struct regulator_dev *g_fingherprint_rdev = NULL;
+struct mutex reset_lock;
+static int pm8008_do_probe(struct platform_device *pdev);
+void pm8008_do_reset(void);
+void max98927_LR_reset(void);
+static void (*func_max98927_LR_reset)(void);
+
+void reset_pm8008_max98927(void)
+{
+	static int rst_num = 0;
+
+	pr_err("%s: enter\n", __func__);
+
+	if(0 == rst_num) {
+		mutex_init(&reset_lock);
+	}
+
+	if(!func_max98927_LR_reset) {
+		func_max98927_LR_reset = symbol_request(max98927_LR_reset);
+	}
+
+	mutex_lock(&reset_lock);
+	//reset two times
+	pm8008_do_reset();
+	if(func_max98927_LR_reset) {
+		func_max98927_LR_reset();
+	}
+	pm8008_do_reset();
+	if(func_max98927_LR_reset) {
+		func_max98927_LR_reset();
+	}
+	rst_num++;
+	mutex_unlock(&reset_lock);
+
+	pr_err("%s: exit, reset %d times\n", __func__, rst_num);
+}
+EXPORT_SYMBOL(reset_pm8008_max98927);
+#endif
+
 /* common functions */
 static int pm8008_read(struct regmap *regmap,  u16 reg, u8 *val, int count)
 {
@@ -152,16 +207,32 @@ static int pm8008_regulator_get_voltage(struct regulator_dev *rdev)
 	struct pm8008_regulator *pm8008_reg = rdev_get_drvdata(rdev);
 	u8 vset_raw[2];
 	int rc;
-
-	rc = pm8008_read(pm8008_reg->regmap,
-			LDO_VSET_LB_REG(pm8008_reg->base),
-			vset_raw, 2);
-	if (rc < 0) {
-		pm8008_err(pm8008_reg,
-			"failed to read regulator voltage rc=%d\n", rc);
-		return rc;
+	int retry = 0;
+	if( (19781 == get_project()) || (19696 == get_project()) ) {
+		for (; retry < 3 && rc == -71; retry++) {
+			reset_pm8008_max98927();
+			rc = pm8008_read(pm8008_reg->regmap,
+				LDO_VSET_VALID_LB_REG(pm8008_reg->base),
+				vset_raw, 2);
+			pr_err("failed at pm8008_regulator_get_voltage repty %d \n", retry);
+			msleep(20);
+		}
+		if (retry == 3 && rc == -71) {
+			panic("%s: i2c err -71, pm8008 can't return to normal!\n", __func__);
+		}
+		if (rc != 0) {
+			return rc;
+		}
+	} else {
+		rc = pm8008_read(pm8008_reg->regmap,
+				LDO_VSET_VALID_LB_REG(pm8008_reg->base),
+				vset_raw, 2);
+		if (rc < 0) {
+			pm8008_err(pm8008_reg,
+				"failed to read regulator voltage rc=%d\n", rc);
+			return rc;
+		}
 	}
-
 	pm8008_debug(pm8008_reg, "VSET read [%x][%x]\n",
 			vset_raw[1], vset_raw[0]);
 	return (vset_raw[1] << 8 | vset_raw[0]) * 1000;
@@ -236,6 +307,14 @@ static int pm8008_regulator_enable(struct regulator_dev *rdev)
 	 * Wait for the VREG_READY status bit to be set using a timeout delay
 	 * calculated from the current commanded voltage.
 	 */
+	if( (19781 == get_project()) || (19696 == get_project()) ) {
+		pm8008_debug(pm8008_reg," pm8008-ldo current_uv = %d",current_uv);
+		/* Get fingherprint regulator for pm8008 reset*/
+		if( current_uv > 3200000 && g_fingherprint_rdev == NULL ) {
+			g_fingherprint_rdev = rdev ;
+			pm8008_err(pm8008_reg,"pm8008 get g_fingherprint_rdev current_uv = %d",current_uv);
+		}
+	}
 	delay_us = STARTUP_DELAY_USEC
 			+ DIV_ROUND_UP(current_uv, pm8008_reg->step_rate);
 	delay_ms = DIV_ROUND_UP(delay_us, 1000);
@@ -634,6 +713,53 @@ static int pm8008_register_ldo(struct pm8008_regulator *pm8008_reg,
 	return 0;
 }
 
+#ifdef VENDOR_EDIT
+void  pm8008_do_reset()
+{
+	unsigned int val = 0;
+	int rc = 0;
+
+	gpio_set_value(g_pm8008_reset_info[1].reset_gpio, 0);
+	gpio_set_value(g_pm8008_reset_info[0].reset_gpio, 0);
+
+	pr_err("pm8008 reset gpio val %d %d ",
+				gpio_get_value(g_pm8008_reset_info[1].reset_gpio),\
+				gpio_get_value(g_pm8008_reset_info[0].reset_gpio));
+
+	msleep(10);
+	gpio_set_value(g_pm8008_reset_info[1].reset_gpio, 1);
+	msleep(10);
+	/* get defualt i2c address to modify second pm8008 address*/
+	//reset_regmap = dev_get_regmap(g_pm8008_reset_info[0].pdev->dev.parent, NULL);
+	pr_err("pm8008 modify second pm8008 address ");
+
+	rc = regmap_read(g_reset_regmap,0x0644,&val);
+	if (rc < 0) {
+		pr_err("pm8008 modify second pm8008 address fail");
+	}
+	pr_err("pm8008-reset pm8008-chip-2  read 0x0644 0x%x",val);
+	rc = regmap_write(g_reset_regmap,0x0644,0x01);
+	if (rc < 0) {
+		pr_err("pm8008 modify second pm8008 address fail rc = %d",rc);
+	}
+	msleep(1);
+	rc = regmap_read(g_reset_regmap,0x0644,&val);
+	if (rc < 0) {
+		pr_err("pm8008 read second pm8008 address fail rc = %d",rc);
+	}
+	pr_err("pm8008-reset pm8008-chip-2  read 0x0644 0x%x",val);
+	msleep(10);
+	gpio_set_value(g_pm8008_reset_info[0].reset_gpio, 1);
+	pm8008_do_probe(g_pm8008_reset_info[1].pdev);
+	pm8008_do_probe(g_pm8008_reset_info[0].pdev);
+
+	if( g_fingherprint_rdev != NULL) {
+		pm8008_regulator_enable(g_fingherprint_rdev);
+	}
+
+}
+#endif
+
 /* PMIC probe and helper function */
 static int pm8008_parse_regulator(struct regmap *regmap, struct device *dev)
 {
@@ -667,10 +793,46 @@ static int pm8008_parse_regulator(struct regmap *regmap, struct device *dev)
 	return 0;
 }
 
+#ifdef VENDOR_EDIT
+static int pm8008_do_probe(struct platform_device *pdev){
+	int rc = 0;
+	struct regmap *regmap;
+	const char * regulator_name;
+	struct device_node *regulator_node =  pdev->dev.of_node;
+
+	pr_debug("pm8008_regulator_probe X\n");
+
+	rc = of_property_read_string(regulator_node, "pm8008-name",&regulator_name);
+
+	regmap = dev_get_regmap(pdev->dev.parent, NULL);
+	if (!regmap) {
+		pr_err("parent regmap is missing\n");
+		return -EINVAL;
+	}
+
+	pr_err("pm8008 regulaot name is %s\n",regulator_name);
+
+	rc = pm8008_parse_regulator(regmap, &pdev->dev);
+	if (rc < 0) {
+		pr_err("failed to parse device tree rc=%d\n", rc);
+		return rc;
+	}
+
+	return 0;
+
+}
+#endif
+
 static int pm8008_regulator_probe(struct platform_device *pdev)
 {
 	int rc = 0;
 	struct regmap *regmap;
+	const char * regulator_name;
+	struct device_node *regulator_node =  pdev->dev.of_node;
+	if( (19781 == get_project()) || (19696 == get_project()) ) {
+		rc = of_property_read_string(regulator_node, "pm8008-name",&regulator_name);
+		pr_debug("pm8008 regulaot name is %s\n",regulator_name);
+	}
 
 	regmap = dev_get_regmap(pdev->dev.parent, NULL);
 	if (!regmap) {
@@ -682,6 +844,24 @@ static int pm8008_regulator_probe(struct platform_device *pdev)
 	if (rc < 0) {
 		pr_err("failed to parse device tree rc=%d\n", rc);
 		return rc;
+	}
+	if( (19781 == get_project()) || (19696 == get_project()) ) {
+		if (0 == strcmp(regulator_name,"pm8008_regulator-1")) {
+			/*g_pm8008_reset_info[0] use defualt pm8008 i2c 8bit address  0x8/9  */
+			g_pm8008_reset_info[0].pdev = pdev ;
+			g_pm8008_reset_info[0].reset_gpio =
+					of_get_named_gpio(regulator_node,"qcom,pm8008-reset-gpio", 0);
+			pr_debug("pm8008 parse device tree pm8008-chip-1 for reset ");
+		}
+
+		if (0 == strcmp(regulator_name,"pm8008_regulator-2")) {
+			g_pm8008_reset_info[1].pdev = pdev;
+			g_pm8008_reset_info[1].reset_gpio =
+					of_get_named_gpio(regulator_node,"qcom,pm8008-reset-gpio", 0);
+			pr_debug("pm8008 parse device tree pm8008-chip-2 for reset ");
+	//		pm8008_do_reset();
+		}
+		pr_debug("pm8008_regulator_probe E\n");
 	}
 
 	return 0;
@@ -775,6 +955,13 @@ static int pm8008_chip_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	chip->regmap = dev_get_regmap(pdev->dev.parent, NULL);
+
+	if( (19781 == get_project()) || (19696 == get_project()) ) {
+		if (g_reset_regmap == NULL) {
+			g_reset_regmap = chip->regmap;
+		}
+	}
+
 	if (!chip->regmap) {
 		pr_err("parent regmap is missing\n");
 		return -EINVAL;

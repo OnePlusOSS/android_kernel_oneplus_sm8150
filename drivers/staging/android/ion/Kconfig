@@ -63,3 +63,10 @@ config ION_DEFER_FREE_NO_SCHED_IDLE
 	  Choose this option to remove the SCHED_IDLE flag in case of defer free
 	  thereby increasing the priority of defer free thread.
 	  if you're not sure say Y here.
+
+config OPLUS_ION_BOOSTPOOL
+        bool "Support ION Boost pool"
+        default n
+        help
+          This driver supports ION boost pool.
+

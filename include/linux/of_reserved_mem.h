@@ -45,6 +45,10 @@ int early_init_dt_alloc_reserved_memory_arch(phys_addr_t size,
 void fdt_init_reserved_mem(void);
 void fdt_reserved_mem_save_node(unsigned long node, const char *uname,
 			       phys_addr_t base, phys_addr_t size);
+struct reserved_mem *of_reserved_mem_lookup(struct device_node *np);
+#ifdef OPLUS_FEATURE_LOWMEM_DBG
+unsigned long dt_memory_reserved_pages(void);
+#endif /* OPLUS_FEATURE_LOWMEM_DBG */
 #else
 static inline int of_reserved_mem_device_init_by_idx(struct device *dev,
 					struct device_node *np, int idx)
@@ -56,6 +60,11 @@ static inline void of_reserved_mem_device_release(struct device *pdev) { }
 static inline void fdt_init_reserved_mem(void) { }
 static inline void fdt_reserved_mem_save_node(unsigned long node,
 		const char *uname, phys_addr_t base, phys_addr_t size) { }
+#ifdef OPLUS_FEATURE_LOWMEM_DBG
+unsigned long dt_memory_reserved_pages(void) {
+	return 0;
+}
+#endif /* OPLUS_FEATURE_LOWMEM_DBG */
 #endif
 
 /**

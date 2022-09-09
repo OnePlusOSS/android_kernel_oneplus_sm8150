@@ -1,0 +1,32 @@
+menuconfig OPLUS_MOTOR
+	bool "OPLUS motor control system"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Say Y here to enable OPLUS motor control system support
+
+if OPLUS_MOTOR
+
+config CAMERA_MOTOR_DRV8834
+	tristate "CAMERA MOTOR DRV8834 Controler"
+	default n
+	help
+	  Say Y here to enable DRV8834.
+
+config DIGITAL_HALL_M1120
+	tristate "digital hall m1120 Controler"
+	default n
+	help
+	  Say Y here to enable m1120.
+
+config MOTOR_DETECT_QOS
+	bool "OPLUS motor detect position update qos"
+	help
+	  Say Y here if you want to update qos value in position detect.
+
+config MOTOR_CLASS_INTERFACE
+	bool "OPLUS motor class interface"
+	help
+	  Say Y here if you want to using motor class interface
+
+endif #OPLUS_CHARGER

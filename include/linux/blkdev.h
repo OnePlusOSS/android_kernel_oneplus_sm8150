@@ -98,6 +98,9 @@ typedef __u32 __bitwise req_flags_t;
 #define RQF_MQ_INFLIGHT		((__force req_flags_t)(1 << 6))
 /* don't call prep for this one */
 #define RQF_DONTPREP		((__force req_flags_t)(1 << 7))
+/* set for "ide_preempt" requests and also for requests for which the SCSI
+   "quiesce" state must be ignored. */
+#define RQF_PREEMPT		((__force req_flags_t)(1 << 8))
 /* contains copies of user pages */
 #define RQF_COPY_USER		((__force req_flags_t)(1 << 9))
 /* vaguely specified driver internal error.  Ignored by the block layer */
@@ -119,6 +122,9 @@ typedef __u32 __bitwise req_flags_t;
 /* Look at ->special_vec for the actual data payload instead of the
    bio chain. */
 #define RQF_SPECIAL_PAYLOAD	((__force req_flags_t)(1 << 18))
+
+/* increased nr_pending for this request */
+#define RQF_PM_ADDED		((__force req_flags_t)(1 << 19))
 
 /* flags that prevent us from merging requests: */
 #define RQF_NOMERGE_FLAGS \
@@ -144,6 +150,19 @@ struct request {
 	unsigned int cmd_flags;		/* op and common flags */
 	req_flags_t rq_flags;
 
+#if defined(OPLUS_FEATURE_IOMONITOR) && defined(CONFIG_IOMONITOR)
+	ktime_t req_tg;
+	ktime_t req_ti;
+	ktime_t req_td;
+	ktime_t req_tc;
+#endif /*OPLUS_FEATURE_IOMONITOR*/
+
+#ifdef VENDOR_EDIT
+	ktime_t block_io_start;  //save block io start ktime
+	ktime_t ufs_io_start; //save ufs io start ktime
+	u64 flash_io_latency; //save mmc host command latency
+#endif /*VENDOR_EDIT*/
+
 	int internal_tag;
 
 	unsigned long atomic_flags;
@@ -156,6 +175,9 @@ struct request {
 	struct bio *bio;
 	struct bio *biotail;
 
+#if defined(OPLUS_FEATURE_FG_IO_OPT) && defined(CONFIG_OPLUS_FG_IO_OPT)
+	struct list_head fg_list;
+#endif /*OPLUS_FEATURE_FG_IO_OPT*/
 	/*
 	 * The hash is used inside the scheduler, and killed once the
 	 * request reaches the dispatch list. The ipi_list is only used
@@ -407,6 +429,13 @@ struct request_queue {
 	 * Together with queue_head for cacheline sharing
 	 */
 	struct list_head	queue_head;
+#if defined(OPLUS_FEATURE_FG_IO_OPT) && defined(CONFIG_OPLUS_FG_IO_OPT)
+	struct list_head	fg_head;
+	int fg_count;
+	int both_count;
+	int fg_count_max;
+	int both_count_max;
+#endif /*OPLUS_FEATURE_FG_IO_OPT*/
 	struct request		*last_merge;
 	struct elevator_queue	*elevator;
 	int			nr_rqs[2];	/* # allocated [a]sync rqs */
@@ -534,8 +563,14 @@ struct request_queue {
 	struct list_head	tag_busy_list;
 
 	unsigned int		nr_sorted;
+#ifndef OPLUS_FEATURE_HEALTHINFO
+// Modify for ioqueue
 	unsigned int		in_flight[2];
-
+#else /* OPLUS_FEATURE_HEALTHINFO */
+#ifdef CONFIG_OPLUS_HEALTHINFO
+	unsigned int		in_flight[4];
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 	/*
 	 * Number of active block driver functions for which blk_drain_queue()
 	 * must wait. Must be incremented around functions that unlock the
@@ -623,6 +658,10 @@ struct request_queue {
 
 #define BLK_MAX_WRITE_HINTS	5
 	u64			write_hints[BLK_MAX_WRITE_HINTS];
+
+#if defined(VENDOR_EDIT) && defined(CONFIG_UFSTW)
+	bool			turbo_write_dev;
+#endif
 };
 
 #define QUEUE_FLAG_QUEUED	0	/* uses generic tag queueing */
@@ -656,6 +695,7 @@ struct request_queue {
 #define QUEUE_FLAG_SCSI_PASSTHROUGH 27	/* queue supports SCSI commands */
 #define QUEUE_FLAG_QUIESCED    28	/* queue has been quiesced */
 #define QUEUE_FLAG_PREEMPT_ONLY 29	/* only process REQ_PREEMPT requests */
+#define QUEUE_FLAG_INLINECRYPT 30      /* inline encryption support */
 
 #define QUEUE_FLAG_DEFAULT	((1 << QUEUE_FLAG_IO_STAT) |		\
 				 (1 << QUEUE_FLAG_STACKABLE)	|	\
@@ -734,6 +774,29 @@ static inline void queue_flag_clear(unsigned int flag, struct request_queue *q)
 	queue_lockdep_assert_held(q);
 	__clear_bit(flag, &q->queue_flags);
 }
+
+#ifdef OPLUS_FEATURE_HEALTHINFO
+// Add for ioqueue
+#ifdef CONFIG_OPLUS_HEALTHINFO
+static inline void ohm_ioqueue_add_inflight(struct request_queue *q,
+					     struct request *rq)
+{
+	if (rq->cmd_flags & REQ_FG)
+		q->in_flight[BLK_RW_FG]++;
+	else
+		q->in_flight[BLK_RW_BG]++;
+}
+
+static inline void ohm_ioqueue_dec_inflight(struct request_queue *q,
+					     struct request *rq)
+{
+	if (rq->cmd_flags & REQ_FG)
+		q->in_flight[BLK_RW_FG]--;
+	else
+		q->in_flight[BLK_RW_BG]--;
+}
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 
 #define blk_queue_tagged(q)	test_bit(QUEUE_FLAG_QUEUED, &(q)->queue_flags)
 #define blk_queue_stopped(q)	test_bit(QUEUE_FLAG_STOPPED, &(q)->queue_flags)
@@ -2012,6 +2075,15 @@ static const u_int64_t latency_x_axis_us[] = {
 	7000,
 	9000,
 	10000
+#ifdef VENDOR_EDIT
+	,20000
+	,40000
+	,60000
+	,80000
+	,100000
+	,150000
+	,200000
+#endif
 };
 
 #define BLK_IO_LAT_HIST_DISABLE         0

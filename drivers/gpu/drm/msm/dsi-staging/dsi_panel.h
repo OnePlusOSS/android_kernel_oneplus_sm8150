@@ -29,6 +29,12 @@
 #include "dsi_pwr.h"
 #include "dsi_parser.h"
 #include "msm_drv.h"
+#ifdef OPLUS_BUG_STABILITY
+struct oplus_brightness_alpha {
+	u32 brightness;
+	u32 alpha;
+};
+#endif /*OPLUS_BUG_STABILITY*/
 
 #define MAX_BL_LEVEL 4096
 #define MAX_BL_SCALE_LEVEL 1024
@@ -36,6 +42,17 @@
 #define DSI_CMD_PPS_SIZE 135
 
 #define DSI_MODE_MAX 5
+
+#define GAMMA_READ_SUCCESS 1
+#define GAMMA_READ_ERROR 0
+
+extern int gamma_read_flag;
+
+enum dsi_gamma_cmd_set_type {
+	DSI_GAMMA_CMD_SET_SWITCH_60HZ = 0,
+	DSI_GAMMA_CMD_SET_SWITCH_90HZ,
+	DSI_GAMMA_CMD_SET_MAX
+};
 
 enum dsi_panel_rotation {
 	DSI_PANEL_ROTATE_NONE = 0,
@@ -115,6 +132,10 @@ struct dsi_backlight_config {
 	u32 bl_max_level;
 	u32 brightness_max_level;
 	u32 brightness_default_level;
+#ifdef OPLUS_BUG_STABILITY
+	u32 bl_normal_max_level;
+	u32 brightness_normal_max_level;
+#endif /* OPLUS_BUG_STABILITY */
 	u32 bl_level;
 	u32 bl_scale;
 	u32 bl_scale_ad;
@@ -143,6 +164,17 @@ struct dsi_panel_reset_config {
 	int disp_en_gpio;
 	int lcd_mode_sel_gpio;
 	u32 mode_sel_state;
+	#ifdef OPLUS_BUG_STABILITY
+	int lcd_vci_gpio;
+	int err_flag_gpio;
+	u32 lcd_delay_vci_gpio;
+	u32 lcd_delay_disp_en_gpio;
+	u32 lcd_delay_reset_gpio;
+	u32 lcd_delay_mode_sel_gpio;
+	u32 lcd_delay_set_pinctrl_state;
+	u32 lcd_delay_enable_regulator;
+	u32 lcd_delay_lp11_state;
+	#endif /* OPLUS_BUG_STABILITY */
 };
 
 enum esd_check_status_mode {
@@ -166,6 +198,29 @@ struct drm_panel_esd_config {
 	u8 *status_buf;
 	u32 groups;
 };
+
+#ifdef OPLUS_BUG_STABILITY
+struct dsi_panel_oplus_privite {
+	const char *vendor_name;
+	const char *manufacture_name;
+	bool skip_mipi_last_cmd;
+	bool bl_interpolate_nosub;
+	bool is_pxlw_iris5;
+#ifdef OPLUS_FEATURE_AOD_RAMLESS
+	bool is_aod_ramless;
+#endif /* OPLUS_FEATURE_AOD_RAMLESS */
+	bool is_osc_support;
+	bool is_19781_lcd;
+	u32 osc_clk_mode0_rate;
+	u32 osc_clk_mode1_rate;
+	u32 osc_clk_current_rate;
+	int seed_bl_max;
+	struct oplus_brightness_alpha *bl_remap;
+	int bl_remap_count;
+	u32 pll_delay;
+	u32 prj_flag;
+};
+#endif /* OPLUS_BUG_STABILITY */
 
 struct dsi_panel {
 	const char *name;
@@ -201,6 +256,10 @@ struct dsi_panel {
 
 	struct dsi_parser_utils utils;
 
+	int tp1v8_gpio;
+	int vddd_gpio;
+	int poc;
+
 	bool lp11_init;
 	bool ulps_feature_enabled;
 	bool ulps_suspend_enabled;
@@ -217,6 +276,21 @@ struct dsi_panel {
 	bool sync_broadcast_en;
 	int power_mode;
 	enum dsi_panel_physical_type panel_type;
+
+//#ifdef OPLUS_BUG_STABILITY
+	bool is_hbm_enabled;
+	/* Fix aod flash problem */
+	bool need_power_on_backlight;
+  	bool reset_timing;
+	struct oplus_brightness_alpha *ba_seq;
+	struct oplus_brightness_alpha *dc_ba_seq;
+	int ba_count;
+	int dc_ba_count;
+	struct dsi_panel_oplus_privite oplus_priv;
+	bool is_err_flag_irq_enabled;
+	bool err_flag_status;
+        struct delayed_work gamma_read_work;
+//#endif /* OPLUS_BUG_STABILITY */
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)
@@ -336,5 +410,12 @@ struct dsi_panel *dsi_panel_ext_bridge_get(struct device *parent,
 int dsi_panel_parse_esd_reg_read_configs(struct dsi_panel *panel);
 
 void dsi_panel_ext_bridge_put(struct dsi_panel *panel);
+//#ifdef OPLUS_BUG_STABILITY
+int dsi_panel_tx_cmd_set(struct dsi_panel *panel, enum dsi_cmd_set_type type);
+int dsi_panel_gamma_read_address_setting(struct dsi_panel *panel, u16 read_number);
+int dsi_panel_parse_gamma_cmd_sets(void);
+int dsi_panel_tx_gamma_cmd_set(struct dsi_panel *panel, enum dsi_gamma_cmd_set_type type);
+extern int mipi_dsi_dcs_write_c1(struct mipi_dsi_device *dsi, u16 read_number);
 
+//#endif /* OPLUS_BUG_STABILITY */
 #endif /* _DSI_PANEL_H_ */

@@ -62,6 +62,21 @@ int sysctl_tcp_tso_win_divisor __read_mostly = 3;
 /* By default, RFC2861 behavior.  */
 int sysctl_tcp_slow_start_after_idle __read_mostly = 1;
 
+#ifdef OPLUS_FEATURE_MODEM_DATA_NWPOWER
+/*
+*Add for classify glink wakeup services
+*/
+#include <net/oplus_nwpower.h>
+extern atomic_t oplus_tcp_is_input;
+extern atomic_t ipa_wakeup_hook_boot;
+extern struct timespec oplus_tcp_last_transmission_stamp;
+extern struct work_struct oplus_tcp_output_hook_work;
+extern struct oplus_tcp_hook_struct oplus_tcp_output_hook;
+extern atomic_t tcpsynretrans_hook_boot;
+extern struct work_struct oplus_tcp_output_tcpsynretrans_hook_work;
+extern struct oplus_tcp_hook_struct oplus_tcp_output_tcpsynretrans_hook;
+#endif /* OPLUS_FEATURE_MODEM_DATA_NWPOWER */
+
 static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
 			   int push_one, gfp_t gfp);
 
@@ -1003,6 +1018,12 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 	struct tcp_md5sig_key *md5;
 	struct tcphdr *th;
 	int err;
+#ifdef OPLUS_FEATURE_MODEM_DATA_NWPOWER
+        /*
+        *Add for classify glink wakeup services
+		*/
+        struct timespec now_ts;
+#endif /* OPLUS_FEATURE_MODEM_DATA_NWPOWER */
 
 	BUG_ON(!skb || !tcp_skb_pcount(skb));
 	tp = tcp_sk(sk);
@@ -1129,6 +1150,44 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 			       sizeof(struct inet6_skb_parm)));
 
 	err = icsk->icsk_af_ops->queue_xmit(sk, skb, &inet->cork.fl);
+
+#ifdef OPLUS_FEATURE_MODEM_DATA_NWPOWER
+    /*
+    *Add for classify glink wakeup services.
+    */
+    if (atomic_read(&ipa_wakeup_hook_boot) == 1) {
+        if (atomic_read(&oplus_tcp_is_input) == 0) {
+            now_ts = current_kernel_time();
+
+            if (((now_ts.tv_sec * 1000 + now_ts.tv_nsec / 1000000) -
+                (oplus_tcp_last_transmission_stamp.tv_sec * 1000 +
+                    oplus_tcp_last_transmission_stamp.tv_nsec / 1000000)) > OPLUS_TRANSMISSION_INTERVAL) {
+                atomic_set(&oplus_tcp_is_input, 3);
+
+                if (sk->sk_v6_daddr.s6_addr32[0] == 0 && sk->sk_v6_daddr.s6_addr32[1] == 0) {
+                    oplus_tcp_output_hook.ipv4_addr = sk->sk_daddr;
+                    oplus_tcp_output_hook.is_ipv6 = false;
+                    schedule_work(&oplus_tcp_output_hook_work);
+                } else {
+                    oplus_tcp_output_hook.ipv6_addr1 = (u64)ntohl(sk->sk_v6_daddr.s6_addr32[0]) << 32
+                        | ntohl(sk->sk_v6_daddr.s6_addr32[1]);
+                    oplus_tcp_output_hook.ipv6_addr2 = (u64)ntohl(sk->sk_v6_daddr.s6_addr32[2]) << 32
+                        | ntohl(sk->sk_v6_daddr.s6_addr32[3]);
+                    oplus_tcp_output_hook.is_ipv6 = true;
+                    schedule_work(&oplus_tcp_output_hook_work);
+                }
+
+                oplus_tcp_output_hook.uid = get_uid_from_sock(sk);
+                oplus_tcp_output_hook.pid = sk->sk_oplus_pid;
+            }
+        }
+
+        oplus_tcp_last_transmission_stamp = current_kernel_time();
+        sk->oplus_last_send_stamp[0] = sk->oplus_last_send_stamp[1];
+        sk->oplus_last_send_stamp[1] = oplus_tcp_last_transmission_stamp.tv_sec * 1000 +
+            oplus_tcp_last_transmission_stamp.tv_nsec / 1000000;
+    }
+#endif /* OPLUS_FEATURE_MODEM_DATA_NWPOWER */
 
 	if (unlikely(err > 0)) {
 		tcp_enter_cwr(sk);
@@ -2851,7 +2910,12 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
 	struct tcp_sock *tp = tcp_sk(sk);
 	unsigned int cur_mss;
 	int diff, len, err;
-
+#ifdef OPLUS_FEATURE_MODEM_DATA_NWPOWER
+        /*
+        *Add for classify glink wakeup services
+        */
+        struct timespec now_ts;
+#endif /* OPLUS_FEATURE_MODEM_DATA_NWPOWER */
 
 	/* Inconclusive MTU probe */
 	if (icsk->icsk_mtup.probe_size)
@@ -2940,6 +3004,28 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
 
 	if (likely(!err)) {
 		TCP_SKB_CB(skb)->sacked |= TCPCB_EVER_RETRANS;
+#ifdef OPLUS_FEATURE_MODEM_DATA_NWPOWER
+        /*
+        *Add for classify glink wakeup services
+        */
+        if (atomic_read(&tcpsynretrans_hook_boot) == 1) {
+            now_ts = current_kernel_time();
+            if (((now_ts.tv_sec * 1000 + now_ts.tv_nsec / 1000000) - sk->oplus_last_send_stamp[0]) > OPLUS_TCP_RETRANSMISSION_INTERVAL) {
+                if (sk->sk_v6_daddr.s6_addr32[0] == 0 && sk->sk_v6_daddr.s6_addr32[1] == 0) {
+                    oplus_tcp_output_tcpsynretrans_hook.ipv4_addr = sk->sk_daddr;
+                    oplus_tcp_output_tcpsynretrans_hook.is_ipv6 = false;
+                    schedule_work(&oplus_tcp_output_tcpsynretrans_hook_work);
+                } else {
+                    oplus_tcp_output_tcpsynretrans_hook.ipv6_addr1 = (u64)ntohl(sk->sk_v6_daddr.s6_addr32[0]) << 32 | ntohl(sk->sk_v6_daddr.s6_addr32[1]);
+                    oplus_tcp_output_tcpsynretrans_hook.ipv6_addr2 = (u64)ntohl(sk->sk_v6_daddr.s6_addr32[2]) << 32 | ntohl(sk->sk_v6_daddr.s6_addr32[3]);
+                    oplus_tcp_output_tcpsynretrans_hook.is_ipv6 = true;
+                    schedule_work(&oplus_tcp_output_tcpsynretrans_hook_work);
+                }
+                oplus_tcp_output_tcpsynretrans_hook.uid = get_uid_from_sock(sk);
+                oplus_tcp_output_tcpsynretrans_hook.pid = sk->sk_oplus_pid;
+            }
+        }
+#endif /* OPLUS_FEATURE_MODEM_DATA_NWPOWER */
 	} else if (err != -EBUSY) {
 		NET_ADD_STATS(sock_net(sk), LINUX_MIB_TCPRETRANSFAIL, segs);
 	}

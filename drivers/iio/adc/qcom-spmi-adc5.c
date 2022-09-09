@@ -735,24 +735,53 @@ static const struct adc_channels adc_chans_pmic5[ADC_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_DEFAULT)
 	[ADC_MID_CHG_DIV6]	= ADC_CHAN_VOLT("chg_mid_chg", 6,
 					SCALE_HW_CALIB_DEFAULT)
+#ifdef CONFIG_OPLUS_SM8150R_CHARGER
+	/* Charger ID detect */
+	[ADC_GPIO3] 		= ADC_CHAN_VOLT("chgID_voltage_adc", 1,
+					SCALE_HW_CALIB_DEFAULT)
+#endif
 	[ADC_XO_THERM_PU2]	= ADC_CHAN_TEMP("xo_therm", 1,
 					SCALE_HW_CALIB_XOTHERM)
+#ifdef OPLUS_FEATURE_CHG_BASIC
+       [ADC_BAT_THERM_PU2]     = ADC_CHAN_TEMP("bat_therm_pu2", 1,
+                                       SCALE_HW_CALIB_DEFAULT)
+       [ADC_BAT_THERM_PU1]     = ADC_CHAN_TEMP("bat_therm_pu1", 1,
+                                       SCALE_HW_CALIB_DEFAULT)
+#else
 	[ADC_BAT_THERM_PU2]	= ADC_CHAN_TEMP("bat_therm_pu2", 1,
 					SCALE_HW_CALIB_BATT_THERM_100K)
 	[ADC_BAT_THERM_PU1]	= ADC_CHAN_TEMP("bat_therm_pu1", 1,
 					SCALE_HW_CALIB_BATT_THERM_30K)
+#endif /*OPLUS_FEATURE_CHG_BASIC*/
 	[ADC_BAT_THERM_PU3]	= ADC_CHAN_TEMP("bat_therm_pu3", 1,
 					SCALE_HW_CALIB_BATT_THERM_400K)
 	[ADC_BAT_ID_PU2]	= ADC_CHAN_TEMP("bat_id", 1,
 					SCALE_HW_CALIB_DEFAULT)
 	[ADC_AMUX_THM1_PU2]	= ADC_CHAN_TEMP("amux_thm1_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
+#ifdef VENDOR_EDIT
 	[ADC_AMUX_THM2_PU2]	= ADC_CHAN_TEMP("amux_thm2_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
+#ifdef CONFIG_OPLUS_SM8150R_CHARGER
+	[ADC_AMUX_THM3_PU2] = ADC_CHAN_VOLT("amux_thm3_pu2", 1,
+					SCALE_HW_CALIB_DEFAULT)
+#else
 	[ADC_AMUX_THM3_PU2]	= ADC_CHAN_TEMP("amux_thm3_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
-	[ADC_AMUX_THM4_PU2]	= ADC_CHAN_TEMP("amux_thm4_pu2", 1,
+#endif
+#else
+	[ADC_AMUX_THM2_PU2]	= ADC_CHAN_VOLT("amux_thm2_pu2", 1,
+					SCALE_HW_CALIB_DEFAULT)
+	[ADC_AMUX_THM3_PU2]	= ADC_CHAN_VOLT("amux_thm3_pu2", 1,
+					SCALE_HW_CALIB_DEFAULT)
+#endif /*VENDOR_EDIT*/
+#ifdef CONFIG_OPLUS_SM8150R_CHARGER
+	[ADC_AMUX_THM4_PU2] = ADC_CHAN_VOLT("amux_thm4_pu2", 1,
+					SCALE_HW_CALIB_DEFAULT)
+#else
+	[ADC_AMUX_THM4_PU2] = ADC_CHAN_TEMP("amux_thm4_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
+#endif
 	[ADC_INT_EXT_ISENSE_VBAT_VDATA]	= ADC_CHAN_POWER("int_ext_isense", 1,
 					SCALE_HW_CALIB_CUR)
 	[ADC_EXT_ISENSE_VBAT_VDATA]	= ADC_CHAN_POWER("ext_isense", 1,
@@ -765,12 +794,47 @@ static const struct adc_channels adc_chans_pmic5[ADC_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_PM5_SMB_TEMP)
 	[ADC_GPIO1_PU2]	= ADC_CHAN_TEMP("gpio1_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
+#ifdef CONFIG_OPLUS_SM8150R_CHARGER/*for usbtemp*/
+	[ADC_GPIO2_PU2]	= ADC_CHAN_VOLT("gpio2_pu2", 1,
+					SCALE_HW_CALIB_DEFAULT)
+#else
 	[ADC_GPIO2_PU2]	= ADC_CHAN_TEMP("gpio2_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
+#endif
 	[ADC_GPIO3_PU2]	= ADC_CHAN_TEMP("gpio3_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
 	[ADC_GPIO4_PU2]	= ADC_CHAN_TEMP("gpio4_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
+
+#ifdef CONFIG_OPLUS_SM7150R_CHARGER
+/* Yichun.Chen	PSW.BSP.CHG  2019-04-13  for read chargerid */
+	[ADC_GPIO4] = ADC_CHAN_VOLT("chgid_voltage", 1, SCALE_HW_CALIB_DEFAULT)
+	[ADC_AMUX_THM1] = ADC_CHAN_VOLT("usb_temp1", 1, SCALE_HW_CALIB_DEFAULT)
+	[ADC_AMUX_THM3] = ADC_CHAN_VOLT("usb_temp2", 1, SCALE_HW_CALIB_DEFAULT)
+#endif
+
+#ifdef OPLUS_FEATURE_TP_BASIC
+	[ADC_GPIO4] 	= ADC_CHAN_VOLT("board_id_vdata", 1,
+						SCALE_HW_CALIB_DEFAULT)
+#endif/*OPLUS_FEATURE_TP_BASIC*/
+
+#ifdef CONFIG_OPLUS_SM8150R_CHARGER
+	[ADC_GPIO3] = ADC_CHAN_VOLT("gpio7_v", 1,
+					SCALE_HW_CALIB_DEFAULT)
+	[ADC_GPIO4_PU2] = ADC_CHAN_VOLT("gpio8_v", 1,
+					SCALE_HW_CALIB_DEFAULT)
+#ifdef OPLUS_CUSTOM_OP_DEF
+	[ADC_AMUX_THM4_PU1] = ADC_CHAN_VOLT("usb_temp_adc", 1,
+					SCALE_HW_CALIB_DEFAULT)
+	[ADC_GPIO2_PU1] = ADC_CHAN_VOLT("usb_supplementary_temp_adc", 1,
+					SCALE_HW_CALIB_DEFAULT)	
+#else
+	[ADC_AMUX_THM4] = ADC_CHAN_VOLT("usb_temp_adc", 1,
+					SCALE_HW_CALIB_DEFAULT)
+	[ADC_GPIO2] = ADC_CHAN_VOLT("usb_supplementary_temp_adc", 1,
+					SCALE_HW_CALIB_DEFAULT)
+#endif // OPLUS_CUSTOM_OP_DEF
+#endif //CONFIG_OPLUS_SM8150R_CHARGER
 };
 
 static const struct adc_channels adc_chans_rev2[ADC_MAX_CHANNEL] = {

@@ -345,6 +345,9 @@ static int ext4_ioctl_setflags(struct inode *inode,
 	inode->i_ctime = current_time(inode);
 
 	err = ext4_mark_iloc_dirty(handle, inode, &iloc);
+#if defined(CONFIG_OPLUS_FEATURE_EXT4_ASYNC_DISCARD)
+	ext4_update_time(EXT4_SB(inode->i_sb));
+#endif
 flags_err:
 	ext4_journal_stop(handle);
 	if (err)
@@ -993,6 +996,10 @@ resizefs_out:
 		struct fstrim_range range;
 		int ret = 0;
 
+#if defined(CONFIG_OPLUS_FEATURE_EXT4_ASYNC_DISCARD)
+		if (test_opt(sb, ASYNC_DISCARD))
+			return 0;
+#endif
 		if (!capable(CAP_SYS_ADMIN))
 			return -EPERM;
 

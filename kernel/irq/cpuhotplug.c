@@ -14,6 +14,9 @@
 #include <linux/cpumask.h>
 
 #include "internals.h"
+#ifdef OPLUS_FEATURE_CHG_BASIC
+#include "soc/oplus/system/oplus_project.h"
+#endif
 
 /* For !GENERIC_IRQ_EFFECTIVE_AFF_MASK this looks at general affinity mask */
 static inline bool irq_needs_fixup(struct irq_data *d)
@@ -201,10 +204,19 @@ void irq_migrate_all_off_this_cpu(void)
 		affinity_broken = migrate_one_irq(desc);
 		raw_spin_unlock(&desc->lock);
 
+#ifndef OPLUS_FEATURE_CHG_BASIC
 		if (affinity_broken) {
 			pr_info_ratelimited("IRQ %u: no longer affine to CPU%u\n",
 					    irq, smp_processor_id());
 		}
+#else
+		if (get_eng_version() != OEM_RELEASE){
+			if (affinity_broken) {
+				pr_info_ratelimited("IRQ %u: no longer affine to CPU%u\n",
+						    irq, smp_processor_id());
+			}
+		}
+#endif /*OPLUS_FEATURE_CHG_BASIC*/
 	}
 }
 

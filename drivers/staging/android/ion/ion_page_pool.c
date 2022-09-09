@@ -33,7 +33,7 @@
  */
 static long nr_total_pages;
 
-static void *ion_page_pool_alloc_pages(struct ion_page_pool *pool)
+inline struct page *ion_page_pool_alloc_pages(struct ion_page_pool *pool)
 {
 	struct page *page = alloc_pages(pool->gfp_mask, pool->order);
 
@@ -49,6 +49,10 @@ static void ion_page_pool_free_pages(struct ion_page_pool *pool,
 static int ion_page_pool_add(struct ion_page_pool *pool, struct page *page)
 {
 	mutex_lock(&pool->mutex);
+#ifdef OPLUS_FEATURE_HEALTHINFO
+	zone_page_state_add(1L << pool->order, page_zone(page),
+		NR_IONCACHE_PAGES);
+#endif  /* OPLUS_FEATURE_HEALTHINFO */
 	if (PageHighMem(page)) {
 		list_add_tail(&page->lru, &pool->high_items);
 		pool->high_count++;
@@ -77,7 +81,10 @@ static struct page *ion_page_pool_remove(struct ion_page_pool *pool, bool high)
 		page = list_first_entry(&pool->low_items, struct page, lru);
 		pool->low_count--;
 	}
-
+#ifdef OPLUS_FEATURE_HEALTHINFO
+	zone_page_state_add(-(1L << pool->order), page_zone(page),
+			NR_IONCACHE_PAGES);
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 	list_del(&page->lru);
 	nr_total_pages -= 1 << pool->order;
 	mod_node_page_state(page_pgdat(page), NR_KERNEL_MISC_RECLAIMABLE,
@@ -94,14 +101,23 @@ struct page *ion_page_pool_alloc(struct ion_page_pool *pool, bool *from_pool)
 	if (fatal_signal_pending(current))
 		return ERR_PTR(-EINTR);
 
-	if (*from_pool && mutex_trylock(&pool->mutex)) {
-		if (pool->high_count)
-			page = ion_page_pool_remove(pool, true);
-		else if (pool->low_count)
-			page = ion_page_pool_remove(pool, false);
-		mutex_unlock(&pool->mutex);
+	if (*from_pool) {
+		if (pool->boost_flag) {
+			mutex_lock(&pool->mutex);
+			if (pool->high_count)
+				page = ion_page_pool_remove(pool, true);
+			else if (pool->low_count)
+				page = ion_page_pool_remove(pool, false);
+			mutex_unlock(&pool->mutex);
+		} else if (mutex_trylock(&pool->mutex)) {
+			if (pool->high_count)
+				page = ion_page_pool_remove(pool, true);
+			else if (pool->low_count)
+				page = ion_page_pool_remove(pool, false);
+			mutex_unlock(&pool->mutex);
+		}
 	}
-	if (!page) {
+	if (!page && !(pool->boost_flag)) {
 		page = ion_page_pool_alloc_pages(pool);
 		*from_pool = false;
 	}

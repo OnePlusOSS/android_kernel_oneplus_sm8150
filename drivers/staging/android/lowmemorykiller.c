@@ -89,6 +89,11 @@ static int lmk_fast_run = 1;
 
 static unsigned long lowmem_deathpending_timeout;
 
+#ifdef OPLUS_FEATURE_PERFORMANCE
+static unsigned int almk_totalram_ratio = 6;
+module_param_named(almk_totalram_ratio, almk_totalram_ratio, uint, 0644);
+#endif
+
 #define lowmem_print(level, x...)			\
 	do {						\
 		if (lowmem_debug_level >= (level))	\
@@ -191,8 +196,12 @@ static int lmk_vmpressure_notifier(struct notifier_block *nb,
 			global_node_page_state(NR_SHMEM) -
 			total_swapcache_pages();
 		other_free = global_zone_page_state(NR_FREE_PAGES);
-
+#ifdef OPLUS_FEATURE_PERFORMANCE
+		if ((other_free + other_file) <  totalram_pages/almk_totalram_ratio)
+			atomic_set(&shift_adj, 1);
+#else
 		atomic_set(&shift_adj, 1);
+#endif /*OPLUS_FEATURE_PERFORMANCE*/
 		trace_almk_vmpressure(pressure, other_free, other_file);
 	} else if (pressure >= 90) {
 		if (lowmem_adj_size < array_size)
@@ -653,6 +662,9 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			(long)(PAGE_SIZE / 1024),
 			sc->gfp_mask);
 
+#ifdef OPLUS_FEATURE_PERFORMANCE
+			show_mem(SHOW_MEM_FILTER_NODES, NULL);
+#endif /*OPLUS_FEATURE_PERFORMANCE*/
 		if (lowmem_debug_level >= 2 && selected_oom_score_adj == 0) {
 			show_mem(SHOW_MEM_FILTER_NODES, NULL);
 			show_mem_call_notifiers();

@@ -50,6 +50,11 @@
 #include <soc/qcom/scm.h>
 #include "soc/qcom/secure_buffer.h"
 
+#ifdef OPLUS_BUG_STABILITY
+#include "oplus_display_private_api.h"
+#include "oplus_onscreenfingerprint.h"
+#endif /* OPLUS_BUG_STABILITY */
+
 #define CREATE_TRACE_POINTS
 #include "sde_trace.h"
 
@@ -1234,7 +1239,7 @@ static void sde_kms_prepare_fence(struct msm_kms *kms,
 {
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *old_crtc_state;
-	int i, rc;
+	int i;
 
 	if (!kms || !old_state || !old_state->dev || !old_state->acquire_ctx) {
 		SDE_ERROR("invalid argument(s)\n");
@@ -1242,15 +1247,6 @@ static void sde_kms_prepare_fence(struct msm_kms *kms,
 	}
 
 	SDE_ATRACE_BEGIN("sde_kms_prepare_fence");
-retry:
-	/* attempt to acquire ww mutex for connection */
-	rc = drm_modeset_lock(&old_state->dev->mode_config.connection_mutex,
-			       old_state->acquire_ctx);
-
-	if (rc == -EDEADLK) {
-		drm_modeset_backoff(old_state->acquire_ctx);
-		goto retry;
-	}
 
 	/* old_state actually contains updated crtc pointers */
 	for_each_crtc_in_state(old_state, crtc, old_crtc_state, i) {
@@ -1386,7 +1382,11 @@ static int _sde_kms_setup_displays(struct drm_device *dev,
 		.soft_reset   = dsi_display_soft_reset,
 		.pre_kickoff  = dsi_conn_pre_kickoff,
 		.clk_ctrl = dsi_display_clk_ctrl,
+#ifdef OPLUS_BUG_STABILITY
+		.set_power = dsi_display_oplus_set_power,
+#else
 		.set_power = dsi_display_set_power,
+#endif /* OPLUS_BUG_STABILITY */
 		.get_mode_info = dsi_conn_get_mode_info,
 		.get_dst_format = dsi_display_get_dst_format,
 		.post_kickoff = dsi_conn_post_kickoff,
@@ -2343,7 +2343,9 @@ static int sde_kms_atomic_check(struct msm_kms *kms,
 {
 	struct sde_kms *sde_kms;
 	struct drm_device *dev;
-	int ret;
+	struct drm_crtc *crtc;
+	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
+	int ret, i;
 
 	if (!kms || !state)
 		return -EINVAL;
@@ -2356,6 +2358,14 @@ static int sde_kms_atomic_check(struct msm_kms *kms,
 		SDE_DEBUG("suspended, skip atomic_check\n");
 		ret = -EBUSY;
 		goto end;
+	}
+
+	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
+		if (new_crtc_state->fd && !new_crtc_state->active && new_crtc_state->enable) {
+			SDE_EVT32(new_crtc_state->fd, new_crtc_state->active, new_crtc_state->enable);
+			WARN_ON(new_crtc_state->fd);
+			new_crtc_state->active = true;
+		}
 	}
 
 	ret = drm_atomic_helper_check(dev, state);
@@ -2865,6 +2875,7 @@ retry:
 				DRM_ERROR("failed to get crtc %d state\n",
 						conn->state->crtc->base.id);
 				drm_connector_list_iter_end(&conn_iter);
+                                ret = -EINVAL;
 				goto unlock;
 			}
 
@@ -2873,6 +2884,7 @@ retry:
 			++num_crtcs;
 		}
 	}
+	SDE_EVT32(num_crtcs);
 	drm_connector_list_iter_end(&conn_iter);
 
 	/* check for nothing to do */
@@ -2922,6 +2934,12 @@ unlock:
 		drm_modeset_backoff(&ctx);
 		goto retry;
 	}
+
+	if ((ret || !num_crtcs) && sde_kms->suspend_state) {
+		drm_atomic_state_put(sde_kms->suspend_state);
+		sde_kms->suspend_state = NULL;
+	}
+
 	drm_modeset_drop_locks(&ctx);
 	drm_modeset_acquire_fini(&ctx);
 
@@ -2946,7 +2964,8 @@ static int sde_kms_pm_resume(struct device *dev)
 
 	SDE_EVT32(sde_kms->suspend_state != NULL);
 
-	drm_mode_config_reset(ddev);
+	if (sde_kms->suspend_state)
+		drm_mode_config_reset(ddev);
 
 	drm_modeset_acquire_init(&ctx, 0);
 retry:

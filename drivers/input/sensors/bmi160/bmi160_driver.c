@@ -7,7 +7,6 @@
  * available at http://www.fsf.org/copyleft/gpl.html
  *
  * @filename bmi160_driver.c
- * @date     2016/08/01 14:40
  * @id       "b5ff23a"
  * @version  1.3
  *

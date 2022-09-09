@@ -39,6 +39,11 @@
 #include "sde_core_irq.h"
 #include "sde_hw_top.h"
 #include "sde_hw_qdss.h"
+#ifdef OPLUS_BUG_STABILITY
+#include "oplus_display_private_api.h"
+#include "oplus_onscreenfingerprint.h"
+#include "oplus_dc_diming.h"
+#endif /* OPLUS_BUG_STABILITY */
 
 #define SDE_DEBUG_ENC(e, fmt, ...) SDE_DEBUG("enc%d " fmt,\
 		(e) ? (e)->base.base.id : -1, ##__VA_ARGS__)
@@ -280,6 +285,9 @@ struct sde_encoder_virt {
 	struct kthread_work input_event_work;
 	struct kthread_work esd_trigger_work;
 	struct input_handler *input_handler;
+#ifdef OPLUS_BUG_STABILITY
+	bool input_handler_init;
+#endif /* OPLUS_BUG_STABILITY */
 	bool input_handler_registered;
 	struct msm_display_topology topology;
 	bool vblank_enabled;
@@ -1929,7 +1937,14 @@ static int _sde_encoder_update_rsc_client(
 	u32 qsync_mode = 0;
 	struct msm_drm_private *priv;
 	struct sde_kms *sde_kms;
+#ifdef OPLUS_FEATURE_AOD_RAMLESS
+	int  lp_mode = -1;
+	struct list_head *connector_list;
+	struct drm_connector *conn = NULL, *conn_iter;
 
+	struct dsi_display *display = get_main_display();
+
+#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 	if (!drm_enc || !drm_enc->dev) {
 		SDE_ERROR("invalid encoder arguments\n");
 		return -EINVAL;
@@ -1963,6 +1978,11 @@ static int _sde_encoder_update_rsc_client(
 	}
 
 	sde_kms = to_sde_kms(priv->kms);
+#ifdef OPLUS_FEATURE_AOD_RAMLESS
+	if ( display && display->panel && display->panel->oplus_priv.prj_flag ) {
+		connector_list = &sde_kms->dev->mode_config.connector_list;
+	}
+#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 	/**
 	 * only primary command mode panel without Qsync can request CMD state.
 	 * all other panels/displays can request for VID state including
@@ -2002,8 +2022,22 @@ static int _sde_encoder_update_rsc_client(
 	if (IS_SDE_MAJOR_SAME(sde_kms->core_rev, SDE_HW_VER_620) &&
 			(rsc_state == SDE_RSC_VID_STATE))
 		rsc_state = SDE_RSC_CLK_STATE;
+#ifdef OPLUS_FEATURE_AOD_RAMLESS
+	if ( display && display->panel && display->panel->oplus_priv.prj_flag ) {
+		list_for_each_entry(conn_iter, connector_list, head)
+			if (conn_iter->encoder == drm_enc)
+				conn = conn_iter;
 
-	SDE_EVT32(rsc_state, qsync_mode);
+		if (conn && conn->state) {
+			lp_mode = sde_connector_get_property(conn->state, CONNECTOR_PROP_LP);
+			if ((lp_mode == SDE_MODE_DPMS_LP1 || lp_mode == SDE_MODE_DPMS_LP2) && enable)
+				rsc_state = SDE_RSC_CLK_STATE;
+                }
+			SDE_EVT32(rsc_state, qsync_mode, lp_mode);
+	} else {
+		SDE_EVT32(rsc_state, qsync_mode);
+	}
+#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 
 	prefill_lines = config ? mode_info.prefill_lines +
 		config->inline_rotate_prefill : mode_info.prefill_lines;
@@ -2091,6 +2125,15 @@ static int _sde_encoder_update_rsc_client(
 		if (crtc->base.id == wait_vblank_crtc_id) {
 			ret = sde_encoder_wait_for_event(drm_enc,
 					MSM_ENC_VBLANK);
+#ifdef OPLUS_FEATURE_AOD_RAMLESS
+			if ( display && display->panel && display->panel->oplus_priv.prj_flag ) {
+				if (ret == -EWOULDBLOCK) {
+					SDE_EVT32(DRMID(drm_enc), wait_vblank_crtc_id, crtc->base.id);
+					msleep(PRIMARY_VBLANK_WORST_CASE_MS);
+					ret = 0;
+				}
+			}
+#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 		} else if (primary_crtc->state->active &&
 				!drm_atomic_crtc_needs_modeset(
 						primary_crtc->state)) {
@@ -3124,6 +3167,9 @@ static int _sde_encoder_input_handler(
 
 	sde_enc->input_handler = input_handler;
 	sde_enc->input_handler_registered = false;
+#ifdef OPLUS_BUG_STABILITY
+	sde_enc->input_handler_init = false;
+#endif /* OPLUS_BUG_STABILITY */
 
 	return rc;
 }
@@ -3297,7 +3343,13 @@ static void sde_encoder_virt_enable(struct drm_encoder *drm_enc)
 			SDE_ERROR(
 			"input handler registration failed, rc = %d\n", ret);
 		else
+#ifdef OPLUS_BUG_STABILITY
+           {
 			sde_enc->input_handler_registered = true;
+            sde_enc->input_handler_init = true;
+           }
+#endif /* OPLUS_BUG_STABILITY */
+
 	}
 
 	if (!(msm_is_mode_seamless_vrr(cur_mode)
@@ -3400,8 +3452,16 @@ static void sde_encoder_virt_disable(struct drm_encoder *drm_enc)
 	sde_encoder_wait_for_event(drm_enc, MSM_ENC_TX_COMPLETE);
 
 	if (sde_enc->input_handler && sde_enc->input_handler_registered) {
-		input_unregister_handler(sde_enc->input_handler);
-		sde_enc->input_handler_registered = false;
+	#ifdef OPLUS_BUG_STABILITY
+	    if (sde_enc->input_handler_init) {
+			input_unregister_handler(sde_enc->input_handler);
+			sde_enc->input_handler_init = false;
+	    }
+			sde_enc->input_handler_registered = false;
+	#else
+	    input_unregister_handler(sde_enc->input_handler);
+	    sde_enc->input_handler_registered = false;
+	#endif /* OPLUS_BUG_STABILITY */
 	}
 
 	/*
@@ -4250,7 +4310,9 @@ void sde_encoder_trigger_kickoff_pending(struct drm_encoder *drm_enc)
 
 static void _sde_encoder_setup_dither(struct sde_encoder_phys *phys)
 {
-	void *dither_cfg = NULL;
+#ifdef OPLUS_BUG_STABILITY
+	void *dither_cfg;
+#endif /* OPLUS_BUG_STABILITY */
 	int ret = 0, rc, i = 0;
 	size_t len = 0;
 	enum sde_rm_topology_name topology;
@@ -4284,11 +4346,12 @@ static void _sde_encoder_setup_dither(struct sde_encoder_phys *phys)
 		return;
 	}
 
+#ifdef OPLUS_BUG_STABILITY
 	ret = sde_connector_get_dither_cfg(phys->connector,
-			phys->connector->state, &dither_cfg,
-			&len, sde_enc->idle_pc_restore);
+			phys->connector->state, &dither_cfg, &len);
 	if (ret)
 		return;
+#endif /* OPLUS_BUG_STABILITY */
 
 	if (TOPOLOGY_DUALPIPE_MERGE_MODE(topology)) {
 		for (i = 0; i < MAX_CHANNELS_PER_ENC; i++) {
@@ -4299,6 +4362,9 @@ static void _sde_encoder_setup_dither(struct sde_encoder_phys *phys)
 			}
 		}
 	} else {
+//#ifdef OPLUS_BUG_STABILITY
+		if (_sde_encoder_setup_dither_for_onscreenfingerprint(phys, dither_cfg, len))
+//#endif /* OPLUS_BUG_STABILITY */
 		phys->hw_pp->ops.setup_dither(phys->hw_pp, dither_cfg, len);
 	}
 }
@@ -4671,6 +4737,13 @@ int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
 	SDE_DEBUG_ENC(sde_enc, "\n");
 	SDE_EVT32(DRMID(drm_enc));
 
+#ifdef OPLUS_BUG_STABILITY
+	if (sde_enc->cur_master) {
+		sde_connector_update_backlight(sde_enc->cur_master->connector, false);
+		sde_connector_update_hbm(sde_enc->cur_master->connector);
+	}
+#endif /* OPLUS_BUG_STABILITY */
+
 	/* save this for later, in case of errors */
 	if (sde_enc->cur_master && sde_enc->cur_master->ops.get_wr_line_count)
 		ln_cnt1 = sde_enc->cur_master->ops.get_wr_line_count(
@@ -4839,6 +4912,10 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool is_error)
 	}
 
 	SDE_ATRACE_END("encoder_kickoff");
+#ifdef OPLUS_BUG_STABILITY
+   sde_connector_update_backlight(sde_enc->cur_master->connector, true);
+#endif /* OPLUS_BUG_STABILITY */
+
 }
 
 int sde_encoder_helper_reset_mixers(struct sde_encoder_phys *phys_enc,

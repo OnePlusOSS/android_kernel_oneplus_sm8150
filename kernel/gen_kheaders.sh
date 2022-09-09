@@ -23,6 +23,8 @@ arch/$SRCARCH/include/
 # else iter=$(($(cat /tmp/iter) + 1)); echo $iter > /tmp/iter; fi
 # find $src_file_list -name "*.h" | xargs ls -l > /tmp/src-ls-$iter
 # find $obj_file_list -name "*.h" | xargs ls -l > /tmp/obj-ls-$iter
+# find $src_file_list -type f | xargs ls -l > /tmp/src-ls-$iter
+# find $obj_file_list -type f | xargs ls -l > /tmp/obj-ls-$iter
 
 # include/generated/compile.h is ignored because it is touched even when none
 # of the source files changed. This causes pointless regeneration, so let us

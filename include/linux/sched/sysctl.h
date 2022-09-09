@@ -127,6 +127,12 @@ extern int sysctl_numa_balancing(struct ctl_table *table, int write,
 extern int sysctl_schedstats(struct ctl_table *table, int write,
 				 void __user *buffer, size_t *lenp,
 				 loff_t *ppos);
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+extern int sysctl_sched_assist_scene_handler(struct ctl_table *table, int write,
+	void __user *buffer, size_t *lenp, loff_t *ppos);
+extern int sysctl_sched_assist_input_boost_ctrl_handler(struct ctl_table *table, int write,
+	void __user *buffer, size_t *lenp, loff_t *ppos);
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
 
 #ifdef CONFIG_SCHED_WALT
 extern int sched_little_cluster_coloc_fmin_khz_handler(struct ctl_table *table,

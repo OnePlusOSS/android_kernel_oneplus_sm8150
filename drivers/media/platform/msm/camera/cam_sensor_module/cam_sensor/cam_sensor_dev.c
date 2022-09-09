@@ -14,6 +14,38 @@
 #include "cam_req_mgr_dev.h"
 #include "cam_sensor_soc.h"
 #include "cam_sensor_core.h"
+#ifdef VENDOR_EDIT
+struct cam_sensor_i2c_reg_setting_array {
+	struct cam_sensor_i2c_reg_array reg_setting[4600];
+	unsigned short size;
+	enum camera_sensor_i2c_type addr_type;
+	enum camera_sensor_i2c_type data_type;
+	unsigned short delay;
+};
+
+struct cam_sensor_settings {
+	struct cam_sensor_i2c_reg_setting_array imx586_setting;
+	struct cam_sensor_i2c_reg_setting_array imx471_setting;
+	struct cam_sensor_i2c_reg_setting_array imx319_setting;
+	struct cam_sensor_i2c_reg_setting_array s5km5_setting;
+	struct cam_sensor_i2c_reg_setting_array gc02m0b_setting;
+	struct cam_sensor_i2c_reg_setting_array gc2375_setting;
+	struct cam_sensor_i2c_reg_setting_array ov02a1b_setting;
+	struct cam_sensor_i2c_reg_setting_array hi846_setting;
+	struct cam_sensor_i2c_reg_setting_array s5kgd1sp_setting;
+	struct cam_sensor_i2c_reg_setting_array imx616_setting;
+	struct cam_sensor_i2c_reg_setting_array ov2241_setting;
+	struct cam_sensor_i2c_reg_setting_array ov02b_setting;
+	struct cam_sensor_i2c_reg_setting_array gc02m1b_setting;
+	struct cam_sensor_i2c_reg_setting_array s5kgh1_setting;
+	struct cam_sensor_i2c_reg_setting_array ov64b_setting;
+};
+
+struct cam_sensor_settings sensor_settings = {
+#include "CAM_SENSOR_SETTINGS.h"
+};
+static bool is_ftm_current_test = false;
+#endif
 
 static long cam_sensor_subdev_ioctl(struct v4l2_subdev *sd,
 	unsigned int cmd, void *arg)
@@ -21,11 +53,152 @@ static long cam_sensor_subdev_ioctl(struct v4l2_subdev *sd,
 	int rc = 0;
 	struct cam_sensor_ctrl_t *s_ctrl =
 		v4l2_get_subdevdata(sd);
+#ifdef VENDOR_EDIT
+	struct cam_sensor_i2c_reg_setting sensor_setting;
+	int i = 0;
+#endif
 
 	switch (cmd) {
 	case VIDIOC_CAM_CONTROL:
 		rc = cam_sensor_driver_cmd(s_ctrl, arg);
 		break;
+#ifdef VENDOR_EDIT
+	case VIDIOC_CAM_FTM_POWNER_DOWN:
+		CAM_ERR(CAM_SENSOR, "FTM power down");
+		return cam_sensor_power_down(s_ctrl);
+		break;
+	case VIDIOC_CAM_FTM_POWNER_UP:
+		CAM_ERR(CAM_SENSOR, "FTM power up, sensor id 0x%x", s_ctrl->sensordata->slave_info.sensor_id);
+		rc = cam_sensor_power_up(s_ctrl);
+		if(rc < 0) {
+			CAM_ERR(CAM_SENSOR, "ftm power up failed!");
+			break;
+		}
+		is_ftm_current_test = true;
+		if (s_ctrl->sensordata->slave_info.sensor_id == 0x586) {
+			sensor_setting.reg_setting = sensor_settings.imx586_setting.reg_setting;
+			sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+			sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.size = sensor_settings.imx586_setting.size;
+			sensor_setting.delay = sensor_settings.imx586_setting.delay;
+			CAM_ERR(CAM_SENSOR,"FTM GET imx586 setting");
+		} else if(s_ctrl->sensordata->slave_info.sensor_id == 0x471) {
+			sensor_setting.reg_setting = sensor_settings.imx471_setting.reg_setting;
+			sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+			sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.size = sensor_settings.imx471_setting.size;
+			sensor_setting.delay = sensor_settings.imx471_setting.delay;
+			CAM_ERR(CAM_SENSOR,"FTM GET imx471 setting");
+		} else if(s_ctrl->sensordata->slave_info.sensor_id == 0x319) {
+			sensor_setting.reg_setting = sensor_settings.imx319_setting.reg_setting;
+			sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+			sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.size = sensor_settings.imx319_setting.size;
+			sensor_setting.delay = sensor_settings.imx319_setting.delay;
+			CAM_ERR(CAM_SENSOR,"FTM GET imx319 setting");
+		} else if(s_ctrl->sensordata->slave_info.sensor_id == 0x30D5) {
+			sensor_setting.reg_setting = sensor_settings.s5km5_setting.reg_setting;
+			sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+			sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+			sensor_setting.size = sensor_settings.s5km5_setting.size;
+			sensor_setting.delay = sensor_settings.s5km5_setting.delay;
+			CAM_ERR(CAM_SENSOR,"FTM GET s5km5 setting");
+		} else if(s_ctrl->sensordata->slave_info.sensor_id == 0x02d0) {
+			sensor_setting.reg_setting = sensor_settings.gc02m0b_setting.reg_setting;
+			sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.size = sensor_settings.gc02m0b_setting.size;
+			sensor_setting.delay = sensor_settings.gc02m0b_setting.delay;
+			CAM_ERR(CAM_SENSOR,"FTM GET gc02m0b setting");
+		} else if(s_ctrl->sensordata->slave_info.sensor_id == 0x25) {
+			sensor_setting.reg_setting = sensor_settings.ov02a1b_setting.reg_setting;
+			sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.size = sensor_settings.ov02a1b_setting.size;
+			sensor_setting.delay = sensor_settings.ov02a1b_setting.delay;
+			CAM_ERR(CAM_SENSOR,"FTM GET ov02a1b setting");
+		} else if(s_ctrl->sensordata->slave_info.sensor_id == 0x7500) {
+			sensor_setting.reg_setting = sensor_settings.gc2375_setting.reg_setting;
+			sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.size = sensor_settings.gc2375_setting.size;
+			sensor_setting.delay = sensor_settings.gc2375_setting.delay;
+			CAM_ERR(CAM_SENSOR,"FTM GET gc2375 setting");
+		} else if(s_ctrl->sensordata->slave_info.sensor_id == 0x27) {
+			sensor_setting.reg_setting = sensor_settings.ov2241_setting.reg_setting;
+			sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+			sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.size = sensor_settings.ov2241_setting.size;
+			sensor_setting.delay = sensor_settings.ov2241_setting.delay;
+			CAM_ERR(CAM_SENSOR,"FTM GET ov2241 setting");
+		} else if(s_ctrl->sensordata->slave_info.sensor_id == 0x4608) {
+			sensor_setting.reg_setting = sensor_settings.hi846_setting.reg_setting;
+			sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+			sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+			sensor_setting.size = sensor_settings.hi846_setting.size;
+			sensor_setting.delay = sensor_settings.hi846_setting.delay;
+			CAM_ERR(CAM_SENSOR,"FTM GET HI846 setting");
+		} else if(s_ctrl->sensordata->slave_info.sensor_id == 0x0841) {
+			sensor_setting.reg_setting = sensor_settings.s5kgd1sp_setting.reg_setting;
+			sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+			sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+			sensor_setting.size = sensor_settings.s5kgd1sp_setting.size;
+			sensor_setting.delay = sensor_settings.s5kgd1sp_setting.delay;
+			CAM_ERR(CAM_SENSOR,"FTM GET s5kgd1sp setting");
+		} else if(s_ctrl->sensordata->slave_info.sensor_id == 0x0616) {
+			sensor_setting.reg_setting = sensor_settings.imx616_setting.reg_setting;
+			sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+			sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.size = sensor_settings.imx616_setting.size;
+			sensor_setting.delay = sensor_settings.imx616_setting.delay;
+			CAM_ERR(CAM_SENSOR,"FTM GET imx616 setting");
+		} else if(s_ctrl->sensordata->slave_info.sensor_id == 0x2b00 || s_ctrl->sensordata->slave_info.sensor_id == 0x2b03) {
+			sensor_setting.reg_setting = sensor_settings.ov02b_setting.reg_setting;
+			sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.size = sensor_settings.ov02b_setting.size;
+			sensor_setting.delay = sensor_settings.ov02b_setting.delay;
+			CAM_ERR(CAM_SENSOR,"FTM GET ov02b setting");
+		} else if(s_ctrl->sensordata->slave_info.sensor_id == 0x02e0) {
+			sensor_setting.reg_setting = sensor_settings.gc02m1b_setting.reg_setting;
+			sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			sensor_setting.size = sensor_settings.gc02m1b_setting.size;
+			sensor_setting.delay = sensor_settings.gc02m1b_setting.delay;
+			CAM_ERR(CAM_SENSOR,"FTM GET gc02m1b setting");
+		} else if(s_ctrl->sensordata->slave_info.sensor_id == 0x5664 ||
+		          s_ctrl->sensordata->slave_info.sensor_id == 0x6b64 ||
+			      s_ctrl->sensordata->slave_info.sensor_id == 0x5a64) {
+            sensor_setting.reg_setting = sensor_settings.ov64b_setting.reg_setting;
+            sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+            sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+            sensor_setting.size = sensor_settings.gc02m1b_setting.size;
+            sensor_setting.delay = sensor_settings.gc02m1b_setting.delay;
+            CAM_ERR(CAM_SENSOR,"FTM GET ov64b setting");
+        } else if(s_ctrl->sensordata->slave_info.sensor_id == 0x0881 ||
+                    s_ctrl->sensordata->slave_info.sensor_id == 0xA000 ||
+                    s_ctrl->sensordata->slave_info.sensor_id == 0xA100) {
+            sensor_setting.reg_setting = sensor_settings.s5kgh1_setting.reg_setting;
+            sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+            sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+            sensor_setting.size = sensor_settings.s5kgh1_setting.size;
+            sensor_setting.delay = sensor_settings.s5kgh1_setting.delay;
+            CAM_ERR(CAM_SENSOR,"FTM GET s5kgh1 setting");
+        }
+		for (i = 0;i<sensor_setting.size;i++) {
+			CAM_ERR(CAM_SENSOR, "Setting i is %d addr type %d date type %d addr : %d data %x ",i,sensor_setting.addr_type,\
+					sensor_setting.data_type,sensor_setting.reg_setting[i].reg_addr,\
+					sensor_setting.reg_setting[i].reg_data);
+		}
+		rc = camera_io_dev_write(&(s_ctrl->io_master_info), &sensor_setting);
+
+		if (rc < 0) {
+			CAM_ERR(CAM_SENSOR, "FTM Failed to write sensor setting");
+		} else {
+			CAM_ERR(CAM_SENSOR, "FTM successfully to write sensor setting");
+		}
+		break;
+#endif
 	default:
 		CAM_ERR(CAM_SENSOR, "Invalid ioctl cmd: %d", cmd);
 		rc = -EINVAL;
@@ -46,6 +219,9 @@ static int cam_sensor_subdev_close(struct v4l2_subdev *sd,
 	}
 
 	mutex_lock(&(s_ctrl->cam_sensor_mutex));
+#ifdef VENDOR_EDIT
+	if(!is_ftm_current_test)
+#endif
 	cam_sensor_shutdown(s_ctrl);
 	mutex_unlock(&(s_ctrl->cam_sensor_mutex));
 

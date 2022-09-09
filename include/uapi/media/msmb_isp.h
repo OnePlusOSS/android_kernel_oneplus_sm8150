@@ -1,3 +1,6 @@
+#if defined(OP_8150_ADAPT)
+#include "msmb_isp_op.h"
+#else
 #ifndef __UAPI_MSMB_ISP__
 #define __UAPI_MSMB_ISP__
 
@@ -1151,4 +1154,5 @@ enum msm_isp_ioctl_cmd_code {
 	_IOW('V', MSM_ISP_NANOSEC_TIMESTAMP, \
 	struct msm_vfe_nano_sec_timestamp)
 
+#endif
 #endif /* __MSMB_ISP__ */

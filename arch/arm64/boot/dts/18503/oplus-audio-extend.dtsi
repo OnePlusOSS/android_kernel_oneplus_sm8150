@@ -1,0 +1,10 @@
+&soc {
+	oplus,audio-drv {
+		compatible = "oplus,asoc-audio";
+		//for maxim speaker
+		oplus,speaker-vendor = "maxim";
+		oplus,speaker-i2s-id = <3>;
+		oplus,speaker-codec-name = "max98927";
+		oplus,speaker-codec-dai-name = "max98927-aif1";
+	};
+};

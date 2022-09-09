@@ -808,6 +808,21 @@ static inline int fscrypt_encrypt_symlink(struct inode *inode,
 	return 0;
 }
 
+/* fscrypt_ice.c */
+#ifdef CONFIG_PFK
+extern int fscrypt_using_hardware_encryption(const struct inode *inode);
+extern void fscrypt_set_ice_dun(const struct inode *inode,
+                struct bio *bio, u64 dun);
+extern void fscrypt_set_ice_skip(struct bio *bio, int bi_crypt_skip);
+extern bool fscrypt_mergeable_bio(struct bio *bio, u64 dun, bool bio_encrypted,
+                int bi_crypt_skip);
+#else
+static inline int fscrypt_using_hardware_encryption(const struct inode *inode)
+{
+        return 0;
+}
+#endif
+
 /* If *pagep is a bounce page, free it and set *pagep to the pagecache page */
 static inline void fscrypt_finalize_bounce_page(struct page **pagep)
 {

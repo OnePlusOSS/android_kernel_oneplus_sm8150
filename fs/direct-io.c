@@ -38,6 +38,9 @@
 #include <linux/uio.h>
 #include <linux/atomic.h>
 #include <linux/prefetch.h>
+#if defined(OPLUS_FEATURE_IOMONITOR) && defined(CONFIG_IOMONITOR)
+#include <linux/iomonitor/iomonitor.h>
+#endif /*OPLUS_FEATURE_IOMONITOR*/
 
 /*
  * How many user pages to map in one call to get_user_pages().  This determines
@@ -876,6 +879,9 @@ submit_page_section(struct dio *dio, struct dio_submit *sdio, struct page *page,
 		 * Read accounting is performed in submit_bio()
 		 */
 		task_io_account_write(len);
+#if defined(OPLUS_FEATURE_IOMONITOR) && defined(CONFIG_IOMONITOR)
+		iomonitor_update_rw_stats(DIO_WRITE, NULL, len);
+#endif /*OPLUS_FEATURE_IOMONITOR*/
 	}
 
 	/*

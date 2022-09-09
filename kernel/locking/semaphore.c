@@ -34,6 +34,10 @@
 #include <linux/spinlock.h>
 #include <linux/ftrace.h>
 
+#ifdef CONFIG_OPLUS_FEATURE_HUNG_TASK_ENHANCE
+#include <soc/oplus/system/oplus_signal.h>
+#endif
+
 static noinline void __down(struct semaphore *sem);
 static noinline int __down_interruptible(struct semaphore *sem);
 static noinline int __down_killable(struct semaphore *sem);
@@ -212,7 +216,11 @@ static inline int __sched __down_common(struct semaphore *sem, long state,
 	waiter.up = false;
 
 	for (;;) {
+#ifdef CONFIG_OPLUS_FEATURE_HUNG_TASK_ENHANCE
+		if (signal_pending_state(state, current) || hung_long_and_fatal_signal_pending(current))
+#else
 		if (signal_pending_state(state, current))
+#endif
 			goto interrupted;
 		if (unlikely(timeout <= 0))
 			goto timed_out;

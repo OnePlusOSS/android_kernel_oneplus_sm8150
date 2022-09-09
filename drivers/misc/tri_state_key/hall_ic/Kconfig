@@ -1,0 +1,11 @@
+config MXM_UP
+	tristate "hall up ic support"
+	default n
+	help
+	  Say Y here to enable mxm1120 up.
+
+config MXM_DOWN
+	tristate "hall down ic support"
+	default n
+	help
+	  Say Y here to enable mxm1120 down.

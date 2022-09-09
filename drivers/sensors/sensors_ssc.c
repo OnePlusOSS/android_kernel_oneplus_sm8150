@@ -98,29 +98,49 @@ static void slpi_load_fw(struct work_struct *slpi_ldr_work)
 	}
 
 	ret = of_property_read_string(pdev->dev.of_node,
-		"qcom,firmware-name", &firmware_name);
-	if (ret < 0) {
-		pr_err("can't get fw name.\n");
-		goto fail;
+		"qcom,firmware-name-mutil", &firmware_name);
+	if (ret >= 0) {
+		priv = platform_get_drvdata(pdev);
+		if (!priv) {
+			dev_err(&pdev->dev,
+			" %s: Private data get failed\n", __func__);
+			goto fail;
+		}
+
+		priv->pil_h = subsystem_get_with_fwname("slpi", firmware_name);
+		if (IS_ERR(priv->pil_h)) {
+			dev_err(&pdev->dev, "%s: pil get failed,\n",
+				__func__);
+			goto fail;
+		}
+
+		dev_dbg(&pdev->dev, "%s: SLPI_V1 image is loaded\n", __func__);
+		return;
+	} else {
+		ret = of_property_read_string(pdev->dev.of_node,
+			"qcom,firmware-name", &firmware_name);
+		if (ret < 0) {
+			pr_err("can't get fw name.\n");
+			goto fail;
+		}
+
+		priv = platform_get_drvdata(pdev);
+		if (!priv) {
+			dev_err(&pdev->dev,
+			" %s: Private data get failed\n", __func__);
+			goto fail;
+		}
+
+		priv->pil_h = subsystem_get_with_fwname("slpi", firmware_name);
+		if (IS_ERR(priv->pil_h)) {
+			dev_err(&pdev->dev, "%s: pil get failed,\n",
+				__func__);
+			goto fail;
+		}
+
+		dev_dbg(&pdev->dev, "%s: SLPI image is loaded\n", __func__);
+		return;
 	}
-
-	priv = platform_get_drvdata(pdev);
-	if (!priv) {
-		dev_err(&pdev->dev,
-		" %s: Private data get failed\n", __func__);
-		goto fail;
-	}
-
-	priv->pil_h = subsystem_get_with_fwname("slpi", firmware_name);
-	if (IS_ERR(priv->pil_h)) {
-		dev_err(&pdev->dev, "%s: pil get failed,\n",
-			__func__);
-		goto fail;
-	}
-
-	dev_dbg(&pdev->dev, "%s: SLPI image is loaded\n", __func__);
-	return;
-
 fail:
 	dev_err(&pdev->dev, "%s: SLPI image loading failed\n", __func__);
 }

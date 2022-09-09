@@ -19,6 +19,13 @@
 #include "sdhci-msm.h"
 #include "cmdq_hci-crypto-qti.h"
 #include <linux/crypto-qti-common.h>
+#include <linux/pm_runtime.h>
+#include <linux/atomic.h>
+#if IS_ENABLED(CONFIG_CRYPTO_DEV_QCOM_ICE)
+#include <crypto/ice.h>
+#include <linux/blkdev.h>
+#endif
+
 
 #define RAW_SECRET_SIZE 32
 #define MINIMUM_DUN_SIZE 512
@@ -86,9 +93,12 @@ static int cmdq_crypto_qti_keyslot_program(struct keyslot_manager *ksm,
 	crypto_alg_id = cmdq_crypto_cap_find(host, key->crypto_mode,
 					       key->data_unit_size);
 
+	pm_runtime_get_sync(&host->mmc->card->dev);
+
 	if (!cmdq_is_crypto_enabled(host) ||
 	    !cmdq_keyslot_valid(host, slot) ||
 	    !ice_cap_idx_valid(host, crypto_alg_id)) {
+		pm_runtime_put_sync(&host->mmc->card->dev);
 		return -EINVAL;
 	}
 
@@ -96,6 +106,7 @@ static int cmdq_crypto_qti_keyslot_program(struct keyslot_manager *ksm,
 
 	if (!(data_unit_mask &
 	      host->crypto_cap_array[crypto_alg_id].sdus_mask)) {
+		pm_runtime_put_sync(&host->mmc->card->dev);
 		return -EINVAL;
 	}
 
@@ -103,6 +114,8 @@ static int cmdq_crypto_qti_keyslot_program(struct keyslot_manager *ksm,
 					 slot, data_unit_mask, crypto_alg_id);
 	if (err)
 		pr_err("%s: failed with error %d\n", __func__, err);
+
+	pm_runtime_put_sync(&host->mmc->card->dev);
 
 	return err;
 }
@@ -114,13 +127,19 @@ static int cmdq_crypto_qti_keyslot_evict(struct keyslot_manager *ksm,
 	int err = 0;
 	struct cmdq_host *host = keyslot_manager_private(ksm);
 
+	pm_runtime_get_sync(&host->mmc->card->dev);
+
 	if (!cmdq_is_crypto_enabled(host) ||
-	    !cmdq_keyslot_valid(host, slot))
+	    !cmdq_keyslot_valid(host, slot)) {
+		pm_runtime_put_sync(&host->mmc->card->dev);
 		return -EINVAL;
+	}
 
 	err = crypto_qti_keyslot_evict(host->crypto_vops->priv, slot);
 	if (err)
 		pr_err("%s: failed with error %d\n", __func__, err);
+
+	pm_runtime_put_sync(&host->mmc->card->dev);
 
 	return err;
 }
@@ -279,6 +298,74 @@ int cmdq_crypto_qti_init_crypto(struct cmdq_host *host,
 	}
 	return err;
 }
+
+
+int cmdq_crypto_qti_prep_desc(struct cmdq_host *host, struct mmc_request *mrq,
+			      u64 *ice_ctx)
+{
+	struct bio_crypt_ctx *bc;
+	struct request *req = mrq->req;
+	int ret = 0;
+	int val = 0;
+#if IS_ENABLED(CONFIG_CRYPTO_DEV_QCOM_ICE)
+	struct ice_data_setting setting;
+	bool bypass = true;
+	short key_index = 0;
+#endif
+
+	*ice_ctx = 0;
+	if (!req || !req->bio)
+		return ret;
+
+	if (!bio_crypt_should_process(req)) {
+#if IS_ENABLED(CONFIG_CRYPTO_DEV_QCOM_ICE)
+		ret = qcom_ice_config_start(req, &setting);
+		if (!ret) {
+			key_index = setting.crypto_data.key_index;
+			bypass = (rq_data_dir(req) == WRITE) ?
+				 setting.encr_bypass : setting.decr_bypass;
+			*ice_ctx = DATA_UNIT_NUM(req->__sector) |
+				   CRYPTO_CONFIG_INDEX(key_index) |
+				   CRYPTO_ENABLE(!bypass);
+		} else {
+			pr_err("%s crypto config failed err = %d\n", __func__,
+			       ret);
+		}
+#endif
+		return ret;
+	}
+	if (WARN_ON(!cmdq_is_crypto_enabled(host))) {
+		/*
+		 * Upper layer asked us to do inline encryption
+		 * but that isn't enabled, so we fail this request.
+		 */
+		return -EINVAL;
+	}
+
+	bc = req->bio->bi_crypt_context;
+
+	if (!cmdq_keyslot_valid(host, bc->bc_keyslot))
+		return -EINVAL;
+
+	if (!(atomic_read(&keycache) & (1 << bc->bc_keyslot)))  {
+		ret = cmdq_crypto_qti_keyslot_program(host->ksm, bc->bc_key,
+						      bc->bc_keyslot);
+		if (ret) {
+			pr_err("%s keyslot program failed %d\n", __func__, ret);
+			return ret;
+		}
+		val = atomic_read(&keycache) | (1 << bc->bc_keyslot);
+		atomic_set(&keycache, val);
+	}
+
+	if (ice_ctx) {
+		*ice_ctx = DATA_UNIT_NUM(bc->bc_dun[0]) |
+			   CRYPTO_CONFIG_INDEX(bc->bc_keyslot) |
+			   CRYPTO_ENABLE(true);
+	}
+	return 0;
+}
+
 
 int cmdq_crypto_qti_debug(struct cmdq_host *host)
 {

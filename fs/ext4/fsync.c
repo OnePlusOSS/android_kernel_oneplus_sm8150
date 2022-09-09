@@ -163,5 +163,8 @@ out:
 	if (ret == 0)
 		ret = err;
 	trace_ext4_sync_file_exit(inode, ret);
+#if defined(CONFIG_OPLUS_FEATURE_EXT4_ASYNC_DISCARD)
+	ext4_update_time(EXT4_SB(inode->i_sb));
+#endif
 	return ret;
 }

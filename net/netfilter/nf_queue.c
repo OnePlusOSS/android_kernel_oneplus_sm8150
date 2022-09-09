@@ -121,7 +121,6 @@ static int __nf_queue(struct sk_buff *skb, const struct nf_hook_state *state,
 	const struct nf_queue_handler *qh;
 	struct net *net = state->net;
 
-	/* QUEUE == DROP if no one is waiting, to be safe. */
 	qh = rcu_dereference(net->nf.queue_handler);
 	if (!qh) {
 		status = -ESRCH;

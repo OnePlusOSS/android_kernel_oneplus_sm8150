@@ -526,6 +526,11 @@ struct mm_struct {
 	/* HMM needs to track a few things per mm */
 	struct hmm *hmm;
 #endif
+#if defined(OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+		unsigned long va_feature_rnd;
+		unsigned int zygoteheap_in_MB;
+		int va_feature;
+#endif
 } __randomize_layout;
 
 extern struct mm_struct init_mm;

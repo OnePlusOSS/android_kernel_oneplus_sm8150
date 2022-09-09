@@ -109,7 +109,6 @@
  * performance or error has been made.
  *
  * @filename smi130_i2c.c
- * @date     2014/11/25 14:40
  * @Modification Date 2018/08/28 18:20
  * @id       "20f77db"
  * @version  1.3

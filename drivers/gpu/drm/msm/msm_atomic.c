@@ -73,11 +73,21 @@ EXPORT_SYMBOL(msm_drm_unregister_client);
  * @v: notifier data, inculde display id and display blank
  *     event(unblank or power down).
  */
+
+#ifndef OPLUS_BUG_STABILITY
 static int msm_drm_notifier_call_chain(unsigned long val, void *v)
 {
 	return blocking_notifier_call_chain(&msm_drm_notifier_list, val,
 					    v);
 }
+#else /*OPLUS_BUG_STABILITY*/
+int msm_drm_notifier_call_chain(unsigned long val, void *v)
+{
+	return blocking_notifier_call_chain(&msm_drm_notifier_list, val,
+					    v);
+}
+EXPORT_SYMBOL(msm_drm_notifier_call_chain);
+#endif /*OPLUS_BUG_STABILITY*/
 
 /* block until specified crtcs are no longer pending update, and
  * atomically mark them as pending update
@@ -263,8 +273,10 @@ msm_disable_outputs(struct drm_device *dev, struct drm_atomic_state *old_state)
 			blank = MSM_DRM_BLANK_POWERDOWN;
 			notifier_data.data = &blank;
 			notifier_data.id = crtc_idx;
-			msm_drm_notifier_call_chain(MSM_DRM_EARLY_EVENT_BLANK,
-						     &notifier_data);
+			#ifndef OPLUS_BUG_STABILITY
+				msm_drm_notifier_call_chain(MSM_DRM_EARLY_EVENT_BLANK,
+			     &notifier_data);
+			#endif /* OPLUS_BUG_STABILITY */
 		}
 		/*
 		 * Each encoder has at most one connector (since we always steal
@@ -284,8 +296,10 @@ msm_disable_outputs(struct drm_device *dev, struct drm_atomic_state *old_state)
 		if (connector->state->crtc &&
 			connector->state->crtc->state->active_changed) {
 			DRM_DEBUG_ATOMIC("Notify blank\n");
+			#ifndef OPLUS_BUG_STABILITY
 			msm_drm_notifier_call_chain(MSM_DRM_EVENT_BLANK,
 						&notifier_data);
+			#endif /* OPLUS_BUG_STABILITY */
 		}
 	}
 
@@ -502,8 +516,10 @@ static void msm_atomic_helper_commit_modeset_enables(struct drm_device *dev,
 			notifier_data.id =
 				connector->state->crtc->index;
 			DRM_DEBUG_ATOMIC("Notify early unblank\n");
+			#ifndef OPLUS_BUG_STABILITY
 			msm_drm_notifier_call_chain(MSM_DRM_EARLY_EVENT_BLANK,
-					    &notifier_data);
+			     &notifier_data);
+			#endif /* OPLUS_BUG_STABILITY */
 		}
 		/*
 		 * Each encoder has at most one connector (since we always steal
@@ -557,8 +573,10 @@ static void msm_atomic_helper_commit_modeset_enables(struct drm_device *dev,
 		if (splash || (connector->state->crtc &&
 			connector->state->crtc->state->active_changed)) {
 			DRM_DEBUG_ATOMIC("Notify unblank\n");
+			#ifndef OPLUS_BUG_STABILITY
 			msm_drm_notifier_call_chain(MSM_DRM_EVENT_BLANK,
-					    &notifier_data);
+						&notifier_data);
+			#endif /* OPLUS_BUG_STABILITY */
 		}
 	}
 	SDE_ATRACE_END("msm_enable");
@@ -760,6 +778,16 @@ int msm_atomic_commit(struct drm_device *dev,
 			drm_atomic_set_fence_for_plane(new_plane_state, fence);
 		}
 		c->plane_mask |= (1 << drm_plane_index(plane));
+	}
+
+	/* Protection for prepare_fence callback */
+retry:
+	ret = drm_modeset_lock(&state->dev->mode_config.connection_mutex,
+		state->acquire_ctx);
+
+	if (ret == -EDEADLK) {
+		drm_modeset_backoff(state->acquire_ctx);
+		goto retry;
 	}
 
 	/*

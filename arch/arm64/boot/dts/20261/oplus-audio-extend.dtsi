@@ -1,0 +1,10 @@
+&soc {
+	oplus,audio-drv {
+		compatible = "oplus,asoc-audio";
+		//for nxp speaker
+		oplus,speaker-vendor = "awinic";
+		oplus,speaker-i2s-id = <2>;
+		oplus,speaker-codec-name = "aw882xx_smartpa.0-0035";
+		oplus,speaker-codec-dai-name = "aw882xx-aif";
+	};
+};

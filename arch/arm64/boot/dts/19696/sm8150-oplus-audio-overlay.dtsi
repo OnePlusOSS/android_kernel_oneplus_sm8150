@@ -1,0 +1,151 @@
+/*this is for oplus project different hw version */
+&snd_9360 {
+	status = "disabled";
+};
+
+&snd_934x {
+	qcom,audio-routing =
+		"AIF4 VI", "MCLK",
+		"RX_BIAS", "MCLK",
+		"MADINPUT", "MCLK",
+		"hifi amp", "LINEOUT1",
+		"hifi amp", "LINEOUT2",
+		"AMIC1", "MIC BIAS1",
+		"MIC BIAS1", "Handset Mic",
+		"AMIC2", "MIC BIAS2",
+		"MIC BIAS2", "Headset Mic",
+		"AMIC3", "MIC BIAS3",
+		"MIC BIAS3", "ANCRight Headset Mic",
+		"AMIC4", "MIC BIAS4",
+		"MIC BIAS4", "ANCLeft Headset Mic",
+		"DMIC0", "MIC BIAS1",
+		"MIC BIAS1", "Digital Mic0",
+		"DMIC1", "MIC BIAS1",
+		"MIC BIAS1", "Digital Mic1",
+		"DMIC2", "MIC BIAS3",
+		"MIC BIAS3", "Digital Mic2",
+		"DMIC3", "MIC BIAS4",
+		"MIC BIAS3", "Digital Mic3",
+		"DMIC4", "MIC BIAS4",
+		"MIC BIAS4", "Digital Mic4",
+		"DMIC5", "MIC BIAS4",
+		"MIC BIAS4", "Digital Mic5",
+		"SpkrLeft IN", "SPK1 OUT",
+		"SpkrRight IN", "SPK2 OUT";
+
+	qcom,msm-mbhc-hphl-swh = <1>;
+	qcom,msm-mbhc-gnd-swh = <1>;
+	qcom,msm-mbhc-hs-mic-max-threshold-mv = <2600>;
+	qcom,msm-mbhc-hs-mic-min-threshold-mv = <75>;
+	qcom,hph-en0-gpio = <&tavil_hph_en0>;
+	qcom,hph-en1-gpio = <&tavil_hph_en1>;
+	qcom,tavil-mclk-clk-freq = <9600000>;
+
+	pinctrl-names = "quat_mi2s_enable", "quat_mi2s_disable",
+			"quat_tdm_enable", "quat_tdm_disable";
+	pinctrl-0 = <&quat_mi2s_active &quat_mi2s_sd0_active
+					&quat_mi2s_sd1_active>;
+	pinctrl-1 = <&quat_mi2s_sleep &quat_mi2s_sd0_sleep
+					&quat_mi2s_sd1_sleep>;
+	pinctrl-2 = <&quat_tdm_active &quat_tdm_dout_active>;
+	pinctrl-3 = <&quat_tdm_sleep &quat_tdm_dout_sleep>;
+
+	asoc-codec = <&stub_codec>, <&ext_disp_audio_codec>;
+	asoc-codec-names = "msm-stub-codec.1",
+			   "msm-ext-disp-audio-codec-rx";
+
+	qcom,wsa-disable;
+	qcom,wsa-max-devs = <0>;
+	oplus,speaker-pa = "nxp";
+	oplus,usbc-switch = <1>;  /* 0: no usbc switch; 1: fsa4480; 2: max20328 */
+
+	/* #ifdef VENDOR_EDIT */
+	qcom,msm-mbhc-usbc-audio-supported = <1>;
+	fsa4480-i2c-handle = <&fsa4480>;
+	/* #endif VENDOR_EDIT */
+
+};
+
+&wcd934x_cdc {
+	qcom,cdc-micbias1-mv = <1800>;
+	qcom,cdc-micbias2-mv = <2700>;
+	qcom,cdc-micbias3-mv = <1800>;
+	qcom,cdc-micbias4-mv = <1800>;
+};
+
+&qupv3_se4_i2c {
+	status = "ok";
+        tfa98xx@35 {
+                compatible = "nxp,tfa98xx";
+                reg = <0x35>;
+                tfa9874_vdd-supply = <&pm8150_s4>;
+                status = "okay";
+        };
+
+	fsa4480: fsa4480@42 {
+		compatible = "qcom,fsa4480-i2c";
+		reg = <0x42>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&fsa_hs_det>;
+		fsa4480,hs-det-gpio = <&tlmm 53 0x00>;
+	};
+};
+
+&tlmm {
+	fsa_hs_det: fsa_hs_det  {
+		mux {
+			pins = "gpio53";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio53";
+			drive-strength = <2>;
+			bias-disable;
+			output-high;
+		};
+	};
+};
+
+&dai_mi2s3 {
+	compatible = "qcom,msm-dai-q6-mi2s";
+	qcom,msm-dai-q6-mi2s-dev-id = <3>;
+	qcom,msm-mi2s-rx-lines = <1>;
+	qcom,msm-mi2s-tx-lines = <2>;
+};
+
+&aqt1000_cdc {
+	status = "ok";
+};
+
+&qupv3_se4_spi_active {
+	mux {
+		pins = "gpio53","gpio54";
+		function = "qup4";
+	};
+
+	config {
+		pins =  "gpio53","gpio54";
+		drive-strength = <6>;
+		bias-disable;
+	};
+};
+
+&qupv3_se4_spi_sleep {
+	mux {
+		pins =  "gpio53","gpio54";
+		function = "gpio";
+	};
+
+	config {
+		pins = "gpio53","gpio54";
+		drive-strength = <6>;
+		bias-disable;
+	};
+};
+
+&pcie0 {
+		pinctrl-0 = <&pcie0_clkreq_default
+			&pcie0_perst_default>;
+		wake-gpio;
+};

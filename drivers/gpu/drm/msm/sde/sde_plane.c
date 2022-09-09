@@ -3976,6 +3976,9 @@ static int sde_plane_sspp_atomic_update(struct drm_plane *plane,
 		case PLANE_PROP_ALPHA:
 		case PLANE_PROP_INPUT_FENCE:
 		case PLANE_PROP_BLEND_OP:
+#ifdef OPLUS_BUG_STABILITY
+		case PLANE_PROP_CUSTOM:
+#endif /* OPLUS_BUG_STABILITY */
 			/* no special action required */
 			break;
 		case PLANE_PROP_FB_TRANSLATION_MODE:
@@ -4417,6 +4420,10 @@ static void _sde_plane_install_properties(struct drm_plane *plane,
 
 	msm_property_install_range(&psde->property_info, "zpos",
 		0x0, 0, zpos_max, zpos_def, PLANE_PROP_ZPOS);
+#ifdef OPLUS_BUG_STABILITY
+	msm_property_install_range(&psde->property_info,"PLANE_CUST",
+		0x0, 0, INT_MAX, 0, PLANE_PROP_CUSTOM);
+#endif
 
 	msm_property_install_range(&psde->property_info, "alpha",
 		0x0, 0, 255, 255, PLANE_PROP_ALPHA);

@@ -26,7 +26,9 @@
 
 #include <linux/atomic.h>
 #include <linux/uaccess.h>
-
+#if defined(OPLUS_FEATURE_MULTI_FREEAREA) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+#include <linux/mmzone.h>
+#endif
 static DEFINE_MUTEX(mem_sysfs_mutex);
 
 #define MEMORY_CLASS_NAME	"memory"
@@ -451,12 +453,32 @@ static DEVICE_ATTR(valid_zones, 0444, show_valid_zones, NULL);
 #ifdef CONFIG_MEMORY_HOTPLUG
 static int count_num_free_block_pages(struct zone *zone, int bid)
 {
+#if defined(OPLUS_FEATURE_MULTI_FREEAREA) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+	int order, type, flc;
+#else
 	int order, type;
+#endif
 	unsigned long freecount = 0;
 	unsigned long flags;
 
 	spin_lock_irqsave(&zone->lock, flags);
 	for (type = 0; type < MIGRATE_TYPES; type++) {
+#if defined(OPLUS_FEATURE_MULTI_FREEAREA) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+		for (flc = 0; flc < FREE_AREA_COUNTS; flc++) {
+			struct free_area *area;
+                        struct page *page;
+			for (order = 0; order < MAX_ORDER; ++order) {
+                                area = &(zone->free_area[flc][order]);
+				list_for_each_entry(page, &area->free_list[type], lru) {
+                                        unsigned long pfn = page_to_pfn(page);
+					int section_nr = pfn_to_section_nr(pfn);
+
+                                if (bid == base_memory_block_id(section_nr))
+                                        freecount += (1 << order);
+				}
+			}
+		}
+#else
 		for (order = 0; order < MAX_ORDER; ++order) {
 			struct free_area *area;
 			struct page *page;
@@ -471,6 +493,7 @@ static int count_num_free_block_pages(struct zone *zone, int bid)
 			}
 
 		}
+#endif
 	}
 	spin_unlock_irqrestore(&zone->lock, flags);
 

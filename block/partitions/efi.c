@@ -689,6 +689,36 @@ static int find_valid_gpt(struct parsed_partitions *state, gpt_header **gpt,
  *  1 if successful
  *
  */
+
+struct replace_partition_tbl {
+	char *old_name;
+	char *new_name;
+};
+static struct replace_partition_tbl tbl[] = {
+//	{"oplus_sec", "oplus_sec"},
+//	{"oppodycnvbk","oplusdycnvbk"},
+//	{"oppostanvbk", "oplusstanvbk"},
+	{"opporeserve1", "oplusreserve1"},
+	{"opporeserve2", "oplusreserve2"},
+	{"opporeserve3", "oplusreserve3"},
+	{"opporeserve4", "oplusreserve4"},
+	{"opporeserve5", "oplusreserve5"},
+};
+
+static void oplus_replace_partition_name(char *name)
+{
+	int part_idx = 0;
+
+	for (part_idx = 0; part_idx < ARRAY_SIZE(tbl); part_idx++) {
+		if (!strncmp(name, tbl[part_idx].old_name, strlen(tbl[part_idx].old_name))) {
+			pr_warn("rename partition name: %s->%s\n", name, tbl[part_idx].new_name);
+			memset(name, 0, strlen(tbl[part_idx].old_name));
+			strcpy(name, tbl[part_idx].new_name);
+			return;
+		}
+	}
+}
+
 int efi_partition(struct parsed_partitions *state)
 {
 	gpt_header *gpt = NULL;
@@ -736,6 +766,7 @@ int efi_partition(struct parsed_partitions *state)
 			label_count++;
 		}
 		state->parts[i + 1].has_info = true;
+		oplus_replace_partition_name(&info->volname[0]);
 	}
 	kfree(ptes);
 	kfree(gpt);

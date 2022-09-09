@@ -7,7 +7,6 @@
  * available at http://www.fsf.org/copyleft/gpl.html
  *
  * @filename bmi160_spi.c
- * @date     2014/11/25 14:40
  * @id       "20f77db"
  * @version  1.3
  *

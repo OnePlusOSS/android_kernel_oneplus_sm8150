@@ -138,6 +138,12 @@ struct ion_buffer {
 	struct sg_table *sg_table;
 	struct list_head attachments;
 	struct list_head vmas;
+#if defined(OPLUS_FEATURE_MEMLEAK_DETECT) && defined(CONFIG_DUMP_TASKS_MEM)
+	struct task_struct *tsk;
+#endif
+#if defined(OPLUS_FEATURE_MEMLEAK_DETECT) && defined(CONFIG_MEMLEAK_DETECT_THREAD) && defined(CONFIG_SVELTE)
+	unsigned long jiffies;
+#endif
 };
 
 void ion_buffer_destroy(struct ion_buffer *buffer);
@@ -448,6 +454,7 @@ struct ion_page_pool {
 	struct mutex mutex;
 	gfp_t gfp_mask;
 	unsigned int order;
+	bool boost_flag;
 	struct plist_node list;
 };
 
@@ -464,6 +471,7 @@ void ion_page_pool_free_immediate(struct ion_page_pool *pool,
 int ion_page_pool_total(struct ion_page_pool *pool, bool high);
 size_t ion_system_heap_secure_page_pool_total(struct ion_heap *heap, int vmid);
 
+inline struct page *ion_page_pool_alloc_pages(struct ion_page_pool *pool);
 #ifdef CONFIG_ION_SYSTEM_HEAP
 long ion_page_pool_nr_pages(void);
 #else

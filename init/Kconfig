@@ -1824,7 +1824,7 @@ config HAVE_GENERIC_DMA_COHERENT
 config SLABINFO
 	bool
 	depends on PROC_FS
-	depends on SLAB || SLUB_DEBUG
+	depends on SLAB || SLUB_DEBUG || KMALLOC_DEBUG
 	default y
 
 config RT_MUTEXES

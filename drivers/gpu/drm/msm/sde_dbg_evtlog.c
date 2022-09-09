@@ -110,7 +110,7 @@ exit:
 static bool _sde_evtlog_dump_calc_range(struct sde_dbg_evtlog *evtlog,
 		bool update_last_entry, bool full_dump)
 {
-	int max_entries = full_dump ? SDE_EVTLOG_ENTRY : SDE_EVTLOG_PRINT_ENTRY;
+	int max_entries = full_dump ? SDE_EVTLOG_ENTRY : SDE_EVTLOG_PRINT_ENTRY * 2;
 
 	if (!evtlog)
 		return false;
@@ -195,7 +195,7 @@ void sde_evtlog_dump_all(struct sde_dbg_evtlog *evtlog)
 
 	while (sde_evtlog_dump_to_buffer(evtlog, buf, sizeof(buf),
 				update_last_entry, false)) {
-		pr_info("%s", buf);
+		pr_err("%s", buf);
 		update_last_entry = false;
 	}
 }

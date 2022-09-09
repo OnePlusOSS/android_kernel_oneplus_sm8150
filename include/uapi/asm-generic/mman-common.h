@@ -25,6 +25,13 @@
 #else
 # define MAP_UNINITIALIZED 0x0		/* Don't support this flag */
 #endif
+#if defined(OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+#define MAP_BACKUP_CREATE 0x10000000	/* created backup vmap area */
+#endif
+#if defined(OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+/* reserved vma mmap flag */
+#define MAP_BACKUP_CREATE 0x10000000	/* created backup vmap area */
+#endif
 
 /*
  * Flags for mlock

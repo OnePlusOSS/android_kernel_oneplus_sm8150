@@ -42,6 +42,10 @@ enum ion_heap_ids {
 	ION_HEAP_ID_RESERVED = 31 /** Bit reserved for ION_FLAG_SECURE flag */
 };
 
+/* boost pool flag. */
+#define ION_FLAG_GRAPHIC_BUFFER ION_BIT(13)
+#define ION_FLAG_CAMERA_BUFFER  ION_BIT(12)
+
 /**
  * Newly added heap ids have to be #define(d) since all API changes must
  * include a new #define.

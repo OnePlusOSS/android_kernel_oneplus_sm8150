@@ -133,9 +133,18 @@ void device_pm_add(struct device *dev)
 		 dev->bus ? dev->bus->name : "No Bus", dev_name(dev));
 	device_pm_check_callbacks(dev);
 	mutex_lock(&dpm_list_mtx);
+#ifndef OPLUS_FEATURE_POWERINFO_STANDBY_DEBUG
 	if (dev->parent && dev->parent->power.is_prepared)
 		dev_warn(dev, "parent %s should not be sleeping\n",
 			dev_name(dev->parent));
+#else
+	if (dev->parent && dev->parent->power.is_prepared) {
+		dev_warn(dev, "parent %s should not be sleeping\n",
+			dev_name(dev->parent));
+		pr_info("debug Adding info for %s:%s\n",
+		 dev->bus ? dev->bus->name : "No Bus", dev_name(dev));
+	}
+#endif /* VENDOR_EDIT */
 	list_add_tail(&dev->power.entry, &dpm_list);
 	dev->power.in_dpm_list = true;
 	mutex_unlock(&dpm_list_mtx);

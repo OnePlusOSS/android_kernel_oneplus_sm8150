@@ -4,6 +4,22 @@
 
 #include <linux/types.h>
 
+#ifdef OPLUS_FEATURE_MODEM_DATA_NWPOWER
+/*
+*Add for: print qrtr debug msg and fix QMI wakeup statistics for QCOM platforms using glink.
+*/
+#define MODEM_WAKEUP_SRC_NUM 3
+#define MODEM_QMI_WS_INDEX 2
+#define QRTR_FIRST_HEAD "QrtrFirst "
+#define QRTR_FIRST_HEAD_COUNT 10
+extern int modem_wakeup_src_count[MODEM_WAKEUP_SRC_NUM];
+extern int qrtr_first_msg;
+extern char qrtr_first_msg_details[256];
+extern char *sub_qrtr_first_msg_details;
+
+#include <net/oplus_nwpower.h>
+#endif /* OPLUS_FEATURE_MODEM_DATA_NWPOWER */
+
 struct sk_buff;
 
 /* endpoint node id auto assignment */

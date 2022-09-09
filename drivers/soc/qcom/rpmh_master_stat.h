@@ -11,11 +11,10 @@
  * GNU General Public License for more details.
  *
  */
-
-#if defined(CONFIG_QTI_RPMH_API) && defined(CONFIG_QTI_RPM_STATS_LOG)
-
+/*#if defined(CONFIG_QTI_RPMH_API) && defined(CONFIG_QTI_RPM_STATS_LOG) */
+#if defined(CONFIG_QTI_RPMH_API) && defined(OPLUS_FEATURE_POWERINFO_RPMH)
+/* 2010/10/15  for rpm debug */
 void msm_rpmh_master_stats_update(void);
-
 #else
 
 static inline void msm_rpmh_master_stats_update(void) {}

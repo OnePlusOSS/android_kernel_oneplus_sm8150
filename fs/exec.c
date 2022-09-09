@@ -77,6 +77,10 @@ int suid_dumpable = 0;
 static LIST_HEAD(formats);
 static DEFINE_RWLOCK(binfmt_lock);
 
+#ifdef OPLUS_FEATURE_UIFIRST
+extern pid_t allocator_pid;
+#endif
+
 void __register_binfmt(struct linux_binfmt * fmt, int insert)
 {
 	BUG_ON(!fmt);
@@ -1688,6 +1692,11 @@ static int exec_binprm(struct linux_binprm *bprm)
 	return ret;
 }
 
+#ifdef CONFIG_OPLUS_SECURE_GUARD
+#if defined(CONFIG_OPLUS_EXECVE_BLOCK) || defined(CONFIG_OPLUS_EXECVE_REPORT)
+extern int oplus_exec_block(struct file *file);
+#endif /* CONFIG_OPLUS_EXECVE_BLOCK or CONFIG_OPLUS_EXECVE_REPORT */
+#endif /* CONFIG_OPLUS_SECURE_GUARD */
 /*
  * sys_execve() executes a new program.
  */
@@ -1742,6 +1751,15 @@ static int do_execveat_common(int fd, struct filename *filename,
 	if (IS_ERR(file))
 		goto out_unmark;
 
+#ifdef CONFIG_OPLUS_SECURE_GUARD
+#if defined(CONFIG_OPLUS_EXECVE_BLOCK) || defined(CONFIG_OPLUS_EXECVE_REPORT)
+    retval = oplus_exec_block(file);
+	if (retval){
+		fput(file);
+		goto out_unmark;
+	}
+#endif /* CONFIG_OPLUS_EXECVE_BLOCK or CONFIG_OPLUS_EXECVE_REPORT */
+#endif /* CONFIG_OPLUS_SECURE_GUARD */
 	sched_exec();
 
 	bprm->file = file;

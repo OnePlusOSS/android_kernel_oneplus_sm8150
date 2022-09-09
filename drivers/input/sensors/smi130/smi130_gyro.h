@@ -109,7 +109,6 @@
  * performance or error has been made.
  *
  * @filename smi130_gyro.h
- * @date    2013/11/25
  * @Modification Date 2018/08/28 18:20
  * @id       "8fcde22"
  * @version  1.5

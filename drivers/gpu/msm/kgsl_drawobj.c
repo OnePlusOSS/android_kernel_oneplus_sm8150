@@ -35,6 +35,10 @@
 #include "kgsl_sync.h"
 #include "kgsl_trace.h"
 #include "kgsl_compat.h"
+#include "../drm/msm/sde_dbg.h"
+#ifdef OPLUS_BUG_STABILITY
+#include <soc/oplus/system/oplus_mm_kevent_fb.h>
+#endif /*OPLUS_BUG_STABILITY*/
 
 /*
  * Define an kmem cache for the memobj & sparseobj structures since we
@@ -170,6 +174,15 @@ static void syncobj_timer(unsigned long data)
 			for (j = 0; j < info->num_fences; j++)
 				dev_err(device->dev, "       [%u] FENCE %s\n",
 					i, info->fences[j].name);
+				#ifdef OPLUS_BUG_STABILITY
+				if (strstr(info->fences[j].name, "sde_fence")) {
+					mm_fb_kevent(OPLUS_MM_DIRVER_FB_EVENT_TO_DISPLAY,
+					OPLUS_DISPLAY_EVENTID_GPU_FAULT,
+					"fence error", MM_FB_KEY_RATELIMIT_30MIN,
+					"EventID@@%d$$gpu fault$$pid=%08lx",
+					OPLUS_MM_DIRVER_FB_EVENT_ID_GPU_FAULT, current->pid);
+				}
+				#endif /*OPLUS_BUG_STABILITY*/
 			break;
 		}
 		}
@@ -177,6 +190,8 @@ static void syncobj_timer(unsigned long data)
 
 	kgsl_drawobj_put(drawobj);
 	dev_err(device->dev, "--gpu syncpoint deadlock print end--\n");
+	SDE_EVT32(0x909);
+	SDE_DBG_DUMP("all");
 }
 
 /*

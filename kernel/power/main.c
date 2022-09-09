@@ -15,6 +15,9 @@
 #include <linux/workqueue.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
+#ifdef OPLUS_FEATURE_POWERINFO_STANDBY
+#include <linux/rtc.h>
+#endif /* OPLUS_FEATURE_POWERINFO_STANDBY */
 
 #include "power.h"
 
@@ -206,6 +209,10 @@ static ssize_t pm_test_store(struct kobject *kobj, struct kobj_attribute *attr,
 		}
 
 	unlock_system_sleep();
+#ifdef OPLUS_FEATURE_POWERINFO_STANDBY_DEBUG
+	pr_info("%s buf:%s, pm_test_level:%d,level:%d\n", __func__, buf,
+		pm_test_level, level);
+#endif /* VENDOR_EDIT */
 
 	return error ? error : n;
 }
@@ -570,6 +577,10 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 	suspend_state_t state;
 	int error;
 
+	#ifdef OPLUS_FEATURE_POWERINFO_STANDBY_DEBUG
+	pr_info("PM: enter state_store, buf=%s.\n", buf);
+	#endif /* OPLUS_FEATURE_POWERINFO_STANDBY */
+
 	error = pm_autosleep_lock();
 	if (error)
 		return error;
@@ -626,7 +637,32 @@ power_attr(state);
  * is allowed to write to 'state', but the transition will be aborted if there
  * are any wakeup events detected after 'wakeup_count' was written to.
  */
+#ifdef OPLUS_FEATURE_POWERINFO_STANDBY
+static void pm_wakeup_count_marker(char *annotation)
+{
+	struct timespec ts;
+	struct rtc_time tm;
 
+	getnstimeofday(&ts);
+	rtc_time_to_tm(ts.tv_sec, &tm);
+	pr_info("PM: wakeup_count %s %d-%02d-%02d %02d:%02d:%02d.%09lu UTC\n",
+		annotation, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+		tm.tm_hour, tm.tm_min, tm.tm_sec, ts.tv_nsec);
+}
+
+static ssize_t wakeup_count_show(struct kobject *kobj,
+				struct kobj_attribute *attr,
+				char *buf)
+{
+	unsigned int val, error;
+
+	pm_wakeup_count_marker("read enter");
+	error = pm_get_wakeup_count(&val, true);
+	pm_wakeup_count_marker("read exit");
+
+	return error ? sprintf(buf, "%u\n", val) : -EINTR;
+}
+#else
 static ssize_t wakeup_count_show(struct kobject *kobj,
 				struct kobj_attribute *attr,
 				char *buf)
@@ -636,6 +672,7 @@ static ssize_t wakeup_count_show(struct kobject *kobj,
 	return pm_get_wakeup_count(&val, true) ?
 		sprintf(buf, "%u\n", val) : -EINTR;
 }
+#endif /* OPLUS_FEATURE_POWERINFO_STANDBY */
 
 static ssize_t wakeup_count_store(struct kobject *kobj,
 				struct kobj_attribute *attr,
@@ -643,6 +680,10 @@ static ssize_t wakeup_count_store(struct kobject *kobj,
 {
 	unsigned int val;
 	int error;
+
+	#ifdef OPLUS_FEATURE_POWERINFO_STANDBY
+	pm_wakeup_count_marker("store");
+	#endif /* OPLUS_FEATURE_POWERINFO_STANDBY */
 
 	error = pm_autosleep_lock();
 	if (error)
@@ -812,6 +853,38 @@ power_attr(pm_freeze_timeout);
 
 #endif	/* CONFIG_FREEZER*/
 
+#ifdef OPLUS_BUG_STABILITY
+char pon_reason[128];
+static ssize_t pon_reason_show(struct kobject *kobj,
+			struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s", pon_reason);
+}
+
+static ssize_t pon_reason_store(struct kobject *kobj,
+			struct kobj_attribute *attr,
+			const char *buf, size_t n)
+{
+	return -EINVAL;
+}
+power_attr(pon_reason);
+
+char poff_reason[128];
+static ssize_t poff_reason_show(struct kobject *kobj,
+	struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s", poff_reason);
+}
+
+static ssize_t poff_reason_store(struct kobject *kobj,
+			struct kobj_attribute *attr,
+			const char *buf, size_t n)
+{
+	return -EINVAL;
+}
+power_attr(poff_reason);
+#endif /*OPLUS_BUG_STABILITY*/
+
 static struct attribute * g[] = {
 	&state_attr.attr,
 #ifdef CONFIG_PM_TRACE
@@ -841,6 +914,10 @@ static struct attribute * g[] = {
 #ifdef CONFIG_FREEZER
 	&pm_freeze_timeout_attr.attr,
 #endif
+#ifdef OPLUS_BUG_STABILITY
+	&pon_reason_attr.attr,
+	&poff_reason_attr.attr,
+#endif /*OPLUS_BUG_STABILITY*/
 	NULL,
 };
 

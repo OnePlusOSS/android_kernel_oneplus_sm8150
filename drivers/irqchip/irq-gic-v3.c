@@ -47,6 +47,17 @@
 
 #include "irq-gic-common.h"
 
+#ifdef OPLUS_FEATURE_POWERINFO_STANDBY
+#include "../../drivers/soc/oplus/owakelock/oplus_wakelock_profiler_qcom.h"
+#endif /* OPLUS_FEATURE_POWERINFO_STANDBY */
+
+#ifdef OPLUS_FEATURE_MODEM_DATA_NWPOWER
+/*
+*Add for: print qrtr debug msg and fix QMI wakeup statistics for QCOM platforms using glink.
+*/
+int qrtr_first_msg = 0;
+#endif /* OPLUS_FEATURE_MODEM_DATA_NWPOWER */
+
 struct redist_region {
 	void __iomem		*redist_base;
 	phys_addr_t		phys_base;
@@ -452,6 +463,10 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 	if (!msm_show_resume_irq_mask)
 		return;
 
+	#ifdef OPLUS_FEATURE_POWERINFO_STANDBY
+	wakeup_reasons_statics(IRQ_NAME_WAKE_SUM, WS_CNT_SUM);
+	#endif /* OPLUS_FEATURE_POWERINFO_STANDBY */
+
 	for (i = 0; i * 32 < gic->irq_nr; i++) {
 		enabled = readl_relaxed(base + GICD_ICENABLER + i * 4);
 		pending[i] = readl_relaxed(base + GICD_ISPENDR + i * 4);
@@ -471,6 +486,25 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 			name = desc->action->name;
 
 		pr_warn("%s: %d triggered %s\n", __func__, irq, name);
+
+#ifdef OPLUS_FEATURE_MODEM_DATA_NWPOWER
+		/*
+		*Add for: print qrtr debug msg and fix QMI wakeup statistics for QCOM platforms using glink
+		*/
+		if(name != NULL)
+		{
+			if (strncmp(name, IRQ_NAME_GLINK, strlen(IRQ_NAME_GLINK)) == 0) {
+				qrtr_first_msg = 1;
+			}
+                        log_irq_wakeup_reason(irq);
+		}
+#endif /* OPLUS_FEATURE_MODEM_DATA_NWPOWER */
+
+		#ifdef OPLUS_FEATURE_POWERINFO_STANDBY
+		do {
+			wakeup_reasons_statics(name, WS_CNT_MODEM|WS_CNT_WLAN|WS_CNT_ADSP|WS_CNT_CDSP|WS_CNT_SLPI);
+		} while(0);
+		#endif /* OPLUS_FEATURE_POWERINFO_STANDBY */
 	}
 }
 
@@ -698,10 +732,17 @@ static int __gic_populate_rdist(struct redist_region *region, void __iomem *ptr)
 		gic_data_rdist_rd_base() = ptr;
 		gic_data_rdist()->phys_base = region->phys_base + offset;
 
+#ifndef OPLUS_FEATURE_POWERINFO_STANDBY_DEBUG
 		pr_info("CPU%d: found redistributor %lx region %d:%pa\n",
 			smp_processor_id(), mpidr,
 			(int)(region - gic_data.redist_regions),
 			&gic_data_rdist()->phys_base);
+#else
+		pr_debug("CPU%d: found redistributor %lx region %d:%pa\n",
+			smp_processor_id(), mpidr,
+			(int)(region - gic_data.redist_regions),
+			&gic_data_rdist()->phys_base);
+#endif
 		return 0;
 	}
 

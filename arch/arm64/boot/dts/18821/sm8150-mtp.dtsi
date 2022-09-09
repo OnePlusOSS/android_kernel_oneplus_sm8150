@@ -1,0 +1,1381 @@
+/* Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+
+#include "sm8150-pmic-overlay.dtsi"
+#include "sm8150-sde-display.dtsi"
+#include "sm8150-camera-sensor-mtp.dtsi"
+#include "sm8150-thermal-overlay.dtsi"
+
+&qupv3_se4_i2c {
+#address-cells = <1>;
+#size-cells = <0>;
+
+#include "smb1390.dtsi"
+#include "smb1355.dtsi"
+};
+
+&qupv3_se12_2uart {
+	status = "ok";
+};
+
+&vendor {
+	bluetooth: bt_wcn3990 {
+		compatible = "qca,wcn3990";
+		qca,bt-vdd-core-supply = <&pm8150_l7>;
+		qca,bt-vdd-pa-supply = <&pm8150l_l2>;
+		qca,bt-vdd-ldo-supply = <&pm8150l_l11>;
+
+		qca,bt-vdd-core-voltage-level = <1800000 1800000>;
+		qca,bt-vdd-pa-voltage-level = <1304000 1304000>;
+		qca,bt-vdd-ldo-voltage-level = <3312000 3312000>;
+
+		qca,bt-vdd-core-current-level = <0>; /* LPM/PFM */
+		qca,bt-vdd-pa-current-level = <0>; /* LPM/PFM */
+		qca,bt-vdd-ldo-current-level = <0>; /* LPM/PFM */
+	};
+
+	mtp_batterydata: qcom,battery-data {
+		qcom,batt-id-range-pct = <15>;
+		#include "fg-gen4-batterydata-alium-3600mah.dtsi"
+	};
+
+	extcon_usb1: extcon_usb1 {
+		compatible = "linux,extcon-usb-gpio";
+		/*pm8150_gpios 10 is for step motor, use the dummy gpio 165 for driver probe */
+		vbus-gpio = <&tlmm 165 GPIO_ACTIVE_HIGH>;
+                /*#ifdef OPLUS_FEATURE_FINGERPRINT*/
+                //modify by Long.Liu 20190101, for fingerprint power gpio
+		//id-gpio = <&tlmm 101 GPIO_ACTIVE_HIGH>;
+                /*#endif*/
+		vbus-out-gpio = <&pm8150_gpios 9 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-names = "default";
+		/*#ifdef OPLUS_FEATURE_FINGERPRINT*/
+		//modify by Long.Liu 20190101, for fingerprint power gpio
+		//pinctrl-0 = <&usb2_vbus_det_default
+		//	     &usb2_id_det_default
+		//	     &usb2_vbus_boost_default>;
+		/*#endif*/
+	};
+};
+
+&qupv3_se13_4uart {
+	status = "ok";
+};
+
+&qupv3_se3_spi {
+	status = "ok";
+};
+
+&qupv3_se4_i2c {
+	status = "ok";
+};
+
+&soc {
+
+	/* #ifdef OPLUS_FEATURE_SECURITY_COMMON */
+	oplus_secure_common {
+		compatible = "oplus,secure_common";
+		oplus,sec_reg_num = <0x7804D0>;
+		oplus,sec_en_anti_reg = <0x78019C>;
+		oplus,sec_override1_reg = <0x7860C0>;
+		oplus,override1_en_value = <0x1>;
+		oplus,cryptokey_unsupport_status = <0x1>;
+	};
+	/* #endif OPLUS_FEATURE_SECURITY_COMMON */
+
+	/* #ifdef OPLUS_FEATURE_FINGERPRINT */
+	oplus_fp_common {
+        compatible = "oplus,fp_common";
+        oplus,fp_gpio_num = <1>;
+        oplus,fp_gpio_0 = <&tlmm 90 0x0>;
+        pinctrl-names = "default";
+        pinctrl-0 = <&gpio_id2_default>;
+        goodix_optical {
+            oplus,fp-id = <1>; /* fp id mapping table */
+            vendor-chip = <11>; /* please refer to the struct fp_vendor_t in oplus_fp_commmon.n */
+            eng-menu = "-1,-1"; /* represents SNR, inclination test item in engineer menu, and 0/1 means off/on */
+            chip-name = "G_OPTICAL_18821_G2_4";  /* /proc/fp_id, will be displayed in engineer menu  */
+        };
+	};
+
+	goodix_fp {
+		status = "ok";
+		compatible = "goodix,goodix_fp";
+		interrupt-parent = <&tlmm>;
+		interrupts = <118 0>;
+		power-mode = <2> ; /*please refer to the struct fp_power_mode_t in oplus_fp_commmon.h ,0: power mode not set, 1: ldo power, 2: gpio power, 3: auto power */
+		goodix,gpio_irq = <&tlmm 118 0x1>;
+		goodix,gpio_reset = <&tlmm 131 0x0>;
+		goodix,goodix_pwr = <&tlmm 101 0x0>;
+		//ldo5-supply = <&pm660l_l5>;  // pm660l_l5 for goodix_fp
+		pinctrl-names = "default";
+			pinctrl-0 = <&gpio_goodix_irq_default>;
+			power-num = <1>;
+			power_source_1 {
+					power-mode = <2>;
+					power-name = "goodix,goodix_pwr";
+					delay-time = <0>;
+			};
+		};
+	//#endif /*OPLUS_FEATURE_FINGERPRINT*/
+
+	//#ifdef OPLUS_FEATURE_BRINGUP
+	nfc_chipset {
+		compatible = "oplus-nfc-chipset";
+		chipset-18821 = "NQ330";
+		chipset-18815 = "NQ330";
+		chipset-18817 = "NQ330";
+		chipset-18823 = "NQ330";
+		chipset-18831 = "NQ330";
+	};
+	//#endif OPLUS_FEATURE_BRINGUP
+
+	//#ifdef OPLUS_FEATURE_SENSOR_SMEM
+	/*enum sensor_id { OPLUS_ACCEL,OPLUS_GYRO,OPLUS_MAG,OPLUS_LIGHT,OPLUS_PROXIMITY,OPLUS_SAR,OPLUS_CT,OPLUS_BAROMETER,SENSORS_NUM};*/
+        sensor_fb: sensor_fb {
+            compatible = "oplus,sensor-feedback";
+            master-id  = <3>;
+            smem-id    = <608>;
+        };
+	oplus_sensor {
+		compatible = "oplus,sensor-devinfo";
+		als-row-coe = <540>;
+		/*enum {LSM6DSM = 0x01, BMI160 = 0x02, LSM6DS3 = 0x04};*/
+		gsensor@0 {
+			sensor-name = <0x01>;//LSM6DSM
+			sensor-direction = <0>;
+			sensor-index = <0>;//source num
+			sensor-type = <0>;//OPLUS_ACCEL
+		};
+		/* enum {AKM0991X = 0x01, MMC5603 = 0x02};*/
+		msensor@0 {
+			sensor-name = <0x02>;//MMC5603
+			sensor-direction = <2>;
+			sensor-index = <0>;
+			sensor-type = <2>;//OPLUS_MAG
+			parameter-number= <18>;
+			//sensor-parameter = <2>;//0-useless;other- to differ special parameter
+			soft-mag-parameter = <9964 0 37 0 845 1 169 1 10676 0 312 1 145 1 249 0 11758 0>;//e00 sign e01 sign ...
+		};
+
+		/*virtual sensor
+		enum sensor_algo_id {
+			OPLUS_PICKUP_DETECT,
+			OPLUS_LUX_AOD,
+			OPLUS_TP_GESTURE,
+			OPLUS_FP_DISPLAY,
+			OPLUS_FREE_FALL,
+			OPLUS_CAMERA_PROTECT,
+			SENSOR_ALGO_NUM
+		}*/
+		pickup_detect {
+			sensor-type = <0>;//OPLUS_PICKUP_DETECT
+			is-virtual-sensor;
+			is-need-prox = <0>;//0 - disable; 1 - enable
+			prox-type = <0>;//prox_type: 0 - proximity; 1 - proximity_fake
+		};
+		lux_aod {
+			sensor-type = <1>; //OPLUS_LUX_AOD
+			is-virtual-sensor;
+			thrd-low = <12>;
+			thrd-high = <50>;
+			als-type = <1>; // 1 - wise_light; 0 - ambient_light
+		};
+		fp_display {
+			sensor-type = <3>; //OPLUS_FP_DISPLAY
+			is-virtual-sensor;
+			prox-type = <0>; // 0 - proximity; 1 - proximity_fake
+		};
+		free_fall {
+			sensor-type = <4>; //OPLUS_FREE_FALL
+			is-virtual-sensor;
+		};
+		tp_gesture {
+			sensor-type = <2>; //OPLUS_TP_GESTURE
+			is-virtual-sensor;
+		};
+		camera_protect {
+			sensor-type = <5>; //OPLUS_CAMERA_PROTECT
+			is-virtual-sensor;
+			layout_offset_x = <270>;
+			layout_offset_y = <361>;
+			init_pin = <163>;
+			is_chip_pin = <1>;
+		};
+	};
+	//#endif /*OPLUS_FEATURE_SENSOR_SMEM*/
+	gpio_keys {
+		compatible = "gpio-keys";
+		label = "gpio-keys";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&key_vol_up_default>;
+
+		vol_up {
+			label = "volume_up";
+			gpios = <&pm8150_gpios 6 GPIO_ACTIVE_LOW>;
+			linux,input-type = <1>;
+			linux,code = <KEY_VOLUMEUP>;
+			gpio-key,wakeup;
+			debounce-interval = <15>;
+			linux,can-disable;
+		};
+	};
+
+//#ifdef OPLUS_FEATURE_FINGERPRINT
+//	qcomqbt1000:qcom,qbt1000 {
+//		compatible = "qcom,qbt1000";
+//		clock-names = "core", "iface";
+//		clock-frequency = <25000000>;
+//		qcom,ipc-gpio = <&tlmm 118 0>;
+//		pinctrl-names = "default";
+//		pinctrl-0 = <&key_home_default>;
+//		qcom,finger-detect-gpio = <&pm8150_gpios 1 0>;
+//	};
+//#endif
+};
+
+&dsi_panel_pwr_supply_vdd_no_labibb {
+	qcom,panel-supply-entry@1 {
+		qcom,supply-min-voltage = <1800000>;
+		qcom,supply-max-voltage = <1800000>;
+	};
+};
+
+&dsi_sharp_4k_dsc_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,mdss-dsi-mode-sel-gpio-state = "dual_port";
+	qcom,panel-mode-gpio = <&tlmm 7 0>;
+	qcom,platform-te-gpio = <&tlmm 8 0>;
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_sharp_4k_dsc_video {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,mdss-dsi-mode-sel-gpio-state = "dual_port";
+	qcom,panel-mode-gpio = <&tlmm 7 0>;
+	qcom,platform-te-gpio = <&tlmm 8 0>;
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_sim_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_sim_vid {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_dual_sim_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_dual_sim_vid {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_sim_sec_hd_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,panel-sec-supply-entries = <&dsi_panel_pwr_supply_vdd_no_labibb>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,mdss-dsi-mode-sel-gpio-state = "single_port";
+	qcom,panel-mode-gpio = <&tlmm 7 0>;
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+	qcom,panel-sec-mode-gpio = <&tlmm 77 0>;
+	qcom,platform-sec-reset-gpio = <&tlmm 66 0>;
+};
+
+&dsi_dual_nt35597_truly_video {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,mdss-dsi-mode-sel-gpio-state = "dual_port";
+	qcom,panel-mode-gpio = <&tlmm 7 0>;
+	qcom,platform-te-gpio = <&tlmm 8 0>;
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_dual_nt35597_truly_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,mdss-dsi-mode-sel-gpio-state = "dual_port";
+	qcom,panel-mode-gpio = <&tlmm 7 0>;
+	qcom,platform-te-gpio = <&tlmm 8 0>;
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_sim_dsc_375_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_dual_sim_dsc_375_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_nt35597_truly_dsc_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,mdss-dsi-mode-sel-gpio-state = "single_port";
+	qcom,panel-mode-gpio = <&tlmm 7 0>;
+	qcom,platform-te-gpio = <&tlmm 8 0>;
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_nt35597_truly_dsc_video {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,mdss-dsi-mode-sel-gpio-state = "single_port";
+	qcom,panel-mode-gpio = <&tlmm 7 0>;
+	qcom,platform-te-gpio = <&tlmm 8 0>;
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_nt35695b_truly_fhd_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,mdss-dsi-mode-sel-gpio-state = "single_port";
+	qcom,panel-mode-gpio = <&tlmm 7 0>;
+	qcom,platform-te-gpio = <&tlmm 8 0>;
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_nt35695b_truly_fhd_video {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,mdss-dsi-mode-sel-gpio-state = "single_port";
+	qcom,panel-mode-gpio = <&tlmm 7 0>;
+	qcom,platform-te-gpio = <&tlmm 8 0>;
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+//#ifdef OPLUS_BUG_STABILITY
+/*&qupv3_se9_i2c {
+	status = "ok";
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	nq@28 {
+		compatible = "qcom,nq-nci";
+		reg = <0x28>;
+		qcom,nq-irq = <&tlmm 47 0x00>;
+		qcom,nq-ven = <&tlmm 41 0x00>;
+		qcom,nq-firm = <&tlmm 48 0x00>;
+		qcom,nq-clkreq = <&tlmm 113 0x00>;
+		qcom,nq-esepwr = <&tlmm 42 0x00>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <47 0>;
+		interrupt-names = "nfc_irq";
+		pinctrl-names = "nfc_active", "nfc_suspend";
+		pinctrl-0 = <&nfc_int_active &nfc_enable_active
+					&nfc_clk_req_active>;
+		pinctrl-1 = <&nfc_int_suspend &nfc_enable_suspend
+					&nfc_clk_req_suspend>;
+	};
+};*/
+
+&qupv3_se9_i2c {
+	status = "ok";
+	nq@28 {
+		compatible = "nxp,pn544";
+		reg = <0x28>;
+		nxp,pn544-irq = <&tlmm 47 0x00>;
+		nxp,pn544-ven = <&tlmm 41 0x00>;
+		nxp,pn544-fw-dwnld = <&tlmm 48 0x00>;
+		nxp,pn544-clk-gpio = <&tlmm 113 0x00>;
+		nxp,pn544-ese-pwr = <&tlmm 49 0x00>;
+		interrupt-parent = <&tlmm>;
+		qcom,clk-src = "BBCLK3";
+		interrupts = <47 0>;
+		interrupt-names = "nfc_irq";
+		pinctrl-names = "nfc_active", "nfc_suspend";
+		pinctrl-0 = <&nfc_int_active &nfc_enable_active
+					&nfc_clk_req_active>;
+		pinctrl-1 = <&nfc_int_suspend &nfc_enable_suspend
+					&nfc_clk_req_suspend>;
+	};
+};
+
+&qupv3_se0_spi {
+    status = "ok";
+
+    ese@0 {
+        compatible = "nxp,p61";
+        reg = <0>;
+        spi-max-frequency = <8000000>;
+	nxp,nfcc = "4-0028";
+    };
+};
+//#endif OPLUS_BUG_STABILITY
+
+&ufsphy_mem {
+	compatible = "qcom,ufs-phy-qmp-v4";
+
+	vdda-phy-supply = <&pm8150_l5>;
+	vdda-phy-always-on;
+	vdda-pll-supply = <&pm8150l_l3>;
+	vdda-phy-max-microamp = <90200>;
+	vdda-pll-max-microamp = <19000>;
+
+	status = "ok";
+};
+
+&ufshc_mem {
+	vdd-hba-supply = <&ufs_phy_gdsc>;
+	vdd-hba-fixed-regulator;
+	vcc-supply = <&pm8150_l10>;
+	vcc-voltage-level = <2504000 2950000>;
+	vcc-low-voltage-sup;
+	vccq-supply = <&pm8150_l9>;
+	vccq2-supply = <&pm8150_s4>;
+	vcc-max-microamp = <750000>;
+	vccq-max-microamp = <700000>;
+	vccq2-max-microamp = <750000>;
+
+	qcom,vddp-ref-clk-supply = <&pm8150_l9>;
+	qcom,vddp-ref-clk-max-microamp = <100>;
+	qcom,vccq-parent-supply = <&pm8150l_s8>;
+	qcom,vccq-parent-max-microamp = <210000>;
+
+	status = "ok";
+};
+
+&spmi_debug_bus {
+	status = "ok";
+};
+
+&pm8150l_wled {
+	qcom,string-cfg= <7>;
+	qcom,leds-per-string = <6>;
+	status = "ok";
+};
+
+&pm8150l_lcdb {
+	status = "ok";
+};
+
+&pm8150b_fg {
+	qcom,battery-data = <&mtp_batterydata>;
+	qcom,hold-soc-while-full;
+	qcom,linearize-soc;
+	qcom,five-pin-battery;
+	qcom,cl-wt-enable;
+	/* ESR fast calibration */
+	qcom,fg-esr-timer-chg-fast = <0 7>;
+	qcom,fg-esr-timer-dischg-fast = <0 7>;
+	qcom,fg-esr-timer-chg-slow = <0 96>;
+	qcom,fg-esr-timer-dischg-slow = <0 96>;
+	/*op disable ers calibration*/
+	/*qcom,fg-esr-cal-soc-thresh = <26 230>;*/
+	/*qcom,fg-esr-cal-temp-thresh = <10 40>;*/
+};
+
+&sdhc_2 {
+	vdd-supply = <&pm8150l_l9>;
+	qcom,vdd-voltage-level = <2950000 2960000>;
+	qcom,vdd-current-level = <200 800000>;
+
+	vdd-io-supply = <&pm8150l_l6>;
+	qcom,vdd-io-voltage-level = <1808000 2960000>;
+	qcom,vdd-io-current-level = <200 22000>;
+
+	pinctrl-names = "active", "sleep";
+	pinctrl-0 = <&sdc2_clk_on  &sdc2_cmd_on &sdc2_data_on &storage_cd>;
+	pinctrl-1 = <&sdc2_clk_off &sdc2_cmd_off &sdc2_data_off &storage_cd>;
+
+	cd-gpios = <&tlmm 96 GPIO_ACTIVE_LOW>;
+
+	status = "ok";
+};
+
+&pm8150b_vadc {
+	vph_pwr {
+		reg = <ADC_VPH_PWR>;
+		label = "vph_pwr";
+		qcom,pre-scaling = <1 3>;
+	};
+
+	wp_therm {
+		reg = <ADC_AMUX_THM1_PU2>;
+		label = "wp_therm";
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+
+	vcoin {
+		reg = <ADC_VCOIN>;
+		label = "vcoin";
+		qcom,pre-scaling = <1 3>;
+	};
+
+	conn_therm {
+		reg = <ADC_AMUX_THM3_PU2>;
+		label = "conn_therm";
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+
+	chg_sbux {
+		reg = <ADC_SBUx>;
+		label = "chg_sbux";
+		qcom,pre-scaling = <1 3>;
+	};
+
+	mid_chg_div6 {
+		reg = <ADC_MID_CHG_DIV6>;
+		label = "chg_mid";
+		qcom,pre-scaling = <1 6>;
+	};
+
+	usb_in_i_uv {
+		reg = <ADC_USB_IN_I>;
+		label = "usb_in_i_uv";
+		qcom,pre-scaling = <1 1>;
+	};
+
+	usb_in_v_div_16 {
+		reg = <ADC_USB_IN_V_16>;
+		label = "usb_in_v_div_16";
+		qcom,pre-scaling = <1 16>;
+	};
+
+        usb_temp_adc {
+                reg = <ADC_AMUX_THM4_PU1>;
+                label = "usb_temp_adc";
+                qcom,pre-scaling = <1 1>;
+                qcom,ratiometric;
+                qcom,hw-settle-time = <800>;
+        };
+        usb_supplementary_temp_adc {
+                reg = <ADC_GPIO2_PU1>;
+                label = "usb_supplementary_temp_adc";
+                qcom,pre-scaling = <1 1>;
+                qcom,ratiometric;
+                qcom,hw-settle-time = <200>;
+        };
+};
+
+&pm8150_vadc {
+	vph_pwr {
+		reg = <ADC_VPH_PWR>;
+		label = "vph_pwr";
+		qcom,pre-scaling = <1 3>;
+	};
+
+	vcoin {
+		reg = <ADC_VCOIN>;
+		label = "vcoin";
+		qcom,pre-scaling = <1 3>;
+	};
+
+	xo_therm {
+		reg = <ADC_XO_THERM_PU2>;
+		label = "xo_therm";
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+
+	skin_therm {
+		reg = <ADC_AMUX_THM1_PU2>;
+		label = "skin_therm";
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+
+	pa_therm1 {
+		reg = <ADC_AMUX_THM2_PU2>;
+		label = "pa_therm1";
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+};
+
+&pm8150l_vadc {
+	vph_pwr {
+		reg = <ADC_VPH_PWR>;
+		label = "vph_pwr";
+		qcom,pre-scaling = <1 3>;
+	};
+
+	camera_flash_therm {
+		reg = <ADC_AMUX_THM1_PU2>;
+		label = "camera_flash_therm";
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+
+	msm_therm {
+		reg = <ADC_AMUX_THM2_PU2>;
+		label = "msm_therm";
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+
+	pa_therm2 {
+		reg = <ADC_AMUX_THM3_PU2>;
+		label = "pa_therm2";
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+};
+
+&wil6210 {
+	status = "ok";
+};
+
+&mhi_0 {
+	mhi,fw-name = "debug.mbn";
+};
+
+&pm8150b_adc_tm {
+	wp_therm {
+		reg = <ADC_AMUX_THM1_PU2>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+};
+
+&pm8150_adc_tm {
+	xo_therm {
+		reg = <ADC_XO_THERM_PU2>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+
+	skin_therm {
+		reg = <ADC_AMUX_THM1_PU2>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+
+	pa_therm1 {
+		reg = <ADC_AMUX_THM2_PU2>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+};
+
+&pm8150l_adc_tm {
+	camera_flash_therm {
+		reg = <ADC_AMUX_THM1_PU2>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+
+	msm_therm {
+		reg = <ADC_AMUX_THM2_PU2>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+
+	pa_therm2 {
+		reg = <ADC_AMUX_THM3_PU2>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+};
+
+&thermal_zones {
+	wp-therm {
+		polling-delay-passive = <0>;
+		polling-delay = <0>;
+		thermal-governor = "user_space";
+		thermal-sensors = <&pm8150b_adc_tm ADC_AMUX_THM1_PU2>;
+		wake-capable-sensor;
+		trips {
+			active-config0 {
+				temperature = <125000>;
+				hysteresis = <1000>;
+				type = "passive";
+			};
+		};
+	};
+
+	xo-therm {
+		polling-delay-passive = <0>;
+		polling-delay = <0>;
+		thermal-governor = "user_space";
+		thermal-sensors = <&pm8150_adc_tm ADC_XO_THERM_PU2>;
+		wake-capable-sensor;
+		trips {
+			active-config0 {
+				temperature = <125000>;
+				hysteresis = <1000>;
+				type = "passive";
+			};
+		};
+	};
+
+	skin-therm {
+		polling-delay-passive = <2000>;
+		polling-delay = <0>;
+		thermal-governor = "step_wise";
+		thermal-sensors = <&pm8150_adc_tm ADC_AMUX_THM1_PU2>;
+	};
+
+	pa-therm1 {
+		polling-delay-passive = <0>;
+		polling-delay = <0>;
+		thermal-governor = "user_space";
+		thermal-sensors = <&pm8150_adc_tm ADC_AMUX_THM2_PU2>;
+		wake-capable-sensor;
+		trips {
+			active-config0 {
+				temperature = <125000>;
+				hysteresis = <1000>;
+				type = "passive";
+			};
+		};
+	};
+
+	camera-flash-therm {
+		polling-delay-passive = <0>;
+		polling-delay = <0>;
+		thermal-governor = "user_space";
+		thermal-sensors = <&pm8150l_adc_tm ADC_AMUX_THM1_PU2>;
+		wake-capable-sensor;
+		trips {
+			active-config0 {
+				temperature = <125000>;
+				hysteresis = <1000>;
+				type = "passive";
+			};
+		};
+	};
+
+	msm-therm {
+		polling-delay-passive = <2000>;
+		polling-delay = <0>;
+		thermal-governor = "step_wise";
+		thermal-sensors = <&pm8150l_adc_tm ADC_AMUX_THM2_PU2>;
+	};
+
+	pa-therm2 {
+		polling-delay-passive = <0>;
+		polling-delay = <0>;
+		thermal-governor = "user_space";
+		thermal-sensors = <&pm8150l_adc_tm ADC_AMUX_THM3_PU2>;
+		wake-capable-sensor;
+		trips {
+			active-config0 {
+				temperature = <125000>;
+				hysteresis = <1000>;
+				type = "passive";
+			};
+		};
+	};
+};
+
+&pm8150b_charger {
+	qcom,sec-charger-config = <3>;
+	qcom,auto-recharge-soc = <98>;
+	io-channels = <&pm8150b_vadc ADC_MID_CHG_DIV6>,
+		      <&pm8150b_vadc ADC_USB_IN_I>,
+		      <&pm8150b_vadc ADC_SBUx>,
+		      <&pm8150b_vadc ADC_VPH_PWR>,
+		      <&pm8150b_vadc ADC_CHG_TEMP>,
+		      <&pm8150b_vadc ADC_USB_IN_V_16>,
+                      <&pm8150b_vadc ADC_AMUX_THM4_PU1>,
+                      <&pm8150b_vadc ADC_GPIO2_PU1>,
+                      <&pm8150_vadc ADC_AMUX_THM1_PU2>;
+	io-channel-names = "mid_voltage",
+			   "usb_in_current",
+			   "sbux_res",
+			   "vph_voltage",
+			   "chg_temp",
+			   "usb_in_voltage",
+                           "usb_temp_adc",
+                           "usb_supplementary_temp_adc",
+                           "skin_therm";
+	qcom,battery-data = <&mtp_batterydata>;
+	qcom,step-charging-enable;
+	//qcom,sw-jeita-enable;
+	qcom,wd-bark-time-secs = <16>;
+	qcom,suspend-input-on-debug-batt;
+        op,low-voltage-charger;
+};
+
+&smb1390 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&smb_stat_default>;
+	status = "ok";
+};
+
+&smb1390_charger {
+	/delete-property/ compatible;
+	compatible = "qcom,smb1390-charger-psy";
+	io-channels = <&pm8150b_vadc ADC_AMUX_THM2>;
+	io-channel-names = "cp_die_temp";
+	status = "ok";
+};
+
+&usb1 {
+	extcon = <&extcon_usb1>;
+	status = "ok";
+};
+
+&usb2_phy1 {
+	status = "ok";
+};
+
+&usb_qmp_phy {
+	status = "ok";
+};
+
+&smb1355 {
+	status = "ok";
+};
+
+&smb1355_charger {
+	io-channels = <&pm8150b_vadc ADC_AMUX_THM2>;
+	io-channel-names = "charger_temp";
+	status = "ok";
+};
+
+&pm8150b_gpios {
+    gpio1_adc {
+        gpio1_adc_default: gpio1_adc_default {
+        pins = "gpio1"; /* GPIO 1 */
+        function = "normal"; /* normal */
+        bias-high-impedance; /* DISABLE GPIO1 for ADC*/
+        };
+    };
+
+    gpio12_adc {
+        gpio12_adc_default: gpio12_adc_default {
+        pins = "gpio12"; /* GPIO 12 */
+        function = "normal"; /* normal */
+        bias-pull-up;
+        bias-high-impedance; /* DISABLE GPIO12 for ADC*/
+        };
+    };
+
+};
+&pm8150_gpios {
+        dischg_enable: dischg_enable {
+                pins = "gpio9"; /* GPIO 9 */
+                function = "normal"; /* normal */
+                bias-disable; //No Pull
+                power-source = <0>;//VIN0 3.3
+                output-high; //digital output, no invert
+                qcom,drive-strength = <3>; //LOW strength
+                //drive-push-pull;//CMOS
+        };
+
+        dischg_disable: dischg_disable {
+                pins = "gpio9"; /* GPIO 9 */
+                function = "normal"; /* normal */
+                bias-disable; //No Pull
+                power-source = <0>;//VIN0 3.3
+                output-low; //digital output, no invert
+                qcom,drive-strength = <3>; //LOW strength
+                //drive-push-pull;//CMOS
+        };
+};
+
+&pm8150b_charger {
+
+                        //for smb5:
+                        qcom,usb-icl-ua = <1800000>;
+                        qcom,fcc-max-ua = <3000000>;
+                        //qcom,fv-max-uv = <4365000>;
+                        qcom,hvdcp-disable;
+                        //io-channels = <&pm8150b_vadc ADC_GPIO3>;
+                        //io-channel-names = "chgID_voltage_adc";
+                        qcom,otg-cl-ua = <1500000>;
+                        qcom,float-option = <1>;
+                        qcom,oplus-pps-usbpd-detection = <&pm8150b_pdphy>;
+
+                        //for oplus chg framework:
+                        qcom,input_current_charger_ma = <2000>;
+                        qcom,input_current_usb_ma = <500>;
+                        qcom,input_current_cdp_ma = <1500>;
+                        qcom,input_current_led_ma = <1200>;
+                        qcom,input_current_led_ma_high = <1200>;
+                        qcom,input_current_led_ma_warm = <1500>;
+                        qcom,input_current_led_ma_normal = <2000>;
+			qcom,pd_input_current_charger_ma = <3000>;
+
+                        qcom,input_current_camera_ma = <1200>;
+                        //qcom,input_current_led_ma_overtemp = <900>;
+                        qcom,overtemp_bat_decidegc = <350>;
+                        qcom,iterm_disabled = <0>;
+                        qcom,iterm_ma = <310>;
+                        qcom,recharge-mv = <100>;
+                        qcom,batt_capacity_mah = <4000>;/*typical capacity*/
+                        //qcom,batt_capacity_mah = <3950>; /*rated capacity*/
+
+                        qcom,removed_bat_decidegc = <190>;  /*<-19C*/
+
+                        qcom,cold_bat_decidegc = <20>;  /*-2C~0C*/
+                        qcom,temp_cold_vfloat_mv = <3975>;
+                        qcom,temp_cold_fastchg_current_ma = <350>;
+
+                        qcom,little_cold_bat_decidegc = <0>;    /*0C~5C*/
+                        qcom,temp_little_cold_vfloat_mv = <4390>;
+                        qcom,temp_little_cold_fastchg_current_ma_high = <2000>;
+                        qcom,temp_little_cold_fastchg_current_ma_low = <2000>;
+                        qcom,temp_little_cold_fastchg_current_ma = <2000>;
+			qcom,pd_temp_little_cold_fastchg_current_ma_high = <1850>;
+			qcom,pd_temp_little_cold_fastchg_current_ma_low = <1100>;
+
+                        qcom,cool_bat_decidegc = <50>;  /*5C~12C*/
+                        qcom,temp_cool_vfloat_mv = <4390>;
+                        qcom,temp_cool_fastchg_current_ma_high = <2000>;
+                        qcom,temp_cool_fastchg_current_ma_low = <2000>;
+			qcom,pd_temp_cool_fastchg_current_ma_high = <2600>;
+			qcom,pd_temp_cool_fastchg_current_ma_low = <1850>;
+
+                        qcom,little_cool_bat_decidegc = <120>;  /*12C~16C*/
+                        qcom,temp_little_cool_vfloat_mv = <4390>;
+                        qcom,temp_little_cool_fastchg_current_ma = <2100>;
+			qcom,pd_temp_little_cool_fastchg_current_ma = <3000>;
+
+                        qcom,normal_bat_decidegc = <160>;       /*16C~45C*/
+                        qcom,temp_normal_fastchg_current_ma = <3000>;
+			qcom,pd_temp_normal_fastchg_current_ma = <3000>;
+                        qcom,temp_normal_vfloat_mv = <4390>;
+
+                        qcom,warm_bat_decidegc = <450>;         /*45C~53C*/ /*8pin Bat Vooc project need add 3 degree C*/
+                        qcom,temp_warm_vfloat_mv = <4130>;
+                        qcom,temp_warm_fastchg_current_ma = <1100>;
+			qcom,pd_temp_warm_fastchg_current_ma = <1100>;
+
+                        qcom,hot_bat_decidegc = <500>;
+
+                        qcom,non_standard_vfloat_mv = <3980>;
+                        qcom,non_standard_fastchg_current_ma = <512>;
+
+                        qcom,short_c_bat_cv_mv = <4330>;
+                        qcom,short_c_bat_vfloat_mv = <3800>;
+                        qcom,short_c_bat_fastchg_current_ma = <512>;
+
+                        qcom,cold_vfloat_sw_limit = <3700>;
+                        qcom,little_cold_vfloat_sw_limit = <4150>;
+                        qcom,cool_vfloat_sw_limit = <4270>;
+                        qcom,little_cool_vfloat_sw_limit = <4270>;
+                        qcom,normal_vfloat_sw_limit = <4270>;
+                        qcom,warm_vfloat_sw_limit = <3980>;
+                        qcom,non_standard_vfloat_sw_limit = <3930>;
+                        qcom,short_c_bat_vfloat_sw_limit = <3750>;
+
+                        qcom,max_chg_time_sec = <36000>;
+                        qcom,charger_hv_thr = <5700>;
+                        qcom,charger_recv_thr = <5500>;
+                        qcom,charger_lv_thr = <3400>;
+                        qcom,vbatt_full_thr = <4400>;
+                        qcom,vbatt_hv_thr = <4500>;
+                        qcom,vfloat_step_mv = <8>;
+                        qcom,non_standard_vfloat_over_sw_limit = <3990>;
+                        qcom,cold_vfloat_over_sw_limit = <3990>;
+                        qcom,little_cold_vfloat_over_sw_limit = <4445>;
+                        qcom,cool_vfloat_over_sw_limit = <4445>;
+                        qcom,little_cool_vfloat_over_sw_limit = <4445>;
+                        qcom,normal_vfloat_over_sw_limit = <4445>;
+                        qcom,warm_vfloat_over_sw_limit = <4140>;
+
+                        qcom,vbatt_power_off = <3300>;
+                        qcom,vbatt_soc_1 = <3410>;
+                        qcom,vooc_project = <1>;
+                        qcom,vbatt_num = <1>;
+                        qcom,ffc_support;
+
+                        qcom,normal_vterm_hw_inc = <18>;
+                        qcom,non_normal_vterm_hw_inc = <18>;
+
+                        qcom,ff1_normal_fastchg_ma = <1000>;
+                        qcom,ffc2_normal_fastchg_ma = <650>;/*12C~35c*/
+                        qcom,ffc2_temp_warm_decidegc = <350>;
+                        qcom,ffc2_warm_fastchg_ma = <750>;/*35C~40c*/
+                        qcom,ffc2_temp_high_decidegc = <400>;
+                        qcom,ffc2_temp_low_decidegc = <160>;
+                        qcom,ffc2_exit_step_ma = <170>;
+
+                        qcom,ffc_normal_vfloat_sw_limit = <4430>;
+                        qcom,ffc_temp_normal_vfloat_mv = <4550>;
+                        qcom,ffc_normal_vfloat_over_sw_limit = <4550>;
+
+                        qcom,default_iterm_ma = <310>;
+                        qcom,default_temp_normal_fastchg_current_ma = <2000>;
+                        qcom,default_normal_vfloat_sw_limit = <4385>;
+                        qcom,default_temp_normal_vfloat_mv = <4390>;
+                        qcom,default_normal_vfloat_over_sw_limit = <4445>;
+
+                        qcom,default_temp_little_cool_fastchg_current_ma = <2000>;
+                        qcom,default_little_cool_vfloat_sw_limit = <4385>;
+                        qcom,default_temp_little_cool_vfloat_mv = <4435>;
+                        qcom,default_little_cool_vfloat_over_sw_limit = <4445>;
+
+                        //qcom,offset_temp = <30>;
+                        //for control:
+                        //qcom,suspend_after_full;
+                        qcom,check_batt_full_by_sw;
+                        qcom,external_gauge;
+                        qcom,chg_ctrl_by_lcd;
+                        qcom,chg_ctrl_by_camera;
+                        qcom,sw_vfloat_over_protect_enable;
+
+                        qcom,chargerid_switch-gpio = <&tlmm 94 0x00>;
+                        qcom,ship-gpio = <&tlmm 21 0x00>;
+                        qcom,ccdetect-gpio = <&tlmm 91 0x00>;
+                        //qcom,shortc-gpio = <&tlmm 43 0x00>;
+                        qcom,dischg-gpio = <&pm8150_gpios 9 0x00>;
+
+			pinctrl-names = "ship_active", "ship_sleep",
+                                        "ccdetect_active", "ccdetect_sleep",
+                                        "dischg_enable", "dischg_disable",
+                                        "gpio1_adc_default", "gpio12_adc_default",
+                                        "chargerid_switch_active", "chargerid_switch_sleep", "chargerid_switch_default";
+
+                        pinctrl-0 = <&ship_active>;
+                        pinctrl-1 = <&ship_sleep>;
+                        pinctrl-2 = <&ccdetect_active>;
+                        pinctrl-3 = <&ccdetect_sleep>;
+                        pinctrl-4 = <&dischg_enable>;
+                        pinctrl-5 = <&dischg_disable>;
+                        pinctrl-6 = <&gpio1_adc_default>;
+                        pinctrl-7 = <&gpio12_adc_default>;
+                        pinctrl-8 = <&chargerid_switch_active>;
+                        pinctrl-9 = <&chargerid_switch_sleep>;
+                        pinctrl-10 = <&chargerid_switch_default>;
+
+};
+&qupv3_se8_i2c {
+        status = "okay";
+
+        bq27541-battery@55 {
+                status = "okay";
+                compatible = "oplus,bq27541-battery";
+                reg = <0x55>;
+                qcom,modify-soc-smooth;
+        };
+
+        stm8s_fastcg@26{
+                status = "okay";
+                compatible = "oplus,stm8s-fastcg";
+                reg = <0x26>;
+                qcom,vooc-low-temp = <120>;
+                qcom,oplus_batt_4400mv;
+                qcom,vooc_fw_update_newmethod;
+		qcom,vooc_reply_mcu_bits = <3>;
+                //qcom,vooc-fw-type = <0x22>; //5A
+                qcom,vooc-high-temp = <430>;
+                qcom,vooc-low-soc = <1>;
+                qcom,vooc-high-soc = <85>;
+                qcom,vooc-fw-type = <10>;
+
+                qcom,vooc_multistep_adjust_current_support;
+                qcom,vooc_multistep_initial_batt_temp = <310>;
+                qcom,vooc_strategy_normal_current = <0x06>;
+                qcom,vooc-normal-to-little-cool-current = <0x05>;
+                qcom,vooc_batt_over_high_temp = <440>;
+                qcom,vooc_batt_over_low_temp = <45>;
+                qcom,vooc_over_high_or_low_current = <0x0>;
+
+                qcom,vooc_strategy1_batt_high_temp0 = <425>;
+                qcom,vooc_strategy1_batt_high_temp1 = <430>;
+                qcom,vooc_strategy1_batt_high_temp2 = <435>;
+                qcom,vooc_strategy1_batt_low_temp2 = <420>;
+                qcom,vooc_strategy1_batt_low_temp1 = <415>;
+                qcom,vooc_strategy1_batt_low_temp0 = <400>;
+
+                qcom,vooc_strategy1_high_current0 = <0x04>;//4A
+                qcom,vooc_strategy1_high_current1 = <0x03>;//3A
+                qcom,vooc_strategy1_high_current2 = <0x02>;//2A
+                qcom,vooc_strategy1_low_current2 = <0x03>;//3A
+                qcom,vooc_strategy1_low_current1 = <0x04>;//4A
+                qcom,vooc_strategy1_low_current0 = <0x04>;//4A
+
+                qcom,vooc_strategy2_batt_up_temp1 = <375>;
+                qcom,vooc_strategy2_batt_up_down_temp2 = <380>;
+                qcom,vooc_strategy2_batt_up_temp3 = <390>;
+                qcom,vooc_strategy2_batt_up_down_temp4 = <400>;
+                qcom,vooc_strategy2_batt_up_temp5 = <410>;
+                qcom,vooc_strategy2_batt_up_temp6 = <415>;
+                qcom,vooc_strategy2_high0_current = <0x05>;
+                qcom,vooc_strategy2_high1_current = <0x04>;
+                qcom,vooc_strategy2_high2_current = <0x03>;
+                qcom,vooc_strategy2_high3_current = <0x02>;
+
+		/* skin thermal temp adjust the dash current */
+		qcom,skin-thermal-high-threshold = <370>;
+		qcom,skin-thermal-normal-threshold = <340>;
+
+                pinctrl-names = "switch1_act_switch2_act", "switch1_sleep_switch2_sleep",
+                                "switch1_act_switch3_act", "switch1_sleep_switch3_sleep",
+                                "switch1_act_switch2_sleep", "switch1_sleep_switch2_act",
+                                "clock_active","clock_sleep",
+                                "data_active","data_sleep",
+                                "reset_active","reset_sleep";
+                pinctrl-0 = <&charging_switch1_active>;
+                pinctrl-1 = <&charging_switch1_sleep >;
+                pinctrl-2 = <&charging_switch1_active>;
+                pinctrl-3 = <&charging_switch1_sleep >;
+                pinctrl-4 = <&charging_switch1_active>;
+                pinctrl-5 = <&charging_switch1_sleep>;
+                pinctrl-6 = <&charging_clock_active >;
+                pinctrl-7 = <&charging_clock_sleep >;
+                pinctrl-8 = <&charging_data_active >;
+                pinctrl-9 = <&charging_data_sleep >;
+                pinctrl-10 = <&charging_reset_active >;
+                pinctrl-11 = <&charging_reset_sleep >;
+
+                qcom,charging_switch1-gpio = <&tlmm 59 0x00>;
+		//qcom,charging_switch1_ctr1-gpio = <&tlmm 59 0x00>;
+                //qcom,charging_switch2-gpio = <&tlmm 59 0x00>;
+                //qcom,charging_switch3-gpio = <&tlmm 38 0x00>;
+
+                qcom,charging_reset-gpio = <&tlmm 10 0x00>;
+                qcom,charging_clock-gpio = <&tlmm 92 0x00>;
+                qcom,charging_data-gpio = <&tlmm 93 0x00>;
+
+                qcom,parse_fw_from_dt;
+                vooc,firmware_data = [
+                           00 88 82 00 9E 20 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9C A2 82 00 9F 86 82 00 9F 6D 
+                           20 88 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 97 96 
+                           40 88 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 
+                           60 88 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 82 00 9F 86 
+                           80 88 C6 00 78 A1 08 24 17 CD 9F 47 B7 00 C6 00 78 5F 97 B6 00 D7 00 57 C6 00 78 4C C7 00 78 81 C6 00 
+                           A0 88 78 A1 08 27 03 CC 89 A9 CD 9E 67 C6 00 57 A1 01 26 41 C6 00 58 26 3C C6 00 59 A1 01 26 35 C6 00 
+                           C0 88 5B 48 48 88 C6 00 5A 48 48 48 B7 01 84 BA 01 B7 00 C6 00 5C 48 BA 00 CA 00 5D C7 00 7A 35 09 00 
+                           E0 88 78 C6 00 43 26 03 CC 89 A9 C6 00 43 4A C7 00 43 CC 89 A9 C6 00 57 26 33 C6 00 58 A1 01 26 2C C6 
+                           00 89 00 59 A1 01 26 25 C6 00 5B 48 48 88 C6 00 5A 48 48 48 B7 01 84 BA 01 B7 00 C6 00 5C 48 BA 00 CA 
+                           20 89 00 5D C7 00 7A 35 09 00 78 20 7E C6 00 58 B7 00 A1 01 26 3C C6 00 59 26 37 C6 00 5A A1 01 26 30 
+                           40 89 C6 00 5C 48 48 88 C6 00 5B 48 48 48 B7 01 84 BA 01 B7 00 C6 00 5D 48 BA 00 CA 00 5E C7 00 7A 35 
+                           60 89 09 00 78 C6 00 43 27 07 C6 00 43 4A C7 00 43 81 3D 00 26 32 C6 00 59 A1 01 26 2B C6 00 5A A1 01 
+                           80 89 26 24 C6 00 5C 48 48 88 C6 00 5B 48 48 48 B7 01 84 BA 01 B7 00 C6 00 5D 48 BA 00 CA 00 5E C7 00 
+                           A0 89 7A 35 09 00 78 81 CD 8F 7E C6 00 79 27 03 CC 8E B9 72 5F 00 49 72 5F 00 4A 72 5F 00 4B 72 5F 00 
+                           C0 89 4C 72 5F 00 4D 72 5F 00 4E 72 5F 00 4F C6 00 82 A1 02 26 10 C6 00 7A 4E A4 F0 C7 00 83 35 01 00 
+                           E0 89 4B CC 8E B9 C6 00 82 A1 01 26 10 C6 00 7A CA 00 83 C7 00 83 35 01 00 4B CC 8E B9 C6 00 84 A1 05 
+                           00 8A 26 2D C6 00 50 C7 00 49 C6 00 51 C7 00 4A C6 00 52 C7 00 4B C6 00 53 C7 00 4C C6 00 54 C7 00 4D 
+                           20 8A C6 00 55 C7 00 4E C6 00 56 C7 00 4F CC 8E B9 C6 00 84 A1 04 26 12 C6 00 7A 5F 97 CD 9A 62 CF 00 
+                           40 8A 61 35 01 00 4B CC 8E B9 C6 00 84 A1 03 26 1E C6 00 7A 5F 97 4F 02 90 CE 00 61 BF 00 51 02 BA 00 
+                           60 8A 01 51 90 CF 00 61 35 01 00 4B CC 8E B9 C6 00 84 A1 02 26 22 C6 00 7A 5F 97 CD 9A 6A 90 CE 00 61 
+                           80 8A BF 00 51 01 BA 01 01 BA 00 01 51 90 CF 00 61 35 01 00 4B CC 8E B9 C6 00 84 A1 01 26 2D C6 00 7A 
+                           A0 8A 90 5F 90 97 CE 00 61 90 BF 00 01 BA 01 02 CF 00 61 CD 9F 1C 35 01 00 4B CE 00 3A C3 00 61 27 03 
+                           C0 8A CC 8E B9 35 01 00 87 CC 8E B9 C6 00 85 27 5D C6 00 85 90 5F 90 97 AE 00 07 BF 00 93 CD 9A 10 1C 
+                           E0 8A 00 10 90 93 72 A9 FF F9 90 F6 C7 00 49 90 93 72 A9 FF FA 90 F6 C7 00 4A 90 93 72 A9 FF FB 90 F6 
+                           00 8B C7 00 4B 90 93 72 A9 FF FC 90 F6 C7 00 4C 90 93 72 A9 FF FD 90 F6 C7 00 4D 90 93 72 A9 FF FE 90 
+                           20 8B F6 C7 00 4E 5A F6 C7 00 4F CC 8E B9 C6 00 7A A1 09 26 11 72 5F 00 82 72 5F 00 84 4F CD 9E 89 35 
+                           40 8B 01 00 77 81 72 5F 00 82 72 5F 00 84 C6 00 7A 27 2B 4A 27 2B 4A 26 03 CC 8D 55 4A 26 03 CC 8D 9B 
+                           60 8B 4A 26 03 CC 8E 32 4A 26 03 CC 8E 7B A0 07 26 03 CC 8E 89 4A 26 03 CC 8E A9 CC 8E B9 CC 8F 7E C6 
+                           80 8B 00 43 27 03 CC 8C AA C6 00 45 A1 01 27 03 CD 8F 7E C6 00 76 C7 00 49 C6 00 98 27 24 C6 00 9C 26 
+                           A0 8B 1F 35 01 00 4A 35 01 00 4B 35 01 00 4C 72 5F 00 4D 35 01 00 4E 72 5F 00 4F 35 01 00 9C CC 8E B9 
+                           C0 8B CE 00 5F A3 0D 40 2E 03 CC 8C 98 CE 00 5F 1C F2 C0 90 AE 00 10 CD 9A 2E A3 00 3E 2F 03 AE 00 3D 
+                           E0 8B C6 00 97 27 13 C6 00 9D 26 0E A3 00 3A 2E 09 AE 00 3A 35 01 00 9D 20 16 C6 00 96 27 11 C6 00 9E 
+                           00 8C 26 0C A3 00 39 2E 07 AE 00 39 35 01 00 9E 9F CD 9F 16 A4 01 C7 00 4A 9F CD 9F 17 A4 01 C7 00 4B 
+                           20 8C 9F 47 47 47 A4 01 C7 00 4C 9F 47 47 A4 01 C7 00 4D 9F 47 A4 01 C7 00 4E 9F A4 01 C7 00 4F CD 9C 
+                           40 8C 0B A1 00 26 08 C6 00 8C 26 03 CC 8E B9 4F CD 9E 89 35 01 00 8C C6 00 95 26 1F 35 01 00 4A 35 01 
+                           60 8C 00 4B 35 01 00 4C 35 01 00 4D 35 01 00 4E 72 5F 00 4F 35 01 00 95 CC 8E B9 72 5F 00 4A 72 5F 00 
+                           80 8C 4B 72 5F 00 4C 35 01 00 4D 72 5F 00 4E 35 01 00 4F 72 5F 00 95 CC 8E B9 CE 00 5F A3 0B B8 2F 03 
+                           A0 8C CC 8E B9 72 5F 00 49 CC 8E B9 C6 00 8C 27 27 C6 00 95 26 17 35 01 00 49 35 01 00 4A 35 01 00 4E 
+                           C0 8C 35 01 00 4F 35 01 00 95 CC 8E B9 35 01 00 4C 72 5F 00 95 CC 8E B9 C6 00 8F 27 26 35 01 00 49 35 
+                           E0 8C 01 00 4A 35 01 00 4B 35 01 00 4C 35 01 00 4D 35 01 00 4E 35 01 00 4F C6 00 8F 4A C7 00 8F CC 8E 
+                           00 8D B9 CE 00 5F A3 0D 4C 2E 03 5F 20 0D CE 00 5F 1C F2 B4 90 AE 00 0A CD 9A 2E 9F CD 9F 15 A4 01 C7 
+                           20 8D 00 49 9F CD 9F 16 A4 01 C7 00 4A 9F CD 9F 17 A4 01 C7 00 4B 9F 47 47 47 A4 01 C7 00 4C 9F 47 47 
+                           40 8D A4 01 C7 00 4D 9F 47 A4 01 C7 00 4E 9F A4 01 C7 00 4F CC 8E B9 C6 00 43 26 0E C6 00 45 A1 02 27 
+                           60 8D 03 CD 8F 7E 35 01 00 49 35 03 00 00 A6 04 CD 98 F9 C7 00 9B C6 00 9B A1 02 26 07 35 01 00 4A CC 
+                           80 8D 8E B9 C6 00 9B A1 01 26 0B 35 01 00 4A 35 01 00 4B CC 8E B9 35 01 00 4B CC 8E B9 C6 00 43 26 4F 
+                           A0 8D C6 00 45 A1 03 27 03 CD 8F 7E C6 00 98 27 13 72 5F 00 4C 72 5F 00 4D 72 5F 00 4E 72 5F 00 4F CC 
+                           C0 8D 8E B9 C6 00 99 A1 01 26 13 72 5F 00 4C 72 5F 00 4D 35 01 00 4E 72 5F 00 4F CC 8E B9 72 5F 00 4C 
+                           E0 8D 72 5F 00 4D 35 01 00 4E 35 01 00 4F CC 8E B9 C6 00 92 CD 9F 10 A4 01 C7 00 4A C6 00 92 4E A4 0F 
+                           00 8E A4 01 C7 00 4B C6 00 92 44 44 44 A4 01 C7 00 4C C6 00 92 44 44 A4 01 C7 00 4D C6 00 92 44 A4 01 
+                           20 8E C7 00 4E C6 00 92 A4 01 C7 00 4F 72 5F 00 8F CC 8E B9 C6 00 44 27 11 C6 00 44 4A C7 00 44 35 01 
+                           40 8E 00 4C 35 01 00 4D 20 71 C6 00 43 27 08 C6 00 76 C7 00 49 20 E9 C6 00 45 A1 04 27 03 CD 8F 7E 35 
+                           60 8E 01 00 46 72 5F 00 47 35 01 00 48 C6 00 76 C7 00 49 35 01 00 4C 35 01 00 4D 20 3E 35 03 00 82 35 
+                           80 8E 01 00 4A 35 01 00 4C 20 30 C6 00 40 27 2B C6 00 89 27 26 C6 00 40 4A C7 00 40 35 06 00 84 CD 9F 
+                           A0 8E 67 C7 00 8B CD 98 50 20 10 35 07 00 85 35 08 00 86 35 01 00 4B 35 01 00 4C C6 00 79 5F 97 D6 00 
+                           C0 8E 46 CD 9E DB C6 00 79 4C C7 00 79 C6 00 79 A1 0A 24 03 CC 8F 7D CD 9B F5 CD 9E CE 72 5F 00 79 72 
+                           E0 8E 5F 00 78 72 5F 00 7B 72 5F 00 74 C6 00 82 27 08 C6 00 82 4A C7 00 82 81 C6 00 84 27 08 C6 00 84 
+                           00 8F 4A C7 00 84 81 C6 00 85 27 0F C6 00 85 4A C7 00 85 C6 00 86 4A C7 00 86 81 C6 00 7A 4A 27 4B 4A 
+                           20 8F 27 08 4A 27 45 4A 27 23 20 4A C6 00 9B A1 01 26 4C C6 00 88 A1 01 26 05 A6 01 CD 9E 89 72 5F 00 
+                           40 8F 9B C6 00 43 26 37 35 03 00 45 81 C6 00 43 26 0F C6 00 49 27 06 35 02 00 45 20 04 35 04 00 45 35 
+                           60 8F 01 00 89 CD 9F 67 C7 00 8A 81 C6 00 43 26 0E 35 01 00 45 81 C6 00 43 26 04 35 04 00 45 81 C6 00 
+                           80 8F 9A A1 02 27 0F C6 00 9A A1 01 26 05 35 02 00 9A 81 CD 9F 02 81 CD 99 B8 CD 99 BD 52 04 4F 6B 03 
+                           A0 8F 6B 02 6B 01 3F 0B 3F 0C 3F 0D 3F 0E 6B 04 3F 0F 3F 0A AE 0E 10 CF 00 3C AE 01 E0 CF 00 3E 20 0F 
+                           C0 8F CD 9F 02 CD 9F 28 CD 9F 28 AE 17 70 CF 00 6B CD 9F 77 CE 00 6B 26 5C A6 58 CD 95 F8 B7 00 C6 00 
+                           E0 8F 8C 26 E0 B6 00 A1 03 26 0D 4F CD 9E 89 35 01 00 8C CD 9B D2 20 CD A1 02 26 19 C6 00 8F 26 2F C6 
+                           00 90 00 91 B7 01 35 3C 00 00 C6 00 93 CD 9B 90 C7 00 8F 20 1B A1 01 26 A9 C6 00 8F 26 12 C6 00 91 B7 
+                           20 90 01 35 14 00 00 C6 00 93 CD 9B 90 C7 00 8F CD 9B D2 20 90 CE 00 69 27 03 CC 90 F0 C6 00 7D CD 9B 
+                           40 90 09 BF 08 C6 00 8C 27 03 CC 90 E1 A3 F8 30 2E 12 7B 01 4C 6B 01 7B 01 A1 04 25 0A A6 54 CD 9D B0 
+                           60 90 20 03 4F 6B 01 BE 08 A3 1B 59 2F 10 B6 0D 4C B7 0D A1 08 25 09 A6 59 CD 9D B0 20 02 3F 0D BE 08 
+                           80 90 A3 00 01 2F 22 A3 01 F4 2F 0D A3 03 84 2E 18 CE 00 5F A3 11 4F 2F 10 B6 0E 4C B7 0E A1 06 25 09 
+                           A0 90 A6 5A CD 9D B0 20 02 3F 0E C6 00 42 A1 02 26 2E BE 08 A3 04 B0 2E 27 CE 00 5F A3 11 59 2F 05 A6 
+                           C0 90 5A CD 9D B0 CE 00 5F A3 11 53 2F 12 7B 02 4C 6B 02 7B 02 A1 06 25 0A A6 5A CD 9D B0 20 03 4F 6B 
+                           E0 90 02 CD 9F 28 CD 9F 28 AE 03 E8 CF 00 69 CC 8F CF CE 00 67 26 36 C6 00 43 26 31 C6 00 7E CD 9B 09 
+                           00 91 A3 00 60 2F 15 C6 00 8C 26 10 B6 0B 4C B7 0B A1 04 25 09 A6 5A CD 9D B0 20 02 3F 0B CD 9F 28 CD 
+                           20 91 9F 28 AE 07 D0 CF 00 67 CC 8F CF CE 00 65 26 77 C6 00 7C CD 9B 09 CF 00 5F C6 00 8C 26 5A CE 00 
+                           40 91 3E 27 08 CE 00 5F A3 10 9B 2F 0B C6 00 93 A1 33 25 04 35 32 00 93 C6 00 8F 26 13 C6 00 91 B7 01 
+                           60 91 C6 00 90 B7 00 C6 00 93 CD 9B 90 C7 00 8F CE 00 5F A3 11 59 2F 05 A6 5A CD 9D B0 CE 00 5F A3 11 
+                           80 91 53 2F 12 7B 03 4C 6B 03 7B 03 A1 06 25 0A A6 5A CD 9D B0 20 03 4F 6B 03 CD 9F 28 CD 9F 28 AE 01 
+                           A0 91 F4 CF 00 65 CC 8F CF CE 00 6F 27 03 CC 93 22 C6 00 7F CD 9B 09 BF 08 A3 01 5F 2F 05 1C FF E2 BF 
+                           C0 91 08 C6 00 8C 27 03 CC 93 13 BE 08 A3 01 B3 2F 13 B6 0A 4C B7 0A A1 03 25 28 35 03 00 0A 35 01 00 
+                           E0 91 97 20 1E A3 01 A5 2F 15 3F 0A B6 0F 4C B7 0F A1 03 25 0E 35 03 00 0F 35 01 00 96 20 04 3F 0F 3F 
+                           00 92 0A 1C FF 8D A3 01 46 25 14 B6 0C 4C B7 0C A1 03 24 03 CC 93 13 A6 5C CD 9D B0 CC 93 13 3F 0C C6 
+                           20 92 00 8F 27 03 CC 92 F4 C6 00 41 4A 27 0F 4A 27 2F 4A 27 68 4A 26 03 CC 92 D7 CC 92 F4 BE 08 A3 01 
+                           40 92 9B 2E 03 CC 92 F4 35 24 00 01 C6 00 90 B7 00 C6 00 93 CD 9B 90 C7 00 8F 35 02 00 41 CC 92 F4 BE 
+                           60 92 08 A3 01 A5 2F 18 35 14 00 01 C6 00 90 B7 00 C6 00 93 CD 9B 90 C7 00 8F 35 03 00 41 20 76 A3 01 
+                           80 92 86 2E 71 35 24 00 01 C6 00 90 B7 00 C6 00 93 CD 9B 90 C7 00 8F 35 01 00 41 20 59 BE 08 A3 01 B4 
+                           A0 92 2F 18 35 14 00 01 C6 00 90 B7 00 C6 00 93 CD 9B 90 C7 00 8F 35 04 00 41 20 3A A3 01 90 2E 35 35 
+                           C0 92 14 00 01 C6 00 90 B7 00 C6 00 93 CD 9B 90 C7 00 8F 35 02 00 41 20 1D BE 08 A3 01 9F 2E 16 35 14 
+                           E0 92 00 01 C6 00 90 B7 00 C6 00 93 CD 9B 90 C7 00 8F 35 03 00 41 C6 00 42 A1 01 26 0D BE 08 A3 01 5F 
+                           00 93 2F 11 35 02 00 42 20 0B BE 08 A3 01 59 2E 04 35 01 00 42 CD 9F 28 CD 9F 28 AE 01 F4 CF 00 6F CC 
+                           20 93 8F CF CE 00 71 26 33 C6 00 8C 26 18 CD 9C 0B A1 00 27 08 4F CD 9E 89 35 01 00 8C AE 03 20 CF 00 
+                           40 93 71 CC 8F CF 0D 04 26 09 A6 5D CD 95 F8 A6 01 6B 04 AE 27 10 CF 00 71 CC 8F CF CE 00 6D 27 03 CC 
+                           60 93 8F CF CE 00 3C 26 0A C6 00 8C 26 05 A6 5A CD 9D B0 C6 00 74 26 07 C6 00 9A A1 02 25 11 C6 00 77 
+                           80 93 27 07 A6 59 CD 9D B0 20 05 A6 54 CD 9D B0 C6 00 77 27 05 A6 59 CD 9D B0 AE 00 14 CF 00 6D CC 8F 
+                           A0 93 CF CD 9F 72 CD 9A 6F CD 96 CE CD 9C CD CD 9A C4 CD 9D F7 4F CD 9D 73 4F CD 9C 72 4F CD 9C 42 A6 
+                           C0 93 01 CD 9D 73 CD 9F 5B CD 9F 61 A1 00 27 F6 CD 9D E2 CD 9F 77 20 03 CD 9F 28 CD 9F 77 C6 00 74 27 
+                           E0 93 03 CD 9F 02 C6 00 87 A1 01 26 07 C6 00 86 A1 01 27 05 C6 00 43 26 DF 35 01 00 88 CD 9C DF A6 52 
+                           00 94 CD 95 F8 35 01 00 9A 4D 26 03 CD 9F 02 CD 9F 77 A6 5E CD 95 F8 A1 02 27 03 CD 9F 02 CD 9F 77 CD 
+                           20 94 9F 28 CD 9F 77 C6 00 83 CD 95 F8 A1 02 27 03 CD 9F 02 CD 9F 77 C6 00 80 26 12 35 08 00 7C 35 14 
+                           40 94 00 7D 35 2C 00 7E 35 06 00 7F 20 17 C6 00 80 A1 01 26 10 35 04 00 7C 35 10 00 7D 35 1C 00 7E 35 
+                           60 94 02 00 7F 35 01 00 81 CD 9F 77 C6 00 7C CD 9B 09 CF 00 5F CD 9F 28 C6 00 7F CD 9B 09 A3 00 A0 2E 
+                           80 94 0C 35 24 00 92 35 24 00 93 35 01 00 99 CD 9F 28 C6 00 7E CD 9B 09 9F A1 4C 25 10 35 14 00 90 35 
+                           A0 94 14 00 91 35 14 00 92 35 14 00 93 25 04 35 01 00 98 35 01 00 76 20 14 CD 9F 77 C6 00 74 26 07 C6 
+                           C0 94 00 9A A1 02 25 05 A6 54 CD 9D B0 CD 9F 33 A1 01 27 E5 CD 8F 95 5F 81 CD 99 B8 B7 0A 45 00 0B BF 
+                           E0 94 08 CD 9F 77 72 03 52 19 0B 72 12 52 11 72 02 52 11 FB 20 F0 CD 9F 77 72 14 52 11 72 10 52 11 CD 
+                           00 95 9F 77 72 01 52 17 FB CD 9F 77 35 AA 52 16 CD 9F 77 72 03 52 17 FB CD 9F 77 9D 9D C6 52 19 CD 9F 
+                           20 95 77 72 0F 52 17 FB B6 0A C7 52 16 C6 52 17 A4 84 A1 84 26 F7 9D 9D 9D 9D 72 10 52 11 72 01 52 17 
+                           40 95 FB CD 9F 77 35 AB 52 16 72 03 52 17 FB CD 9F 77 B6 0B A1 03 25 4C C6 52 19 20 15 72 05 52 17 FB 
+                           60 95 C6 52 16 92 C7 08 BE 08 5C BF 08 B6 0B 4A B7 0B B6 0B A1 04 24 E5 72 05 52 17 FB 72 15 52 11 9B 
+                           80 95 C6 52 16 92 C7 08 BE 08 5C 72 12 52 11 C6 52 16 F7 5C BF 08 9A 72 0D 52 17 FB C6 52 16 92 C7 08 
+                           A0 95 20 47 A1 02 26 2B 72 16 52 11 9B C6 52 19 72 15 52 11 9A 72 05 52 17 FB 9B 72 12 52 11 C6 52 16 
+                           C0 95 92 C7 08 BE 08 5C BF 08 9A C6 52 16 92 C7 08 20 18 72 15 52 11 9B C6 52 19 72 12 52 11 9A 72 0D 
+                           E0 95 52 17 FB C6 52 16 92 C7 08 72 02 52 11 FB 72 17 52 11 CD 9F 77 CC 9A 08 CD 99 87 3B 00 0A B7 08 
+                           00 96 3F 0A CD 9F 77 72 5F 00 75 CD 9E 33 3F 09 20 34 C6 00 74 27 09 B6 08 A1 58 26 03 CD 9E CE CD 9F 
+                           20 96 77 C6 00 75 27 FB CD 9F 77 A6 06 B0 09 5F 41 B6 08 41 CD 9A 5A 9F A4 01 CD 9E B4 72 5F 00 75 B6 
+                           40 96 09 4C B7 09 B6 09 A1 07 25 C6 CD 9F 77 3F 09 20 16 A6 01 B0 09 5F 41 B6 00 41 CD 9A 52 9F BA 0A 
+                           60 96 B7 0A B6 09 4C B7 09 B6 09 A1 03 24 3E C6 00 74 27 09 B6 08 A1 58 26 03 CD 9E CE CD 9F 77 C6 00 
+                           80 96 75 27 FB CD 9F 77 3D 09 26 06 CD 9E A7 CD 9F 51 72 5F 00 75 CD 9F 3D B7 00 B6 09 A1 02 26 B2 C6 
+                           A0 96 00 81 26 BE B6 00 C7 00 80 20 B7 CD 9F 77 C6 00 75 27 FB CD 9F 77 CD 9E 56 72 5F 00 75 CD 9F 28 
+                           C0 96 CD 9F 28 CD 9F 77 B6 0A 32 00 0A CC 9A 0C 5F CF 00 5F 72 5F 00 74 72 5F 00 75 72 5F 00 76 72 5F 
+                           E0 96 00 77 72 5F 00 78 72 5F 00 46 35 01 00 47 35 01 00 48 72 5F 00 79 72 5F 00 7A 72 5F 00 7B 72 5F 
+                           00 97 00 7C 72 5F 00 7D 72 5F 00 7E 72 5F 00 7F 72 5F 00 80 72 5F 00 81 72 5F 00 96 72 5F 00 97 72 5F 
+                           20 97 00 82 72 5F 00 83 35 03 00 40 72 5F 00 84 72 5F 00 85 72 5F 00 86 CF 00 61 5A CF 00 3A 72 5F 00 
+                           40 97 87 72 5F 00 88 72 5F 00 89 72 5F 00 8A 72 5F 00 8B 72 5F 00 8C 72 5F 00 8D 72 5F 00 8E 72 5F 00 
+                           60 97 8F 35 3C 00 90 35 3C 00 91 35 3C 00 92 35 3C 00 93 35 01 00 41 35 01 00 42 72 5F 00 94 72 5F 00 
+                           80 97 95 35 03 00 43 35 03 00 44 72 5F 00 9A 35 04 00 45 72 5F 00 99 81 8A 84 A4 BF 88 86 CD 99 AE CD 
+                           A0 97 99 B3 72 11 53 04 CE 00 63 27 09 CE 00 63 5A CF 00 63 20 1E AE 03 E8 CF 00 63 CE 00 3C 27 07 CE 
+                           C0 97 00 3C 5A CF 00 3C CE 00 3E 27 07 CE 00 3E 5A CF 00 3E CE 00 65 27 07 CE 00 65 5A CF 00 65 CE 00 
+                           E0 97 67 27 07 CE 00 67 5A CF 00 67 CE 00 69 27 07 CE 00 69 5A CF 00 69 CE 00 6B 27 07 CE 00 6B 5A CF 
+                           00 98 00 6B CE 00 6D 27 07 CE 00 6D 5A CF 00 6D CE 00 6F 27 07 CE 00 6F 5A CF 00 6F CE 00 71 27 07 CE 
+                           20 98 00 71 5A CF 00 71 C6 00 8E 4C C7 00 8E C6 00 8E A1 C9 25 15 72 5F 00 8E C6 00 7B 27 08 4F CD 9E 
+                           40 98 89 35 01 00 74 35 01 00 7B CD 99 EA CD 99 DF 80 C6 00 8B 5F 97 58 BF 00 C6 00 8A 5F 97 4F 02 58 
+                           60 98 01 BA 01 01 BA 00 01 CF 00 3A C6 00 8A CD 9F 0F A4 01 C7 00 4B C6 00 8A CD 9F 10 A4 01 C7 00 51 
+                           80 98 C6 00 8A 4E A4 0F A4 01 C7 00 4E C6 00 8A 44 44 44 A4 01 C7 00 56 C6 00 8A 44 44 A4 01 C7 00 54 
+                           A0 98 C6 00 8A 44 A4 01 C7 00 53 C6 00 8A A4 01 C7 00 4D C6 00 8B CD 9F 0F A4 01 C7 00 49 C6 00 8B CD 
+                           C0 98 9F 10 A4 01 C7 00 52 C6 00 8B 4E A4 0F A4 01 C7 00 4A C6 00 8B 44 44 44 A4 01 C7 00 50 C6 00 8B 
+                           E0 98 44 44 A4 01 C7 00 4F C6 00 8B 44 A4 01 C7 00 55 C6 00 8B A4 01 C7 00 4C 81 CD 99 87 3B 00 0A 45 
+                           00 99 00 0A CD 9B 4D BF 08 B6 0A CD 9B 4D BF 00 BE 08 72 B0 00 00 90 CE 00 5F 90 A3 0E 74 2E 08 35 12 
+                           20 99 00 00 A6 25 20 3C 90 CE 00 5F 90 A3 0E D8 2E 08 35 12 00 00 A6 24 20 2A 90 CE 00 5F 90 A3 0F A0 
+                           40 99 2E 08 35 11 00 00 A6 22 20 18 90 CE 00 5F 90 A3 10 04 2E 08 35 10 00 00 A6 21 20 06 35 10 00 00 
+                           60 99 A6 20 90 5F 61 B6 00 61 90 BF 00 B3 00 2E 03 4F 20 0F 90 97 BF 00 90 B3 00 2E 04 A6 02 20 02 A6 
+                           80 99 01 32 00 0A CC 9A 0C 88 A6 08 20 00 88 7B 02 88 7B 02 89 1E 06 1F 04 5F 97 FE 1F 06 85 84 81 89 
+                           A0 99 1E 05 BF 08 20 00 1E 03 1F 05 85 5B 02 81 88 A6 00 20 0F 88 A6 04 20 0A 88 A6 08 20 05 88 A6 0C 
+                           C0 99 20 00 88 89 7B 04 88 7B 04 89 1E 08 1F 04 5F 97 1F 08 FE 1F 06 1E 08 5C 5C FE 1F 08 85 84 81 89 
+                           E0 99 1E 05 BF 00 1E 07 BF 02 20 16 89 1E 05 BF 04 1E 07 BF 06 20 0B 89 1E 05 BF 08 1E 07 BF 0A 20 00 
+                           00 9A 1E 03 1F 07 85 5B 04 81 CD 99 F5 81 CD 99 9F 81 88 89 5E B6 01 42 89 1E 03 B6 00 42 72 FB 01 4F 
+                           20 9A 02 89 1E 05 B6 01 42 72 FB 01 5B 06 84 81 5D 2B 06 90 5D 2B 0A 65 81 50 90 5D 2B 07 65 50 81 90 
+                           40 9A 50 20 F9 90 50 20 EE CD 9E 99 02 B4 00 02 B4 01 02 81 4D 27 04 58 4A 26 FC 81 4D 27 04 57 4A 26 
+                           60 9A FC 81 58 58 58 58 58 58 58 58 58 58 58 58 81 3B 00 08 3F 08 35 01 00 8D 4F CD 9D 73 CD 9E 78 20 
+                           80 9A 2B 4F CD 9E F5 A6 01 CD 9B DE A6 01 CD 9E F5 A6 01 CD 9B DE 4F CD 9E F5 A6 02 CD 9B DE A6 01 CD 
+                           A0 9A 9E F5 A6 03 CD 9B DE B6 08 4C B7 08 B6 08 A1 0F 25 CF A6 01 CD 9C 72 A6 C8 CD 9B DE 72 5F 00 8D 
+                           C0 9A 32 00 08 81 C6 50 05 AA 30 C7 50 05 C6 50 07 AA 30 C7 50 07 C6 50 08 A4 CF C7 50 08 C6 50 09 AA 
+                           E0 9A 30 C7 50 09 35 01 52 12 35 50 52 1B 72 5F 52 1C 35 09 52 1D 35 A2 52 13 72 1C 52 14 35 01 52 1A 
+                           00 9B 72 14 52 11 72 10 52 10 81 3B 00 08 52 02 B7 08 96 5C 35 02 00 00 CD 94 D7 7B 02 5F 97 4F 02 7B 
+                           20 9B 01 90 5F 90 97 90 BF 00 01 BA 01 02 C6 00 80 26 06 B6 08 A1 06 27 0D C6 00 80 A1 01 26 09 B6 08 
+                           40 9B A1 02 26 03 1C F5 55 5B 02 32 00 08 81 9D 3B 00 08 B7 08 CD 9D 54 B6 08 CA 54 00 C7 54 00 A6 32 
+                           60 9B B7 00 4A 3D 00 26 F9 72 10 54 01 72 0F 54 00 FB 72 1F 54 00 C6 54 05 B7 00 C6 54 04 5F 97 4F 02 
+                           80 9B 90 5F B6 00 61 BF 00 93 02 BA 00 01 32 00 08 81 B7 02 C6 00 92 B7 03 B6 02 C1 00 93 24 03 C7 00 
+                           A0 9B 93 B6 00 C7 00 90 B6 01 C7 00 91 B6 00 B1 01 24 03 45 00 01 B6 01 C1 00 93 24 05 C7 00 92 20 06 
+                           C0 9B C6 00 93 C7 00 92 C6 00 92 B1 03 27 03 A6 05 81 4F 81 CD 9C 00 CD 9C 00 CD 9C 00 CC 9C 00 3B 00 
+                           E0 9B 08 B7 08 20 08 CD 9C 00 B6 08 4A B7 08 3D 08 26 F4 32 00 08 81 AE 01 4D 90 93 5A 90 5D 26 F9 81 
+                           00 9C AE 00 F3 90 93 5A 90 5D 26 F9 81 A6 02 CD 9B 4D A3 01 51 25 14 A6 05 CD 9B 4D A3 00 A8 25 0A A6 
+                           20 9C 06 CD 9B 4D A3 00 A8 24 09 C6 00 94 4C C7 00 94 20 04 72 5F 00 94 C6 00 94 A1 0A 25 03 A6 01 81 
+                           40 9C 4F 81 3B 00 08 B7 08 27 04 4F CD 9D 73 72 1D 50 0C 72 1D 50 0D 72 1C 50 0E C6 50 A0 A4 CF C7 50 
+                           60 9C A0 72 18 50 A0 3D 08 27 05 A6 01 CD 9D 73 32 00 08 81 3B 00 08 B7 08 27 04 4F CD 9D 73 72 15 50 
+                           80 9C 02 72 15 50 03 72 14 50 04 C6 50 A0 A4 FC C7 50 A0 72 10 50 A0 3D 08 27 05 A6 01 CD 9D 73 32 00 
+                           A0 9C 08 81 8A 84 A4 BF 88 86 CD 99 AE CD 99 B3 C6 00 8D 26 13 C6 00 73 26 0B CD 9F 7C 72 5F 00 8E 35 
+                           C0 9C 01 00 73 CD 88 80 CD 99 EA CD 99 DF 80 CD 9E 45 CD 9E A7 CD 9E C1 CD 9E CE CD 9E E8 CC 9C E4 72 
+                           E0 9C 18 50 0F 81 72 18 50 11 72 18 50 12 72 19 50 13 72 19 50 0F 81 89 FE 90 93 85 5C 5C 90 5D 27 1C 
+                           00 9D 89 FE BF 00 85 5C 5C 89 FE BF 02 85 5C 5C 51 5A 92 D6 00 92 D7 02 5A 2A F7 51 20 D9 81 72 5F 52 
+                           20 9D 62 35 10 52 63 72 5F 52 69 35 08 52 6A 35 68 52 5A 35 01 52 5D C6 52 6D AA C8 C7 52 6D 72 10 52 
+                           40 9D 50 81 9D 92 00 5A 00 46 00 00 9C F5 00 36 9F 93 00 10 00 00 72 5F 54 00 C6 54 01 A4 8F C7 54 01 
+                           60 9D C6 54 01 C7 54 01 72 13 54 01 72 16 54 02 72 10 54 01 81 B7 00 27 0C C6 00 9F 26 07 9A B6 00 C7 
+                           80 9D 00 9F 81 3D 00 26 0A C6 00 9F 27 05 9B 72 5F 00 9F 81 89 FE 90 93 85 5C 5C 90 5D 27 12 89 FE BF 
+                           A0 9D 00 85 5C 5C 51 5A 92 6F 00 5A 2A FA 51 20 E3 81 3B 00 08 B7 08 CD 9F 77 4F CD 9E 89 CD 9E CE B6 
+                           C0 9D 08 CD 95 F8 CD 9F 02 32 00 08 81 90 AE 9D 42 20 0A 93 1C 00 02 90 FE 90 FD 90 93 90 A3 9D 54 26 
+                           E0 9D F0 81 35 CC 50 E0 35 55 50 E0 35 06 50 E1 35 FF 50 E2 35 AA 50 E0 81 72 5F 53 0E 35 3E 53 0F 35 
+                           00 9E 80 53 10 72 1E 53 00 35 01 53 03 81 CD 99 87 52 02 BF 08 BE 08 1F 01 96 5C A6 01 CD 9F 92 20 F3 
+                           20 9E AE 03 FF 94 CD 9F 89 5D 27 03 CD 9D CB CD 93 A1 CC 9F 8C CD 9E 56 CD 9F 51 4F CD 9E B4 CD 9F 28 
+                           40 9E A6 01 CC 9E B4 72 16 50 02 72 16 50 03 72 17 50 04 72 16 50 00 81 72 1A 50 0C 72 1A 50 0D 72 1B 
+                           60 9E 50 0E 72 1B 50 0A 81 72 1E 50 0C 72 1E 50 0D 72 1F 50 0E 72 1F 50 0A 81 72 14 50 02 72 14 50 03 
+                           80 9E 72 15 50 04 72 15 50 00 81 4D 27 08 CD 9D 1D 72 17 50 00 81 72 16 50 00 81 89 1E 05 5C 5C 1F 05 
+                           A0 9E 5A 5A FE BF 00 85 81 72 1B 50 0C 72 1B 50 0D 72 1B 50 0E 81 4D 27 05 72 1A 50 0A 81 72 1B 50 0A 
+                           C0 9E 81 72 1D 50 0C 72 1D 50 0D 72 1D 50 0E 81 72 1F 50 0C 72 1F 50 0D 72 1F 50 0E 81 4D 27 05 72 1E 
+                           E0 9E 50 0A 81 72 1F 50 0A 81 72 15 50 02 72 15 50 03 72 15 50 04 81 4D 27 05 72 14 50 00 81 72 15 50 
+                           00 9F 00 81 35 7F 50 D2 35 80 50 D1 35 7F 50 D2 81 44 44 4E A4 0F 81 47 47 47 47 47 47 81 CE 00 61 CD 
+                           20 9F 9A 47 FE FE CF 00 61 81 AE 2C E6 90 93 5A 90 5D 26 F9 81 72 07 50 01 03 A6 01 81 4F 81 72 0B 50 
+                           40 9F 0B 03 A6 01 81 4F 81 72 0F 50 0B 03 A6 01 81 4F 81 A6 18 B7 00 4A 3D 00 26 F9 81 9D 9D 8E 9D 9D 
+                           60 9F 81 C6 53 00 A4 01 81 C6 53 0D A4 7F 81 35 01 00 75 80 35 02 50 C6 81 35 AA 50 E0 81 35 01 53 00 
+                           80 9F 81 89 85 CD 9E 0C CC 9F 8F 5F 5C 81 CC 9F 81 9D 20 FD 81 00 01 00 00 01 00 00 01 00 01 00 01 00 
+                           A0 9F 01 00 00 01 01 01 01 00 01 01 00 00 01 00 00 00 00 01 00 01 00 00 01 01 00 00 01 01 00 FF FF 0E 
+                           C0 9F 10 01 E0 03 01 01 03 03 04 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 
+                           E0 9F FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 53 34 55 34 
+                ];
+
+        };
+};

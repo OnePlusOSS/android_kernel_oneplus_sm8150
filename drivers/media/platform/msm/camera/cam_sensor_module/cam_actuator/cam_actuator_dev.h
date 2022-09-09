@@ -128,6 +128,8 @@ struct cam_actuator_ctrl_t {
 	struct cam_actuator_query_cap act_info;
 	struct intf_params bridge_intf;
 	uint32_t last_flush_req;
+	bool pid_data_updated;
+	bool need_check_pid;
 };
 
 #endif /* _CAM_ACTUATOR_DEV_H_ */

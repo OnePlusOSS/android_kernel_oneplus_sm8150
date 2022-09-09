@@ -1,0 +1,11 @@
+config IST_UP
+	tristate "hall up ic support"
+	default n
+	help
+	  Say Y here to enable ist8801 up.
+
+config IST_DOWN
+	tristate "hall down ic support"
+	default n
+	help
+	  Say Y here to enable ist8801 down.

@@ -21,6 +21,10 @@
 #include <linux/timer.h>
 #include <soc/qcom/ramdump.h>
 #include <soc/qcom/subsystem_notif.h>
+#ifdef OPLUS_BUG_STABILITY
+//Add for: disable wifi while power off charging because modem img will not mount
+#include <soc/oplus/boot_mode.h>
+#endif /* OPLUS_BUG_STABILITY */
 
 #include "main.h"
 #include "bus.h"
@@ -2048,6 +2052,16 @@ static int cnss_probe(struct platform_device *plat_dev)
 	struct cnss_plat_data *plat_priv;
 	const struct of_device_id *of_id;
 	const struct platform_device_id *device_id;
+
+#ifdef OPLUS_BUG_STABILITY
+	//Add for: disable wifi while power off charging because modem img will not mount
+	if (qpnp_is_power_off_charging() &&
+		(get_boot_mode() != MSM_BOOT_MODE__WLAN) &&
+		(get_boot_mode() != MSM_BOOT_MODE__RF)) {
+		cnss_pr_err("charge mode do not load wifi!\n");
+		goto out;
+	}
+#endif /* OPLUS_BUG_STABILITY */
 
 	if (cnss_get_plat_priv(plat_dev)) {
 		cnss_pr_err("Driver is already initialized!\n");

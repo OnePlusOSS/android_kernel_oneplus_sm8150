@@ -1044,6 +1044,16 @@ int mipi_dsi_dcs_set_tear_scanline(struct mipi_dsi_device *dsi, u16 scanline)
 }
 EXPORT_SYMBOL(mipi_dsi_dcs_set_tear_scanline);
 
+#ifdef OPLUS_BUG_STABILITY
+/*add for solve backlight issue for hbm*/
+u32 flag_writ = 0;
+EXPORT_SYMBOL(flag_writ);
+u32 flag_last_reg_update = 0;
+extern int oplus_dsi_hbm_backlight_setting(bool enabled);
+extern int cmp_display_panel_name(char *istr);
+extern int fod_dimlayer_flag;
+#endif /* OPLUS_BUG_STABILITY */
+
 /**
  * mipi_dsi_dcs_set_display_brightness() - sets the brightness value of the
  *    display
@@ -1055,14 +1065,83 @@ EXPORT_SYMBOL(mipi_dsi_dcs_set_tear_scanline);
 int mipi_dsi_dcs_set_display_brightness(struct mipi_dsi_device *dsi,
 					u16 brightness)
 {
-	u8 payload[2] = { brightness & 0xff, brightness >> 8 };
+//#ifdef OPLUS_BUG_STABILITY
+//Add for fix 10bit Backlight
+	//u8 payload[2] = { brightness & 0xff, brightness >> 8 };
+	/*Decoupling for SOFEF03F_M */
+	u8 payload[2];
+//#endif /* OPLUS_BUG_STABILITY */
 	ssize_t err;
 
+/*Decoupling for SOFEF03F_M */
+#ifndef OPLUS_BUG_STABILITY
 	err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
 				 payload, sizeof(payload));
 	if (err < 0)
 		return err;
+#else /* OPLUS_BUG_STABILITY */
+	/* panels other than SOFEF03F and OP7 models*/
+	if (!cmp_display_panel_name("SOFEF03F_M") && !cmp_display_panel_name("SOFEF03F") &&
+	    !cmp_display_panel_name("S6E3FC2") && !cmp_display_panel_name("S6E3HC2")) {
+		payload[0] = brightness >> 8;
+		payload[1] = brightness & 0xff;
 
+		err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+			payload, sizeof(payload));
+		if (err < 0)
+			return err;
+	} else {
+	/* for SOFEF03F panel and OP7 models*/
+		u8  value;
+		u16 hbm_brightness;
+
+		if(brightness > 1023){
+			value = 0xE0;
+			if (cmp_display_panel_name("S6E3HC2"))
+				hbm_brightness =  brightness + 2048;
+			else
+				hbm_brightness =  brightness;
+
+			payload[0] = hbm_brightness >> 8;
+			payload[1] = hbm_brightness & 0xff;
+			if(flag_writ == 0 || flag_writ == 3){
+				oplus_dsi_hbm_backlight_setting(true);
+				if(cmp_display_panel_name("SOFEF03F_M"))
+					mipi_dsi_dcs_write(dsi, MIPI_DCS_WRITE_CONTROL_DISPLAY,
+							   &value, sizeof(value));
+				flag_writ = 2;
+				pr_err("dsi_cmd hbm_brightness:%d\n", hbm_brightness);
+			}
+			err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+						 payload, sizeof(payload));
+			if (err < 0)
+				return err;
+		} else {
+			value = 0x20;
+			payload[0] =  brightness >> 8;
+			payload[1] =  brightness & 0xff;
+			err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+						 payload, sizeof(payload));
+			if(flag_writ == 2 || flag_writ == 3){
+				if(cmp_display_panel_name("SOFEF03F_M"))
+					mipi_dsi_dcs_write(dsi, MIPI_DCS_WRITE_CONTROL_DISPLAY,
+							   &value, sizeof(value));
+				if(brightness > 1) {
+					if((cmp_display_panel_name("S6E3HC2") ||          /*For OP7 models don't send 'qcom,mdss-dsi-hbm-backlight-off-command'*/
+					   cmp_display_panel_name("S6E3FC2") || cmp_display_panel_name("SOFEF03F"))
+					   && fod_dimlayer_flag == 0)      /*while disabling dimlayer after fod scene*/
+						fod_dimlayer_flag = -1;                                      /*Reset the flag to undefined value*/
+					else
+						oplus_dsi_hbm_backlight_setting(false);
+				}
+				flag_writ = 0;
+				pr_err("dsi_cmd hbm_brightness_off brightness %d\n", brightness);
+			}
+			if (err < 0)
+				return err;
+		}
+	}
+#endif /* OPLUS_BUG_STABILITY */
 	return 0;
 }
 EXPORT_SYMBOL(mipi_dsi_dcs_set_display_brightness);
@@ -1092,6 +1171,20 @@ int mipi_dsi_dcs_get_display_brightness(struct mipi_dsi_device *dsi,
 	return 0;
 }
 EXPORT_SYMBOL(mipi_dsi_dcs_get_display_brightness);
+
+int mipi_dsi_dcs_write_c1(struct mipi_dsi_device *dsi,
+						u16 read_number)
+{
+		u8 payload[3] = {0x0A, read_number >> 8, read_number & 0xff};
+		ssize_t err;
+
+		err = mipi_dsi_dcs_write(dsi, 0xC1,payload, sizeof(payload));
+		if (err < 0)
+			return err;
+
+		return 0;
+}
+EXPORT_SYMBOL(mipi_dsi_dcs_write_c1);
 
 static int mipi_dsi_drv_probe(struct device *dev)
 {

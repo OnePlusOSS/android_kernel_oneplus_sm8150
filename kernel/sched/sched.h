@@ -122,6 +122,11 @@ extern struct timer_list sched_grp_timer;
 #define TASK_ON_RQ_QUEUED	1
 #define TASK_ON_RQ_MIGRATING	2
 
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+//#ifdef CONFIG_UXCHAIN_V2
+extern int sysctl_uxchain_v2;
+#endif
+
 extern __read_mostly int scheduler_running;
 
 extern unsigned long calc_load_update;
@@ -957,6 +962,9 @@ struct rq {
 	struct cpuidle_state *idle_state;
 	int idle_state_idx;
 #endif
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+	struct list_head ux_thread_list;
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
 };
 
 static inline int cpu_of(struct rq *rq)

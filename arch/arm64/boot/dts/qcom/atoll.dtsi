@@ -1463,6 +1463,19 @@
 		qcom,guard-memory;
 	};
 
+	//#ifdef VENDOR_EDIT
+	//#ifdef FEATURE_OPLUS_NV_BACKUP
+	//add for creating a shared memory with uio for nv backup and restore
+	qcom,oembackup_sharedmem@0 {
+		compatible = "qcom,sharedmem-uio";
+		reg = <0x0 0x00100000>;
+		reg-names = "oembackup";
+		qcom,client-id = <0x00000004>;
+		qcom,guard-memory;
+	};
+	//#endif /* FEATURE_OPLUS_NV_BACKUP */
+	//#endif /* VENDOR_EDIT */
+
 	pil_modem: qcom,mss@4080000 {
 		compatible = "qcom,pil-tz-generic";
 		reg = <0x4080000 0x100>;

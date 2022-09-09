@@ -20,6 +20,11 @@
 
 #define SCHED_CPUFREQ_RT_DL	(SCHED_CPUFREQ_RT | SCHED_CPUFREQ_DL)
 
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+#define SCHED_CPUFREQ_RESET (1U << 7)
+#define SCHED_CPUFREQ_BOOST (1U << 9)
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
+
 #ifdef CONFIG_CPU_FREQ
 struct update_util_data {
        void (*func)(struct update_util_data *data, u64 time, unsigned int flags);

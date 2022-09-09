@@ -24,6 +24,10 @@
 #include <linux/spinlock.h>
 #include <linux/alarmtimer.h>
 
+#ifdef OPLUS_FEATURE_POWERINFO_FTM
+#include "soc/oplus/system/boot_mode.h"
+#endif
+
 /* RTC/ALARM Register offsets */
 #define REG_OFFSET_ALARM_RW	0x40
 #define REG_OFFSET_ALARM_CTRL1	0x46
@@ -618,8 +622,16 @@ static int qpnp_rtc_probe(struct platform_device *pdev)
 	}
 
 	device_init_wakeup(&pdev->dev, 1);
-	enable_irq_wake(rtc_dd->rtc_alarm_irq);
-
+	#ifdef OPLUS_FEATURE_POWERINFO_FTM
+	if (get_boot_mode() == MSM_BOOT_MODE__FACTORY)
+	{
+		enable_irq(rtc_dd->rtc_alarm_irq);
+	}
+	else
+	{
+		enable_irq_wake(rtc_dd->rtc_alarm_irq);
+	}
+	#endif
 	dev_dbg(&pdev->dev, "Probe success !!\n");
 
 	return 0;
@@ -713,7 +725,18 @@ static int qpnp_rtc_restore(struct device *dev)
 		if (rc)
 			pr_err("Request IRQ failed (%d)\n", rc);
 		else
-			enable_irq_wake(rtc_dd->rtc_alarm_irq);
+		{
+			#ifdef OPLUS_FEATURE_POWERINFO_FTM
+			if (get_boot_mode() == MSM_BOOT_MODE__FACTORY)
+			{
+				enable_irq(rtc_dd->rtc_alarm_irq);
+			}
+			else
+			{
+				enable_irq_wake(rtc_dd->rtc_alarm_irq);
+			}
+			#endif
+		}
 	}
 
 	return rc;

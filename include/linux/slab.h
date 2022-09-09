@@ -281,6 +281,10 @@ enum kmalloc_cache_type {
 };
 
 #ifndef CONFIG_SLOB
+#if defined(OPLUS_FEATURE_MEMLEAK_DETECT) && defined(CONFIG_KMALLOC_DEBUG)
+extern atomic64_t kmalloc_debug_caches[NR_KMALLOC_TYPES][KMALLOC_SHIFT_HIGH + 1];
+extern int kmalloc_debug_enable;
+#endif
 extern struct kmem_cache *
 kmalloc_caches[NR_KMALLOC_TYPES][KMALLOC_SHIFT_HIGH + 1];
 
@@ -517,6 +521,14 @@ static __always_inline void *kmalloc(size_t size, gfp_t flags)
 
 		if (!index)
 			return ZERO_SIZE_PTR;
+#if defined(OPLUS_FEATURE_MEMLEAK_DETECT) && defined(CONFIG_KMALLOC_DEBUG)
+		if (unlikely(kmalloc_debug_enable)) {
+			struct kmem_cache *s;
+			s = (struct kmem_cache *)atomic64_read(&kmalloc_debug_caches[kmalloc_type(flags)][index]);
+			if (s)
+				return kmem_cache_alloc_trace(s, flags, size);
+		}
+#endif
 
 		return kmem_cache_alloc_trace(
 				kmalloc_caches[kmalloc_type(flags)][index],

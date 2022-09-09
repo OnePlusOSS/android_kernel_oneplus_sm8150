@@ -1462,6 +1462,22 @@ static int ep_insert(struct eventpoll *ep, struct epoll_event *event,
 		RCU_INIT_POINTER(epi->ws, NULL);
 	}
 
+	/* Add the current item to the list of active epoll hook for this file */
+	spin_lock(&tfile->f_lock);
+	list_add_tail_rcu(&epi->fllink, &tfile->f_ep_links);
+	spin_unlock(&tfile->f_lock);
+
+	/*
+	 * Add the current item to the RB tree. All RB tree operations are
+	 * protected by "mtx", and ep_insert() is called with "mtx" held.
+	 */
+	ep_rbtree_insert(ep, epi);
+
+	/* now check if we've created too many backpaths */
+	error = -EINVAL;
+	if (full_check && reverse_path_check())
+		goto error_remove_epi;
+
 	/* Initialize the poll table using the queue callback */
 	epq.epi = epi;
 	init_poll_funcptr(&epq.pt, ep_ptable_queue_proc);
@@ -1483,22 +1499,6 @@ static int ep_insert(struct eventpoll *ep, struct epoll_event *event,
 	error = -ENOMEM;
 	if (epi->nwait < 0)
 		goto error_unregister;
-
-	/* Add the current item to the list of active epoll hook for this file */
-	spin_lock(&tfile->f_lock);
-	list_add_tail_rcu(&epi->fllink, &tfile->f_ep_links);
-	spin_unlock(&tfile->f_lock);
-
-	/*
-	 * Add the current item to the RB tree. All RB tree operations are
-	 * protected by "mtx", and ep_insert() is called with "mtx" held.
-	 */
-	ep_rbtree_insert(ep, epi);
-
-	/* now check if we've created too many backpaths */
-	error = -EINVAL;
-	if (full_check && reverse_path_check())
-		goto error_remove_epi;
 
 	/* We have to drop the new item inside our item list to keep track of it */
 	spin_lock_irqsave(&ep->lock, flags);
@@ -1528,15 +1528,14 @@ static int ep_insert(struct eventpoll *ep, struct epoll_event *event,
 
 	return 0;
 
+error_unregister:
+	ep_unregister_pollwait(ep, epi);
 error_remove_epi:
 	spin_lock(&tfile->f_lock);
 	list_del_rcu(&epi->fllink);
 	spin_unlock(&tfile->f_lock);
 
 	rb_erase_cached(&epi->rbn, &ep->rbr);
-
-error_unregister:
-	ep_unregister_pollwait(ep, epi);
 
 	/*
 	 * We need to do this because an event could have been arrived on some
@@ -1827,9 +1826,19 @@ fetch_events:
 			}
 
 			spin_unlock_irqrestore(&ep->lock, flags);
+#ifdef OPLUS_FEATURE_HEALTHINFO
+#ifdef CONFIG_OPLUS_JANK_INFO
+			current->in_epoll = 1;
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 			if (!freezable_schedule_hrtimeout_range(to, slack,
 								HRTIMER_MODE_ABS))
 				timed_out = 1;
+#ifdef OPLUS_FEATURE_HEALTHINFO
+#ifdef CONFIG_OPLUS_JANK_INFO
+			current->in_epoll = 0;
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 
 			spin_lock_irqsave(&ep->lock, flags);
 		}

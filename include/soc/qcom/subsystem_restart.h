@@ -152,8 +152,17 @@ struct notif_data {
 
 #if defined(CONFIG_MSM_SUBSYSTEM_RESTART)
 
+#ifdef OPLUS_FEATURE_ADSP_RECOVERY
+extern void oplus_set_ssr_state(bool ssr_state);
+extern bool oplus_get_ssr_state(void);
+#endif /* OPLUS_FEATURE_ADSP_RECOVERY */
+
 extern int subsys_get_restart_level(struct subsys_device *dev);
 extern int subsystem_restart_dev(struct subsys_device *dev);
+#ifdef OPLUS_FEATURE_MODEM_MINIDUMP
+extern void __subsystem_send_uevent(struct device *dev, char *reason);
+extern void subsystem_send_uevent(struct subsys_device *dev, char *reason);
+#endif /*OPLUS_FEATURE_MODEM_MINIDUMP*/
 extern int subsystem_restart(const char *name);
 extern int subsystem_crashed(const char *name);
 
@@ -177,6 +186,14 @@ struct subsys_device *find_subsys_device(const char *str);
 extern int wait_for_shutdown_ack(struct subsys_desc *desc);
 #else
 
+#ifdef OPLUS_FEATURE_ADSP_RECOVERY
+static inline void oplus_set_ssr_state(bool ssr_state) {}
+static inline bool oplus_get_ssr_state(void)
+{
+	return false;
+}
+#endif /* OPLUS_FEATURE_ADSP_RECOVERY */
+
 static inline int subsys_get_restart_level(struct subsys_device *dev)
 {
 	return 0;
@@ -186,6 +203,17 @@ static inline int subsystem_restart_dev(struct subsys_device *dev)
 {
 	return 0;
 }
+
+#ifdef OPLUS_FEATURE_MODEM_MINIDUMP
+static inline void __subsystem_send_uevent(struct device *dev, char *reason)
+{
+	return;
+}
+static inline void subsystem_send_uevent(struct subsys_device *dev, char *reason)
+{
+	return;
+}
+#endif /*OPLUS_FEATURE_MODEM_MINIDUMP*/
 
 static inline int subsystem_restart(const char *name)
 {

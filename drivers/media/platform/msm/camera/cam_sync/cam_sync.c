@@ -726,10 +726,19 @@ static int cam_sync_handle_deregister_user_payload(
 
 	list_for_each_entry_safe(user_payload_kernel, temp,
 				&row->user_payload_list, list) {
+#ifndef VENDOR_EDIT
 		if (user_payload_kernel->payload_data[0] ==
 				userpayload_info.payload[0] &&
 				user_payload_kernel->payload_data[1] ==
 				userpayload_info.payload[1]) {
+#else
+		if (user_payload_kernel->payload_data[0] ==
+				userpayload_info.payload[0]) {
+			CAM_ERR(CAM_SYNC,
+				"Info: deregister success for sync_obj %d payload[0] %llx",
+				sync_obj,
+				user_payload_kernel->payload_data[0]);
+#endif
 			list_del_init(&user_payload_kernel->list);
 			kfree(user_payload_kernel);
 		}

@@ -802,18 +802,18 @@ static inline bool sde_connector_needs_offset(struct drm_connector *connector)
 	return (c_conn->connector_type != DRM_MODE_CONNECTOR_VIRTUAL);
 }
 
+#ifdef OPLUS_BUG_STABILITY
 /**
  * sde_connector_get_dither_cfg - get dither property data
  * @conn: Pointer to drm_connector struct
  * @state: Pointer to drm_connector_state struct
  * @cfg: Pointer to pointer to dither cfg
  * @len: length of the dither data
- * @idle_pc: flag to indicate idle_pc_restore happened
  * Returns: Zero on success
  */
 int sde_connector_get_dither_cfg(struct drm_connector *conn,
-		struct drm_connector_state *state, void **cfg,
-		size_t *len, bool idle_pc);
+		struct drm_connector_state *state, void **cfg, size_t *len);
+#endif /* OPLUS_BUG_STABILITY */
 
 /**
  * sde_connector_set_blob_data - set connector blob property data
@@ -907,5 +907,9 @@ int sde_connector_get_panel_vfp(struct drm_connector *connector,
  * @connector: Pointer to DRM connector object
  */
 int sde_connector_esd_status(struct drm_connector *connector);
+
+#ifdef OPLUS_BUG_STABILITY
+int _sde_connector_update_bl_scale_(struct sde_connector *c_conn);
+#endif /* OPLUS_BUG_STABILITY */
 
 #endif /* _SDE_CONNECTOR_H_ */

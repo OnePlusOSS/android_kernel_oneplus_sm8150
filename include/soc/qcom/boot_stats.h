@@ -49,7 +49,10 @@ static inline void update_marker(const char *name) { };
 static inline int boot_marker_enabled(void) { return 0; }
 static inline void measure_wake_up_time(void) { };
 #endif
-#ifdef CONFIG_QTI_RPM_STATS_LOG
+
+
+#ifdef OPLUS_FEATURE_POWERINFO_RPMH
+/*#ifdef CONFIG_QTI_RPM_STATS_LOG */
 uint64_t get_sleep_exit_time(void);
 #else
 static inline uint64_t get_sleep_exit_time(void) { return 0; }

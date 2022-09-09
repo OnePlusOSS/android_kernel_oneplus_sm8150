@@ -1,0 +1,5 @@
+config OPLUS_DEVICE_IFNO
+  bool "config oplus devinfo software"
+  help
+    define this config to compile devinfo.c for device register
+

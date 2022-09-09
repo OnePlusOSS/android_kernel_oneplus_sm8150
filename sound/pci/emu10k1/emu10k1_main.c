@@ -1468,7 +1468,6 @@ static struct snd_emu_chip_details emu_chip_details[] = {
 	 .ca0108_chip = 1,
 	 .spk71 = 1,
 	 .emu_model = EMU_MODEL_EMU0404}, /* EMU 0404 new revision */
-	/* Tested by James@superbug.co.uk 20-3-2007. */
 	{.vendor = 0x1102, .device = 0x0004, .subsystem = 0x40021102,
 	 .driver = "Audigy2", .name = "E-mu 0404 [MAEM8850]",
 	 .id = "EMU0404",

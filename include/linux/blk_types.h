@@ -239,12 +239,22 @@ enum req_flag_bits {
 	__REQ_INTEGRITY,	/* I/O includes block integrity payload */
 	__REQ_FUA,		/* forced unit access */
 	__REQ_PREFLUSH,		/* request for cache flush */
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+	__REQ_UX,		/* ux activity */
+	__REQ_FG,		/* foreground activity */
+#endif
 	__REQ_RAHEAD,		/* read ahead, can fail anytime */
 	__REQ_BACKGROUND,	/* background IO */
 
 	__REQ_SORTED = __REQ_RAHEAD, /* elevator knows about this request */
 	/* command specific flags for REQ_OP_WRITE_ZEROES: */
 	__REQ_NOUNMAP,		/* do not free blocks when zeroing */
+
+        /* Android specific flags */
+        __REQ_NOENCRYPT,        /*
+                                 * ok to not encrypt (already encrypted at fs
+                                 * level)
+                                 */
 
 	__REQ_URGENT,		/* urgent request */
 	__REQ_NOWAIT,           /* Don't wait if request will block */
@@ -268,8 +278,13 @@ enum req_flag_bits {
 #define REQ_INTEGRITY		(1ULL << __REQ_INTEGRITY)
 #define REQ_FUA			(1ULL << __REQ_FUA)
 #define REQ_PREFLUSH		(1ULL << __REQ_PREFLUSH)
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+#define REQ_UX			(1ULL << __REQ_UX)
+#define REQ_FG			(1ULL << __REQ_FG)
+#endif
 #define REQ_RAHEAD		(1ULL << __REQ_RAHEAD)
 #define REQ_BACKGROUND		(1ULL << __REQ_BACKGROUND)
+#define REQ_NOENCRYPT           (1ULL << __REQ_NOENCRYPT)
 
 #define REQ_NOUNMAP		(1ULL << __REQ_NOUNMAP)
 #define REQ_NOWAIT		(1ULL << __REQ_NOWAIT)

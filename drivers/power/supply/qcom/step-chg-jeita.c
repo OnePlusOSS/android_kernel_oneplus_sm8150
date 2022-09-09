@@ -63,6 +63,7 @@ struct step_chg_info {
 	int			jeita_fv_index;
 	int			step_index;
 	int			get_config_retry_count;
+	int step_chg_count;
 
 	struct step_chg_cfg	*step_chg_config;
 	struct jeita_fcc_cfg	*jeita_fcc_config;
@@ -765,11 +766,18 @@ static void status_change_work(struct work_struct *work)
 	int rc = 0;
 	union power_supply_propval prop = {0, };
 
+	//pr_err("step_chg_count = %d\n",chip->step_chg_count);
 	if (!is_batt_available(chip) || !is_bms_available(chip))
 		goto exit_work;
-
+#ifdef OPLUS_FEATURE_CHG_BASIC
+/*add by huangtongfeng for qcom-step-chg wakelock issue*/
+	rc = handle_battery_insertion(chip);
+	if (rc < 0) {
+		goto exit_work;
+	}
+#else
 	handle_battery_insertion(chip);
-
+#endif
 	/* skip elapsed_us debounce for handling battery temperature */
 	rc = handle_jeita(chip);
 	if (rc < 0)
@@ -793,6 +801,8 @@ static void status_change_work(struct work_struct *work)
 
 exit_work:
 	__pm_relax(chip->step_chg_ws);
+	chip->step_chg_count--;
+	//pr_err("step_chg_count = %d\n",chip->step_chg_count);
 }
 
 static int step_chg_notifier_call(struct notifier_block *nb,
@@ -807,6 +817,8 @@ static int step_chg_notifier_call(struct notifier_block *nb,
 	if ((strcmp(psy->desc->name, "battery") == 0)
 			|| (strcmp(psy->desc->name, "usb") == 0)) {
 		__pm_stay_awake(chip->step_chg_ws);
+		chip->step_chg_count++;
+		//pr_err("step_chg_count = %d\n",chip->step_chg_count);
 		schedule_delayed_work(&chip->status_change_work, 0);
 	}
 
@@ -860,6 +872,7 @@ int qcom_step_chg_init(struct device *dev,
 	chip->step_index = -EINVAL;
 	chip->jeita_fcc_index = -EINVAL;
 	chip->jeita_fv_index = -EINVAL;
+	chip->step_chg_count =0;
 
 	chip->step_chg_config = devm_kzalloc(dev,
 			sizeof(struct step_chg_cfg), GFP_KERNEL);

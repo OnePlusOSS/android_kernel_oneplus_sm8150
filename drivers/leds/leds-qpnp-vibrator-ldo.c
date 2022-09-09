@@ -41,7 +41,10 @@
  * Define vibration periods: default(5sec), min(50ms), max(15sec) and
  * overdrive(30ms).
  */
-#define QPNP_VIB_MIN_PLAY_MS		50
+
+#ifdef OPLUS_FEATURE_CHG_BASIC
+#define QPNP_VIB_MIN_PLAY_MS		35
+#endif
 #define QPNP_VIB_PLAY_MS		5000
 #define QPNP_VIB_MAX_PLAY_MS		15000
 #define QPNP_VIB_OVERDRIVE_PLAY_MS	30
@@ -207,7 +210,12 @@ static enum hrtimer_restart vib_stop_timer(struct hrtimer *timer)
 					     stop_timer);
 
 	chip->state = 0;
+
+	#ifdef OPLUS_FEATURE_CHG_BASIC
+	queue_work(system_unbound_wq, &chip->vib_work);
+	#else
 	schedule_work(&chip->vib_work);
+	#endif
 	return HRTIMER_NORESTART;
 }
 
@@ -335,9 +343,15 @@ static ssize_t qpnp_vib_store_activate(struct device *dev,
 	mutex_lock(&chip->lock);
 	hrtimer_cancel(&chip->stop_timer);
 	chip->state = val;
-	pr_debug("state = %d, time = %llums\n", chip->state, chip->vib_play_ms);
+	#ifdef OPLUS_FEATURE_CHG_BASIC
+	pr_info("state = %d, time = %llums\n", chip->state, chip->vib_play_ms);
+	#endif
 	mutex_unlock(&chip->lock);
+	#ifdef OPLUS_FEATURE_CHG_BASIC
+	queue_work(system_unbound_wq, &chip->vib_work);
+	#else
 	schedule_work(&chip->vib_work);
+	#endif
 
 	return count;
 }

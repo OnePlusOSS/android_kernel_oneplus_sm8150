@@ -197,8 +197,16 @@ static struct msm_vidc_common_data atoll_common_data[] = {
 		.value = 3,
 	},
 	{
+#ifndef OPLUS_BUG_STABILITY
 		.key = "qcom,max-hw-load",
 		.value = 1944000,
+#else /* OPLUS_BUG_STABILITY */
+		.key = "qcom,max-hw-load",
+		.value = 2052000,
+		/**
+		 * UHD@60 decode+720P@30
+		 */
+#endif /* OPLUS_BUG_STABILITY */
 	},
 	{
 		.key = "qcom,max-hq-mbs-per-frame",

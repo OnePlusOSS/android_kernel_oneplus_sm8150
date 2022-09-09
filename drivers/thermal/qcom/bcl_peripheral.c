@@ -625,6 +625,7 @@ static void bcl_probe_soc(struct platform_device *pdev)
 	soc_data->ops.get_temp = bcl_read_soc;
 	soc_data->ops.set_trips = bcl_set_soc;
 	INIT_WORK(&bcl_perph->soc_eval_work, bcl_evaluate_soc);
+#ifndef OPLUS_BUG_STABILITY
 	bcl_perph->psy_nb.notifier_call = battery_supply_callback;
 	ret = power_supply_reg_notifier(&bcl_perph->psy_nb);
 	if (ret < 0) {
@@ -639,6 +640,22 @@ static void bcl_probe_soc(struct platform_device *pdev)
 		return;
 	}
 	thermal_zone_device_update(soc_data->tz_dev, THERMAL_DEVICE_UP);
+	#else
+	soc_data->tz_dev = thermal_zone_of_sensor_register(&pdev->dev,
+				BCL_SOC_MONITOR, soc_data, &soc_data->ops);
+	if (IS_ERR(soc_data->tz_dev)) {
+		pr_err("vbat register failed. err:%ld\n",
+				PTR_ERR(soc_data->tz_dev));
+		return;
+	}
+	thermal_zone_device_update(soc_data->tz_dev, THERMAL_DEVICE_UP);
+	bcl_perph->psy_nb.notifier_call = battery_supply_callback;
+	ret = power_supply_reg_notifier(&bcl_perph->psy_nb);
+	if (ret < 0) {
+		pr_err("Unable to register soc notifier. err:%d\n", ret);
+		return;
+	}
+#endif
 	schedule_work(&bcl_perph->soc_eval_work);
 }
 

@@ -4428,7 +4428,11 @@ void mmc_stop_host(struct mmc_host *host)
 	}
 
 	host->rescan_disable = 1;
+#ifndef VENDOR_EDIT 
 	cancel_delayed_work_sync(&host->detect);
+#else
+	cancel_delayed_work(&host->detect);
+#endif
 
 	/* clear pm flags now and let card drivers set them as needed */
 	host->pm_flags = 0;

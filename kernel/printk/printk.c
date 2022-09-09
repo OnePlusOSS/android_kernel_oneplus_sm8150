@@ -59,6 +59,29 @@
 #include "braille.h"
 #include "internal.h"
 
+#ifdef OPLUS_BUG_STABILITY
+#include <linux/rtc.h>
+#include <linux/time.h>
+#endif
+
+#ifdef OPLUS_FEATURE_POWERINFO_FTM
+#include <soc/oplus/boot_mode.h>
+static bool __read_mostly printk_disable_uart = true; /*set true avoid early console output*/
+static int __init printk_uart_disabled(char *str)
+{
+	if (str[0] == '1')
+		printk_disable_uart = true;
+	else
+		printk_disable_uart = false;
+	return 0;
+}
+early_param("printk.disable_uart", printk_uart_disabled);
+
+bool oem_disable_uart(void)
+{
+	return printk_disable_uart;
+}
+#endif /*OPLUS_FEATURE_POWERINFO_FTM*/
 #ifdef CONFIG_EARLY_PRINTK_DIRECT
 extern void printascii(char *);
 #endif
@@ -591,6 +614,19 @@ static int log_store(int facility, int level,
 	u32 size, pad_len;
 	u16 trunc_msg_len = 0;
 
+	#ifdef OPLUS_FEATURE_CHG_BASIC
+	//part 1/2: yixue.ge 2015-04-22 add for add cpu number and current id and current comm to kmsg
+	int this_cpu = smp_processor_id();
+	char tbuf[64];
+	unsigned tlen;
+	if (console_suspended == 0) {
+		tlen = snprintf(tbuf, sizeof(tbuf), " (%x)[%d:%s]",
+			this_cpu, current->pid, current->comm);
+	} else {
+		tlen = snprintf(tbuf, sizeof(tbuf), " %x)", this_cpu);
+	}
+	text_len += tlen;
+	#endif //add end part 1/3
 	/* number of '\0' padding bytes to next message */
 	size = msg_used_size(text_len, dict_len, &pad_len);
 
@@ -615,7 +651,13 @@ static int log_store(int facility, int level,
 
 	/* fill message */
 	msg = (struct printk_log *)(log_buf + log_next_idx);
+	#ifndef OPLUS_FEATURE_CHG_BASIC
+	//part 2/2: yixue.ge 2015-04-22 add for add cpu number and current id and current comm to kmsg
 	memcpy(log_text(msg), text, text_len);
+	#else
+	memcpy(log_text(msg), tbuf, tlen);
+	memcpy(log_text(msg) + tlen, text, text_len-tlen);
+	#endif //add end part 3/3
 	msg->text_len = text_len;
 	if (trunc_msg_len) {
 		memcpy(log_text(msg) + text_len, trunc_msg, trunc_msg_len);
@@ -968,7 +1010,8 @@ static int devkmsg_open(struct inode *inode, struct file *file)
 	if (!user)
 		return -ENOMEM;
 
-	ratelimit_default_init(&user->rs);
+	ratelimit_state_init(&user->rs, HZ, 300);
+
 	ratelimit_set_flags(&user->rs, RATELIMIT_MSG_ON_RELEASE);
 
 	mutex_init(&user->lock);
@@ -1219,6 +1262,12 @@ static inline void boot_delay_msec(int level)
 static bool printk_time = IS_ENABLED(CONFIG_PRINTK_TIME);
 module_param_named(time, printk_time, bool, S_IRUGO | S_IWUSR);
 
+#ifdef OPLUS_BUG_STABILITY
+static bool print_wall_time = 1;
+module_param_named(print_wall_time, print_wall_time, bool, 0644);
+#endif
+
+#ifndef OPLUS_BUG_STABILITY
 static size_t print_time(u64 ts, char *buf)
 {
 	unsigned long rem_nsec;
@@ -1234,6 +1283,7 @@ static size_t print_time(u64 ts, char *buf)
 	return sprintf(buf, "[%5lu.%06lu] ",
 		       (unsigned long)ts, rem_nsec / 1000);
 }
+#endif
 
 static size_t print_prefix(const struct printk_log *msg, bool syslog, char *buf)
 {
@@ -1253,8 +1303,9 @@ static size_t print_prefix(const struct printk_log *msg, bool syslog, char *buf)
 				len++;
 		}
 	}
-
+#ifndef OPLUS_BUG_STABILITY
 	len += print_time(msg->ts_nsec, buf ? buf + len : NULL);
+#endif
 	return len;
 }
 
@@ -1714,6 +1765,14 @@ static void call_console_drivers(const char *ext_text, size_t ext_len,
 		return;
 
 	for_each_console(con) {
+#ifdef OPLUS_FEATURE_POWERINFO_FTM
+		if ((con->flags & CON_CONSDEV) &&
+				(printk_disable_uart ||
+				get_boot_mode() == MSM_BOOT_MODE__FACTORY ||
+				get_boot_mode() == MSM_BOOT_MODE__RF ||
+				get_boot_mode() == MSM_BOOT_MODE__WLAN))
+			continue;
+#endif /*VENDOR_EDIT*/
 		if (exclusive_console && con != exclusive_console)
 			continue;
 		if (!(con->flags & CON_ENABLED))
@@ -1844,7 +1903,14 @@ int vprintk_store(int facility, int level,
 	char *text = textbuf;
 	size_t text_len;
 	enum log_flags lflags = 0;
+#ifdef OPLUS_BUG_STABILITY
+	static char texttmp[LOG_LINE_MAX];
+	static bool last_new_line = true;
+	u64 ts_sec = local_clock();
+	unsigned long rem_nsec;
 
+	rem_nsec = do_div(ts_sec, 1000000000);
+#endif
 	/*
 	 * The printf needs to come first; we need the syslog
 	 * prefix which might be passed-in as a parameter.
@@ -1881,6 +1947,46 @@ int vprintk_store(int facility, int level,
 
 #ifdef CONFIG_EARLY_PRINTK_DIRECT
 	printascii(text);
+#endif
+
+#ifdef OPLUS_BUG_STABILITY
+	if (last_new_line) {
+		if (print_wall_time && ts_sec >= 20) {
+			struct timespec64 tspec;
+			struct rtc_time tm;
+
+			ktime_get_real_ts64(&tspec);
+
+			if (sys_tz.tz_minuteswest < 0
+				|| (tspec.tv_sec-sys_tz.tz_minuteswest*60) >= 0)
+				tspec.tv_sec -= sys_tz.tz_minuteswest * 60;
+			rtc_time_to_tm(tspec.tv_sec, &tm);
+
+			text_len = scnprintf(texttmp, sizeof(texttmp),
+				"[%02d%02d%02d_%02d:%02d:%02d.%06ld]@%d %s",
+				tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+				tm.tm_hour, tm.tm_min, tm.tm_sec,
+				tspec.tv_nsec / 1000,
+				raw_smp_processor_id(), text);
+		} else {
+			text_len = scnprintf(texttmp, sizeof(texttmp),
+				"[%5lu.%06lu]@%d %s", (unsigned long)ts_sec,
+				rem_nsec / 1000, raw_smp_processor_id(), text);
+		}
+
+		text = texttmp;
+
+		/* mark and strip a trailing newline */
+		if (text_len && text[text_len-1] == '\n') {
+			text_len--;
+			lflags |= LOG_NEWLINE;
+		}
+	}
+
+	if (lflags & LOG_NEWLINE)
+		last_new_line = true;
+	else
+		last_new_line = false;
 #endif
 
 	if (level == LOGLEVEL_DEFAULT)
@@ -3240,6 +3346,57 @@ out:
 	return ret;
 }
 EXPORT_SYMBOL_GPL(kmsg_dump_get_buffer);
+
+#ifdef CONFIG_OPLUS_FEATURE_UBOOT_LOG
+//BSP.kernel.stability, 2020/03/06, Add for get kernel boot log
+#include <soc/oplus/system/uboot_utils.h>
+bool back_kmsg_dump_get_buffer(struct kmsg_dumper *dumper, bool syslog,
+			  char *buf, size_t size, size_t *len)
+{
+	unsigned long flags;
+	u64 seq;
+	u32 idx;
+	size_t l = 0;
+	bool ret = false;
+
+	logbuf_lock_irqsave(flags);
+	if (dumper->cur_seq < log_first_seq) {
+		l += scnprintf(buf + l,	size - l, "Lost some logs: cur_seq:%lld, log_first_seq:%lld\n", dumper->cur_seq, log_first_seq);
+		//messages are gone, move to first available one
+		dumper->cur_seq = log_first_seq;
+		dumper->cur_idx = log_first_idx;
+	}
+
+	// last entry
+	if (dumper->cur_seq >= dumper->next_seq) {
+		logbuf_unlock_irqrestore(flags);
+		goto out;
+	}
+
+
+	// record log form cur_seq until the buf is full
+	seq = dumper->cur_seq;
+	idx = dumper->cur_idx;
+	while (l + LOG_LINE_MAX + PREFIX_MAX < size && seq < dumper->next_seq) {
+		struct printk_log *msg = log_from_idx(idx);
+
+		l += msg_print_text(msg, syslog, buf + l, size - l);
+		idx = log_next(idx);
+		seq++;
+	}
+	dumper->cur_seq = seq;
+	dumper->cur_idx = idx;
+
+	ret = true;
+	logbuf_unlock_irqrestore(flags);
+out:
+	if (len)
+		*len = l;
+	return ret;
+}
+EXPORT_SYMBOL(back_kmsg_dump_get_buffer);
+#endif
+
 
 /**
  * kmsg_dump_rewind_nolock - reset the interator (unlocked version)

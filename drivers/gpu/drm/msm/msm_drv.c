@@ -60,6 +60,8 @@
 #define MSM_VERSION_MINOR	2
 #define MSM_VERSION_PATCHLEVEL	0
 
+static DEFINE_MUTEX(msm_release_lock);
+
 static void msm_fb_output_poll_changed(struct drm_device *dev)
 {
 	struct msm_drm_private *priv = NULL;
@@ -1468,8 +1470,10 @@ void msm_mode_object_event_notify(struct drm_mode_object *obj,
 	spin_lock_irqsave(&dev->event_lock, flags);
 	list_for_each_entry(node, &priv->client_event_list, base.link) {
 		if (node->event.type != event->type ||
-			obj->id != node->info.object_id)
+			obj->id != node->info.object_id) {
+			SDE_EVT32(node->event.type, event->type, obj->id, node->info.object_id);
 			continue;
+		}
 		len = event->length + sizeof(struct msm_drm_event);
 		if (node->base.file_priv->event_space < len) {
 			DRM_ERROR("Insufficient space %d for event %x len %d\n",
@@ -1478,8 +1482,10 @@ void msm_mode_object_event_notify(struct drm_mode_object *obj,
 			continue;
 		}
 		notify = kzalloc(len, GFP_ATOMIC);
-		if (!notify)
+		if (!notify) {
+			SDE_EVT32(0x1111, SDE_EVTLOG_ERROR);
 			continue;
+		}
 		notify->base.file_priv = node->base.file_priv;
 		notify->base.event = &notify->event;
 		notify->event.type = node->event.type;
@@ -1489,25 +1495,43 @@ void msm_mode_object_event_notify(struct drm_mode_object *obj,
 		memcpy(notify->data, payload, event->length);
 		ret = drm_event_reserve_init_locked(dev, node->base.file_priv,
 			&notify->base, &notify->event);
+		SDE_EVT32(notify->base.event, notify->event.type);
 		if (ret) {
 			kfree(notify);
+			pr_err("%s: Notify Failed\n", __func__);
+			SDE_EVT32(0x2222, SDE_EVTLOG_ERROR);
 			continue;
 		}
 		drm_send_event_locked(dev, &notify->base);
+		SDE_EVT32(notify->base.event, notify->event.type, obj->id);
 	}
 	spin_unlock_irqrestore(&dev->event_lock, flags);
 }
 
 static int msm_release(struct inode *inode, struct file *filp)
 {
-	struct drm_file *file_priv = filp->private_data;
-	struct drm_minor *minor = file_priv->minor;
-	struct drm_device *dev = minor->dev;
-	struct msm_drm_private *priv = dev->dev_private;
+	struct drm_file *file_priv;
+	struct drm_minor *minor;
+	struct drm_device *dev;
+	struct msm_drm_private *priv;
 	struct msm_drm_event *node, *temp, *tmp_node;
 	u32 count;
 	unsigned long flags;
 	LIST_HEAD(tmp_head);
+	int ret = 0;
+
+	mutex_lock(&msm_release_lock);
+
+	file_priv = filp->private_data;
+
+	if (!file_priv) {
+		ret = -EINVAL;
+		goto end;
+	}
+
+	minor = file_priv->minor;
+	dev = minor->dev;
+	priv = dev->dev_private;
 
 	spin_lock_irqsave(&dev->event_lock, flags);
 	list_for_each_entry_safe(node, temp, &priv->client_event_list,
@@ -1535,7 +1559,11 @@ static int msm_release(struct inode *inode, struct file *filp)
 		kfree(node);
 	}
 
-	return drm_release(inode, filp);
+	ret = drm_release(inode, filp);
+	filp->private_data = NULL;
+end:
+	mutex_unlock(&msm_release_lock);
+	return ret;
 }
 
 /**

@@ -17,6 +17,8 @@
  *  4) Other non-zero value
  *     - a writer owns the lock and other writers can spin on the lock owner.
  */
+#include <linux/rwsem.h>
+ 
 #define RWSEM_ANONYMOUSLY_OWNED	(1UL << 0)
 #define RWSEM_READER_OWNED	((struct task_struct *)RWSEM_ANONYMOUSLY_OWNED)
 
@@ -95,6 +97,9 @@ static inline void rwsem_set_reader_owned(struct rw_semaphore *sem)
 
 #define RWSEM_MAX_PREEMPT_ALLOWED 3000
 
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+extern bool test_task_ux(struct task_struct *task);
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
 /*
  * Return true if current waiter is added in the front of the rwsem wait list.
  */
@@ -122,11 +127,25 @@ static inline bool rwsem_list_add_per_prio(struct rwsem_waiter *waiter_in,
 		return true;
 	}
 
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+	if (sysctl_sched_assist_enabled) {
+		if (rwsem_list_add(waiter_in->task, &waiter_in->list, &sem->wait_list, sem)) {
+			return &waiter_in->list == head->next;
+		}
+	}
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
+
 	if (waiter_in->task->prio < DEFAULT_PRIO
 		&& sem->m_count < RWSEM_MAX_PREEMPT_ALLOWED) {
 
 		list_for_each(pos, head) {
 			waiter = list_entry(pos, struct rwsem_waiter, list);
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+			if (sysctl_sched_assist_enabled && waiter_in->task->prio > MAX_RT_PRIO &&
+				test_task_ux(waiter->task)) {
+				continue;
+			}
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
 			if (waiter->task->prio > waiter_in->task->prio) {
 				list_add(&waiter_in->list, pos->prev);
 				sem->m_count++;

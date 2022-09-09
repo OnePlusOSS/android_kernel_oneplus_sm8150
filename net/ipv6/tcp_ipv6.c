@@ -69,6 +69,19 @@
 #include <crypto/hash.h>
 #include <linux/scatterlist.h>
 
+#ifdef OPLUS_FEATURE_MODEM_DATA_NWPOWER
+/*
+*Add for classify glink wakeup services.
+*/
+#include <net/oplus_nwpower.h>
+extern atomic_t oplus_tcp_is_input;
+extern atomic_t ipa_wakeup_hook_boot;
+extern atomic_t custom_rule_penetrate_bpf_boot;
+extern struct work_struct oplus_tcp_input_hook_work;
+extern struct oplus_tcp_hook_struct oplus_tcp_input_hook;
+extern struct timespec oplus_tcp_last_transmission_stamp;
+#endif /* OPLUS_FEATURE_MODEM_DATA_NWPOWER */
+
 static void	tcp_v6_send_reset(const struct sock *sk, struct sk_buff *skb);
 static void	tcp_v6_reqsk_send_ack(const struct sock *sk, struct sk_buff *skb,
 				      struct request_sock *req);
@@ -1409,6 +1422,28 @@ static int tcp_v6_rcv(struct sk_buff *skb)
 	int ret;
 	struct net *net = dev_net(skb->dev);
 
+#ifdef OPLUS_FEATURE_MODEM_DATA_NWPOWER
+	/*
+	*Add for classify glink wakeup services.
+	*/
+	struct timespec now_ts;
+	struct ipv6hdr *tmp_iph;
+	bool sch_work = false;
+
+	if (atomic_read(&ipa_wakeup_hook_boot) == 1) {
+		if (atomic_read(&oplus_tcp_is_input) == 0) {
+			now_ts = current_kernel_time();
+			tmp_iph = ipv6_hdr(skb);
+			if (((now_ts.tv_sec * 1000 + now_ts.tv_nsec / 1000000) - (oplus_tcp_last_transmission_stamp.tv_sec * 1000 + oplus_tcp_last_transmission_stamp.tv_nsec / 1000000)) > OPLUS_TRANSMISSION_INTERVAL) {
+				atomic_set(&oplus_tcp_is_input, 2);
+				oplus_tcp_input_hook.ipv6_addr1 = (u64)ntohl(tmp_iph->saddr.s6_addr32[0]) << 32 | ntohl(tmp_iph->saddr.s6_addr32[1]);
+				oplus_tcp_input_hook.ipv6_addr2 = (u64)ntohl(tmp_iph->saddr.s6_addr32[2]) << 32 | ntohl(tmp_iph->saddr.s6_addr32[3]);
+				oplus_tcp_input_hook.is_ipv6 = true;
+			}
+		}
+		oplus_tcp_last_transmission_stamp = current_kernel_time();
+	}
+#endif /* OPLUS_FEATURE_MODEM_DATA_NWPOWER */
 	if (skb->pkt_type != PACKET_HOST)
 		goto discard_it;
 
@@ -1439,6 +1474,24 @@ lookup:
 				&refcounted);
 	if (!sk)
 		goto no_tcp_socket;
+
+#ifdef OPLUS_FEATURE_MODEM_DATA_NWPOWER
+	/*
+	*Add for classify glink wakeup services.
+	*/
+	if (atomic_read(&ipa_wakeup_hook_boot) == 1) {
+		if (atomic_read(&oplus_tcp_is_input) == 2 && !sch_work) {
+			if (sk->sk_state != TCP_TIME_WAIT) {
+				oplus_tcp_input_hook.uid = get_uid_from_sock(sk);
+				oplus_tcp_input_hook.pid = sk->sk_oplus_pid;
+			}
+			schedule_work(&oplus_tcp_input_hook_work);
+			sch_work = true;
+		}
+		sk->oplus_last_rcv_stamp[0]= sk->oplus_last_rcv_stamp[1];
+		sk->oplus_last_rcv_stamp[1] = oplus_tcp_last_transmission_stamp.tv_sec * 1000 + oplus_tcp_last_transmission_stamp.tv_nsec / 1000000;
+	}
+#endif /* OPLUS_FEATURE_MODEM_DATA_NWPOWER */
 
 process:
 	if (sk->sk_state == TCP_TIME_WAIT)
@@ -1543,6 +1596,15 @@ bad_packet:
 	}
 
 discard_it:
+#ifdef OPLUS_FEATURE_MODEM_DATA_NWPOWER
+	/*
+	*Add for classify glink wakeup services.
+	*/
+	if (atomic_read(&ipa_wakeup_hook_boot) == 1 && atomic_read(&oplus_tcp_is_input) == 2 && !sch_work) {
+		schedule_work(&oplus_tcp_input_hook_work);
+		sch_work = true;
+	}
+#endif /* OPLUS_FEATURE_MODEM_DATA_NWPOWER */
 	kfree_skb(skb);
 	return 0;
 

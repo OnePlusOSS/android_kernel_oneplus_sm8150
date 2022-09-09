@@ -1,0 +1,821 @@
+/* Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
+#include <dt-bindings/iio/qcom,spmi-vadc.h>
+#include <dt-bindings/input/input.h>
+#include "atoll-camera-sensor-idp.dtsi"
+#include "atoll-sde-display.dtsi"
+#include "sdmmagpie-thermal-overlay.dtsi"
+
+&soc {
+    //#ifdef OPLUS_FEATURE_CONNFCSOFT
+    nfc_chipset {
+        compatible = "oplus-nfc-chipset";
+        chipset-20263 = "PN557";
+    };
+    //#endif /* OPLUS_FEATURE_CONNFCSOFT */
+	mtp_batterydata: qcom,battery-data {
+		qcom,batt-id-range-pct = <15>;
+		#include "qg-batterydata-alium-3600mah.dtsi"
+//#ifdef OPLUS_FEATURE_CHG_BASIC
+		#include "qg-batterydata-4310mAH-averaged-MasterSlave.dtsi"
+//#endif
+	};
+
+	//#ifdef OPLUS_FEATURE_TP_BASIC
+	devinfo {
+		compatible = "oplus-devinfo";
+
+		io-channels= <&pm6150_vadc ADC_GPIO4>;
+		io-channel-names= "vph_pwr_voltage_sub";
+		pinctrl-names = "default";
+		pinctrl-0 = <&gpio10_adc_default>;
+
+		main-sub {
+			compatible = "hw-match, main-sub";
+			use_pmic_adc;
+			adc_ranges = <0 80
+						81 180
+						181 300
+						301 420
+						421 550
+						551 650
+						651 760
+						761 850
+						851 850
+						951 1050
+						1051 1150
+						1151 1300>;
+			aboard-patterns = <1 0 0>;
+
+			/*main board*/
+			match-projects = <20261 20262 20263>;
+		};
+	};
+	//#endif /*OPLUS_FEATURE_TP_BASIC*/
+	//#ifdef OPLUS_FEATURE_TP_BASIC
+	oplus_rf_cable {
+		compatible = "oplus,rf_cable";
+		interrupt-parent = <&tlmm>;
+		rf_cable_support_num = <1>;
+		rf,cable0-gpio = <&tlmm 118 0>;
+		rf,cable-support-timer = <0>;
+		pinctrl-names = "rf_cable_active";
+		pinctrl-0 = <&rf_cable0_active>;
+	};
+	//#endif /* OPLUS_FEATURE_TP_BASIC */
+
+    //#ifdef OPLUS_FEATURE_TP_BASIC
+	oplus_sim_detect {
+		compatible = "oplus, sim_detect";
+		Hw,sim_det = <&tlmm 69 0>;
+	};
+    //#endif /* OPLUS_FEATURE_TP_BASIC */
+
+	// #ifdef OPLUS_FEATURE_SENSOR_SMEM
+	/* physical sensor
+	enum sensor_id {
+			OPLUS_ACCEL,
+			OPLUS_GYRO,
+			OPLUS_MAG,
+			OPLUS_LIGHT,
+			OPLUS_PROXIMITY,
+			OPLUS_SAR,
+			OPLUS_CT,
+			OPLUS_BAROMETER,
+			SENSORS_NUM}; */
+	oplus_sensor {
+		compatible = "oplus,sensor-devinfo";
+		als-row-coe = <110>;
+		/* enum {LSM6DSM = 0x01, BMI160 = 0x02, LSM6DS3 = 0x04}; */
+		gsensor@0 {
+			sensor-name = <0x04>; // LSM6DS3
+			sensor-direction = <3>;
+			sensor-index = <0>; // source num
+			sensor-type = <0>; // OPLUS_ACCEL
+		};
+		gsensor@1 {
+			sensor-name = <0x02>; // BMI160
+			sensor-direction = <0>;
+			sensor-index = <1>; // source num
+			sensor-type = <0>; // OPLUS_ACCEL
+		};
+		/* enum {AKM0991X = 0x01, MMC5603 = 0x02}; */
+		msensor@0 {
+			sensor-name = <0x02>; // MMC5603
+			sensor-direction = <7>;
+			sensor-index = <0>;
+			sensor-type = <2>; // OPLUS_MAG
+			mag-para1 {
+				parameter-number = <18>;
+				projects-num = <2>;
+				match-projects = <20261 20262>;
+				//e00 sign e01 sign..., e00 *= (float)(sign ? -1 : 1) / 10000
+				soft-mag-parameter = <10000 0 0 0 0 0 0 0 10000 0 0 0 0 0 0 0 10000 0>;
+			};
+			mag-para2 {
+				parameter-number = <18>;
+				projects-num = <1>;
+				match-projects = <20263>;
+				//e00 sign e01 sign..., e00 *= (float)(sign ? -1 : 1) / 10000
+				soft-mag-parameter = <8942 0 4405 0 615 0 2166 0 13433 0 222 1 2872 0 2004 1 11994 0>;
+			};
+		};
+		msensor@1 {
+			sensor-name = <0x01>; // AKM0991X
+			sensor-direction = <0>;
+			sensor-index = <1>;
+			sensor-type = <2>; // OPLUS_MAG
+			parameter-number= <18>;
+			//e00 sign e01 sign..., e00 *= (float)(sign ? -1 : 1) / 10000
+			soft-mag-parameter = <10000 0 0 0 0 1 0 0 10000 0 0 1 0 1 0 1 10000 0>;
+		};
+		/* enum {STK3A5X = 0x01, TCS3701 = 0x02, TCS3408 = 0x04, STK3A6X = 0x08}; */
+		lsensor@0 {
+			sensor-name = <0x08>; // STK3A6X
+			sensor-index = <0>;
+			sensor-type = <3>; // OPLUS_ALSPS
+			bus-number = <5>;
+			irq-number = <89>;
+			als-type = <2>;
+			is-unit-device = <1>;
+			is-als-dri = <1>;
+			als-factor = <110>;
+			is_als_initialed = <0>;
+			als_buffer_length = <8>;
+		};
+		psensor@0 {
+			sensor-name = <0x08>; // STK3A6X
+			sensor-index = <0>;
+			sensor-type = <4>; // OPLUS_PROXIMITY
+			bus-number = <5>;
+			irq-number = <89>;
+			ps-cail-type = <2>;
+			ps-type = <1>;
+			is_ps_initialzed = <0>;
+			low_step = <300>;
+			high_step = <400>;
+			low_limit = <600>;
+			high_limit = <1050>;
+			dirty_low_step = <300>;
+			dirty_high_step = <400>;
+			ps_dirty_limit = <1800>;
+			ps_ir_limit = <2000>;
+			ps_adjust_min = <0>;
+			ps_adjust_max = <1850>;
+			sampling_count = <5>;
+			step_max = <400>;
+			step_min = <100>;
+			step_div = <2000>;
+			anti_shake_delta = <70>;
+			dynamic_cali_max = <2000>;
+			raw2offset_radio = <1000>;
+			offset_max = <60000>;
+			offset_range_min = <0>;
+			offset_range_max = <65535>;
+			force_cali_limit = <2000>;
+			cali_jitter_limit = <20>;
+			cal_offset_margin = <3000>;
+		};
+		/* virtual sensor
+		enum sensor_algo_id {
+			OPLUS_PICKUP_DETECT,
+			OPLUS_LUX_AOD,
+			OPLUS_TP_GESTURE,
+			OPLUS_FP_DISPLAY,
+			OPLUS_FREE_FALL,
+			OPLUS_CAMERA_PROTECT,
+			SENSOR_ALGO_NUM
+		} */
+		pickup_detect {
+			sensor-type = <0>; // OPLUS_PICKUP_DETECT
+			is-virtual-sensor;
+			is-need-prox = <1>;
+			prox-type = <0>; // 0 - proximity; 1 - proximity_fake
+		};
+		lux_aod {
+			sensor-type = <1>; // OPLUS_LUX_AOD
+			is-virtual-sensor;
+			thrd-low = <12>;
+			thrd-high = <50>;
+			als-type = <1>; // 0 - wise_light; 1 - ambient_light
+		};
+		fp_display {
+			sensor-type = <3>; // OPLUS_FP_DISPLAY
+			is-virtual-sensor;
+			prox-type = <0>; // 0 - proximity; 1 - proximity_fake
+		};
+		free_fall {
+			sensor-type = <4>; // OPLUS_FREE_FALL
+			is-virtual-sensor;
+		};
+	};
+	// #endif /* OPLUS_FEATURE_SENSOR_SMEM */
+};
+
+&pm6150l_vadc {
+//#ifdef VENDOR_EDIT
+//	pa_therm1 {
+//		reg = <ADC_AMUX_THM3_PU2>;
+//		label = "pa_therm1";
+//#else
+	skin-therm{
+		reg = <ADC_AMUX_THM3_PU2>;
+		label = "skin-therm";
+//#endif
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+};
+
+&pm6150l_adc_tm {
+	io-channels = <&pm6150l_vadc ADC_AMUX_THM1_PU2>,
+			<&pm6150l_vadc ADC_AMUX_THM2_PU2>,
+			<&pm6150l_vadc ADC_AMUX_THM3_PU2>,
+			<&pm6150l_vadc ADC_GPIO1_PU2>;
+
+//#ifdef VENDOR_EDIT
+//	pa_therm1 {
+//#else
+	skin-therm{
+//#endif
+		reg = <ADC_AMUX_THM3_PU2>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+};
+
+&usb0 {
+	extcon = <&pm6150_pdphy>, <&pm6150_charger>, <&eud>;
+};
+
+&usb_qmp_dp_phy {
+	extcon = <&pm6150_pdphy>;
+};
+
+//#ifdef OPLUS_FEATURE_CHG_BASIC
+&pm6150_gpios{
+	gpio10_adc {
+		gpio10_adc_default: gpio10_adc_default {
+			pins = "gpio10"; /* GPIO 10 */
+			function = "normal"; /* normal */
+			bias-high-impedance; /* DISABLE GPIO10 for ADC*/
+		};
+	};
+};
+//#endif
+
+&ufsphy_mem {
+	compatible = "qcom,ufs-phy-qmp-v3";
+
+	vdda-phy-supply = <&pm6150_l4>; /* 0.9v */
+	vdda-pll-supply = <&pm6150l_l3>; /* 1.2v */
+	vdda-phy-max-microamp = <62900>;
+	vdda-pll-max-microamp = <18300>;
+
+	status = "ok";
+};
+
+&ufshc_mem {
+	vdd-hba-supply = <&ufs_phy_gdsc>;
+	vdd-hba-fixed-regulator;
+	vcc-supply = <&pm6150_l19>;
+	vcc-voltage-level = <2960000 2960000>;
+	vcc-max-microamp = <600000>;
+	vccq2-supply = <&pm6150_l12>;
+	vccq2-voltage-level = <1750000 1950000>;
+	vccq2-max-microamp = <600000>;
+
+	qcom,vddp-ref-clk-supply = <&pm6150l_l3>; /* PX10 */
+	qcom,vddp-ref-clk-max-microamp = <100>;
+
+	status = "ok";
+};
+
+&sdhc_1 {
+	vdd-supply = <&pm6150_l19>;
+	qcom,vdd-voltage-level = <2960000 2960000>;
+	qcom,vdd-current-level = <0 570000>;
+
+	vdd-io-supply = <&pm6150_l12>;
+	qcom,vdd-io-always-on;
+	qcom,vdd-io-lpm-sup;
+	qcom,vdd-io-voltage-level = <1800000 1800000>;
+	qcom,vdd-io-current-level = <0 325000>;
+
+	pinctrl-names = "active", "sleep";
+	pinctrl-0 = <&sdc1_clk_on &sdc1_cmd_on &sdc1_data_on &sdc1_rclk_on>;
+	pinctrl-1 = <&sdc1_clk_off &sdc1_cmd_off &sdc1_data_off &sdc1_rclk_off>;
+
+	status = "ok";
+};
+
+&sdhc_2 {
+	vdd-supply = <&pm6150l_l9>;
+	qcom,vdd-voltage-level = <2960000 2960000>;
+	qcom,vdd-current-level = <0 800000>;
+
+	vdd-io-supply = <&pm6150l_l6>;
+	qcom,vdd-io-voltage-level = <1800000 2950000>;
+	qcom,vdd-io-current-level = <0 22000>;
+
+	pinctrl-names = "active", "sleep";
+//#ifndef VENDOR_EDIT
+	//pinctrl-0 = <&sdc2_clk_on  &sdc2_cmd_on &sdc2_data_on &sdc2_cd_on>;
+//#else
+	pinctrl-0 = <&sdc2_clk_on  &sdc2_cmd_on &sdc2_data_on &sdc2_cd_on &sd_detect_default>;
+//#endif
+	pinctrl-1 = <&sdc2_clk_off &sdc2_cmd_off &sdc2_data_off &sdc2_cd_off>;
+//#ifndef VENDOR_EDIT
+	//cd-gpios = <&tlmm 69 GPIO_ACTIVE_LOW>;
+//#else
+    cd-gpios = <&tlmm 69 GPIO_ACTIVE_HIGH>;
+//#endif
+	status = "ok";
+};
+
+&thermal_zones {
+	//#ifdef VENDOR_EDIT
+	//pa-therm1 {
+	//#else
+	skin-therm {
+	//#endif
+		polling-delay-passive = <0>;
+		polling-delay = <0>;
+		thermal-governor = "user_space";
+		thermal-sensors = <&pm6150l_adc_tm ADC_AMUX_THM3_PU2>;
+		wake-capable-sensor;
+		trips {
+			active-config0 {
+				temperature = <125000>;
+				hysteresis = <1000>;
+				type = "passive";
+			};
+		};
+	};
+
+	quiet-therm-step {
+		status = "disabled";
+	};
+};
+
+&pm6150a_amoled {
+	status = "ok";
+};
+
+&pm6150_qg {
+//#ifdef OPLUS_FEATURE_CHG_BASIC
+	status = "ok";
+	qcom,enable-qpnp-qg;
+	qcom,qg-ext-sns;
+//#endif
+	qcom,battery-data = <&mtp_batterydata>;
+//#ifdef OPLUS_FEATURE_CHG_BASIC
+	qcom,s3-entry-ibat-ua = <40000>;
+	qcom,qg-iterm-ma = <250>;
+	qcom,rbat-conn-mohm = <0>;
+	qcom,qg-fast-chg-config;
+	qcom,tcss-entry-soc = <98>;
+//#endif
+//#ifndef OPLUS_FEATURE_CHG_BASIC
+	//qcom,hold-soc-while-full;
+//#endif
+	qcom,linearize-soc;
+	qcom,cl-feedback-on;
+};
+
+&pm6150_charger {
+	status = "ok";
+	io-channels = <&pm6150_vadc ADC_USB_IN_V_16>,
+		      <&pm6150_vadc ADC_USB_IN_I>,
+		      <&pm6150_vadc ADC_CHG_TEMP>,
+		      <&pm6150_vadc ADC_DIE_TEMP>,
+//#ifdef OPLUS_FEATURE_CHG_BASIC
+//		      <&pm6150_vadc ADC_AMUX_THM3_PU2>,
+//#endif
+		      <&pm6150_vadc ADC_SBUx>,
+//#ifdef OPLUS_FEATURE_CHG_BASIC
+		      <&pm6150_vadc ADC_AMUX_THM2_PU2>,
+			  <&pm6150_vadc ADC_AMUX_THM3_PU2>,
+//#endif
+		      <&pm6150_vadc ADC_VPH_PWR>;
+	io-channel-names = "usb_in_voltage",
+			   "usb_in_current",
+			   "chg_temp",
+			   "die_temp",
+//#ifdef OPLUS_FEATURE_CHG_BASIC
+//			   "conn_temp",
+//#endif
+			   "sbux_res",
+//#ifdef OPLUS_FEATURE_CHG_BASIC
+			   "usb_temp_adc",
+     		   "usb_supplementary_temp_adc",
+//#endif
+			   "vph_voltage";
+	qcom,battery-data = <&mtp_batterydata>;
+//#ifndef OPLUS_FEATURE_CHG_BASIC
+//	qcom,auto-recharge-soc = <98>;
+//	qcom,step-charging-enable;
+//	qcom,sw-jeita-enable;
+//	qcom,fcc-stepping-enable;
+//	qcom,suspend-input-on-debug-batt;
+//	qcom,sec-charger-config = <3>;
+//	qcom,thermal-mitigation = <4200000 3500000 3000000
+//			2500000 2000000 1500000 1000000 500000>;
+//#endif
+//#ifndef OPLUS_FEATURE_CHG_BASIC
+//	dpdm-supply = <&qusb_phy0>;
+//	qcom,charger-temp-max = <800>;
+//	qcom,smb-temp-max = <800>;
+//	qcom,cl-min-temp = <200>;
+//	qcom,cl-max-temp = <400>;
+//	qcom,fcc-step-delay-ms = <100>;
+//	qcom,fcc-step-size-ua = <100000>;
+//	qcom,disable-sw-thermal-regulation;
+//	qcom,disable-fcc-restriction;
+//	qcom,smb-internal-pull-kohm = <0>;
+//#endif
+};
+//#ifdef VENDOR_EDIT
+/*
+&pm6150l_gpios {
+	key_vol_up {
+		key_vol_up_default: key_vol_up_default {
+			pins = "gpio2";
+			function = "normal";
+			input-enable;
+			bias-pull-up;
+			power-source = <0>;
+		};
+	};
+};*/
+//#endif
+&soc {
+	gpio_keys {
+		compatible = "gpio-keys";
+		label = "gpio-keys";
+
+		pinctrl-names = "default";
+
+//#ifdef VENDOR_EDIT
+		pinctrl-0 = <&key_vol_down_default>;
+//#else
+		//pinctrl-0 = <&key_vol_up_default>;
+//#endif
+
+//#ifdef VENDOR_EDIT
+		/*vol_up {
+			label = "volume_up";
+			gpios = <&pm6150l_gpios 2 GPIO_ACTIVE_LOW>;
+			linux,input-type = <1>;
+			linux,code = <KEY_VOLUMEUP>;
+			linux,can-disable;
+			debounce-interval = <15>;
+			gpio-key,wakeup;
+		};*/
+
+		vol_down {
+			label = "volume_down";
+			gpios = <&tlmm 117 GPIO_ACTIVE_LOW>;
+			linux,input-type = <1>;
+			linux,code = <KEY_VOLUMEDOWN>;
+			gpio-key,wakeup;
+			debounce-interval = <15>;
+			linux,can-disable;
+		};
+//#endif
+	};
+
+        // #ifdef VENDOR_EDIT
+	oplus_secure_common {
+		compatible = "oplus,secure_common";
+		oplus,sec_reg_num = <0x780498>;
+		oplus,sec_en_anti_reg = <0x7801CC>;
+		oplus,sec_override1_reg = <0x7860C0>;
+		oplus,override1_en_value = <0x1>;
+	};
+	//#endif //VENDOR_EDIT
+
+	//#ifdef VENDOR_EDIT /*VENDOR_EDIT*/
+	oplus_fp_common {
+		compatible = "oplus,fp_common";
+		oplus,fp_gpio_num = <1>; /* the gpio number of fingerprint id used */
+		oplus,fp_gpio_0 = <&tlmm 54 0x0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&gpio_id2_default>;
+		goodix_optical_G3S {
+			oplus,fp-id = <1>; /* fp id mapping table */
+			vendor-chip = <11>; /* please refer to the struct fp_vendor_t in oplus_fp_commmon.n */
+			eng-menu = "-1,-1"; /* represents SNR, inclination test item in engineer menu, and 0/1 means off/on */
+			chip-name = "G_OPTICAL_G3S";  /* /proc/fp_id, will be displayed in engineer menu  */
+		};
+	};
+
+	goodix_fp {
+		status = "ok";
+		compatible = "goodix,goodix_fp";
+		interrupt-parent = <&tlmm>;
+		interrupts = <90 0>;
+		power-mode = <1> ; /*please refer to the struct fp_power_mode_t in oplus_fp_commmon.n ,0: power mode not set, 1: ldo power, 2: gpio power, 3: auto power */
+		ldo-supply = <&pm6150l_l11>; // pm6150 l11 for goodix_fp
+		ldo-config = <3300000 3300000 150000>;
+		goodix,gpio_irq = <&tlmm 90 0x1>;
+		goodix,gpio_reset = <&tlmm 91 0x0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&gpio_goodix_irq_default>;
+		ftm_poweroff_flag = <1>;
+		//notify_tpinfo_flag = <1>;
+		power-num = <1> ;
+		power_source_1 {
+			power-mode = <1>;   /* 1 = ldo power, refer to oplus_fp_common.h*/
+			power-name = "ldo";
+			power-config = "ldo-config";
+			delay-time = <0>;
+		};
+	};
+//#endif /*VENDOR_EDIT*/
+};
+
+&qupv3_se7_i2c {
+	status = "ok";
+        //#ifdef VENDOR_EDIT
+	Goodix19365@5d {
+		compatible = "Goodix-gt9886";
+		reg = <0x5d>;
+		chip-name = "GT9886";
+
+		/* Interrupt && Irq-gpio */
+		interrupt-parent = <&tlmm>;
+		interrupts = <9 0x2002>;
+
+		/* Power Config */
+		vdd_2v8-supply = <&pm6150l_l7>;
+		vdd_2v8_volt = <3100000>;
+
+		/* Other HW Resource */
+		irq-gpio = <&tlmm 9 0x2002>;
+		reset-gpio = <&tlmm 8 0x1>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&ts_int_active &ts_reset_active>;
+
+		touchpanel,max-num-support = <10>;
+		touchpanel,tx-rx-num = <16 34>;
+		touchpanel,panel-coords = <1080 2400>;
+		touchpanel,display-coords = <1080 2400>;
+		touchpanel,touchmajor-limit = <0 54>;
+
+		tp_type = <8>;// type of tp_dev ,TP-SAMSUNG = 8;
+ 		platform_support_project = <20261 20262 20263>;
+		platform_support_project_dir = <19365 19365 19365>;
+		platform_support_project_commandline = "dsi_oplus19365samsung", "dsi_oplus19365samsung", "dsi_oplus19365samsung";
+
+		/* SW Support Feature Control */
+		register-is-16bit;
+		black_gesture_support;
+		fw_edge_limit_support;
+		pressure_report_support;
+		charger_pump_support;
+		game_switch_support;
+		smart_gesture_support;
+		fw_update_app_support;
+		fingerprint_underscreen_support;
+		esd_handle_support;
+		/*
+		 *Virtual Key Config:
+		 *1:touchpanel,button-type: <virtualkey_type  supportted_button-map>
+		 *virtualkey_type:
+		 *Type 1: using board_properties
+		 *Type 2: using same IC (button zone&& touch zone are seprate)
+		 *Type 3: using diffrent IC (button zone&& touch zone are seprate)
+		 *Type 4: No need of virtual key process
+		 *supportted_button-map:select|menu|home|back
+		 *
+		 *2:touchpanel,button-map
+		 *type (X1,Y1)(X2,Y2)(X3,Y3)(Width_X,Hight_Y)--Only when button-type is 0
+		 */
+		touchpanel,button-type = <4>;
+		touchpanel.button-TRx = <0 0>;
+	};
+
+	Focaltech20261@38 {
+		compatible = "focaltech,fts";
+		reg = <0x38>;
+		chip-name = "FT3518";
+
+		/* Interrupt && Irq-gpio */
+		interrupt-parent = <&tlmm>;
+		interrupts = <9 0x2002>;
+
+		/* Power Config */
+		vdd_2v8-supply = <&pm6150l_l7>;
+		vdd_2v8_volt = <3100000>;
+		vcc_1v8-supply = <&pm6150_l12>;
+		/* Other HW Resource */
+		irq-gpio = <&tlmm 9 0x2002>;
+		reset-gpio = <&tlmm 8 0x1>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&ts_int_active &ts_reset_active>;
+
+		touchpanel,max-num-support = <10>;
+		touchpanel,tx-rx-num = <16 34>;
+		touchpanel,panel-coords = <4320 9600>;
+		touchpanel,display-coords = <1080 2400>;
+		touchpanel,touchmajor-limit = <0 216>;
+		touchpanel,smooth-level = <255 2 15 25 45 60>;
+		touchpanel,smooth-level-charging = <255 15 20 25 45 60>;
+		touchpanel,sensitive-level = <255 20 16 13 10 5>;
+		touchpanel,single-optimized-time = <8>;
+
+		tp_type = <8>;// type of tp_dev ,TP-SAMSUNG = 8;
+ 		platform_support_project = <20261 20262 20263>;
+		platform_support_project_dir = <20261 20261 20261>;
+		platform_support_project_commandline = "dsi_oplus20261samsung", "dsi_oplus20261samsung", "dsi_oplus20261samsung";
+
+		/* SW Support Feature Control */
+		black_gesture_support;
+		fw_edge_limit_support;
+		pressure_report_support;
+		charger_pump_support;
+		game_switch_support;
+		smart_gesture_support;
+		fw_update_app_support;
+		fingerprint_underscreen_support;
+		headset_pump_support;
+		lcd_tp_refresh_support;
+		//esd_handle_support;
+		high_resolution_support;
+		new_set_irq_wake_support;
+		irq_need_dev_resume_ok;
+		/*
+		 *Virtual Key Config:
+		 *1:touchpanel,button-type: <virtualkey_type  supportted_button-map>
+		 *virtualkey_type:
+		 *Type 1: using board_properties
+		 *Type 2: using same IC (button zone&& touch zone are seprate)
+		 *Type 3: using diffrent IC (button zone&& touch zone are seprate)
+		 *Type 4: No need of virtual key process
+		 *supportted_button-map:select|menu|home|back
+		 *
+		 *2:touchpanel,button-map
+		 *type (X1,Y1)(X2,Y2)(X3,Y3)(Width_X,Hight_Y)--Only when button-type is 0
+		 */
+		touchpanel,button-type = <4>;
+		touchpanel.button-TRx = <0 0>;
+	};
+
+
+/*
+	qcom,i2c-touch-active = "synaptics,tcm-i2c";
+	synaptics_tcm@20 {
+		compatible = "synaptics,tcm-i2c";
+		reg = <0x20>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <9 0x2008>;
+		pinctrl-names = "pmx_ts_active","pmx_ts_suspend",
+			"pmx_ts_release";
+		pinctrl-0 = <&ts_active>;
+		pinctrl-1 = <&ts_int_suspend &ts_reset_suspend>;
+		pinctrl-2 = <&ts_release>;
+		vdd-supply = <&pm6150_l10>;
+		avdd-supply = <&pm6150l_l7>;
+		synaptics,pwr-reg-name = "avdd";
+		synaptics,bus-reg-name = "vdd";
+		synaptics,irq-gpio = <&tlmm 9 0x2008>;
+		synaptics,irq-on-state = <0>;
+		synaptics,reset-gpio = <&tlmm 8 0x00>;
+		synaptics,reset-on-state = <0>;
+		synaptics,reset-active-ms = <20>;
+		synaptics,reset-delay-ms = <200>;
+		synaptics,power-delay-ms = <200>;
+		synaptics,ubl-i2c-addr = <0x20>;
+	};
+
+	atmel_mxt_ts@4a {
+		compatible = "atmel,maxtouch";
+		reg = <0x4a>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <9 0x2008>;
+		avdd-supply = <&pm6150l_l7>;
+		vdd-supply = <&pm6150_l10>;
+		pinctrl-names = "pmx_ts_active", "pmx_ts_suspend";
+		pinctrl-0 = <&ts_active>;
+		pinctrl-1 = <&ts_int_suspend &ts_reset_suspend>;
+
+		reset-gpios = <&tlmm 8 0x00>;
+		irq-gpios = <&tlmm 9 0x2008>;
+
+		atmel,xy_switch;
+		atmel,panel-coords = <0 0 479 799>;
+		atmel,display-coords = <0 0 339 769>;
+	};
+	*/
+       //#endif
+};
+
+&dsi_rm69299_visionox_amoled_video {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_labibb_amoled>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <255>;
+	qcom,platform-te-gpio = <&tlmm 10 0>;
+	qcom,platform-reset-gpio = <&pm6150l_gpios 3 0>;
+};
+
+&dsi_rm69299_visionox_amoled_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_labibb_amoled>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <255>;
+	qcom,platform-te-gpio = <&tlmm 10 0>;
+	qcom,platform-reset-gpio = <&pm6150l_gpios 3 0>;
+};
+
+&dsi_nt36672c_video {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_no_labibb>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <255>;
+	qcom,platform-te-gpio = <&tlmm 10 0>;
+	qcom,platform-reset-gpio = <&pm6150l_gpios 3 0>;
+	qcom,platform-bklight-en-gpio = <&pm6150l_gpios 10 0>;
+	qcom,platform-en-gpio = <&pm6150l_gpios 4 0>;
+};
+
+//#ifdef OPLUS_NFC_BRINGUP
+//Mod for NXP PN557 NFC GPIO
+/*&qupv3_se0_i2c {
+	status = "ok";
+	qcom,clk-freq-out = <1000000>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+	nq@28 {
+		compatible = "qcom,nq-nci";
+		reg = <0x28>;
+		qcom,nq-irq = <&tlmm 37 0x00>;
+		qcom,nq-ven = <&tlmm 12 0x00>;
+		qcom,nq-firm = <&tlmm 36 0x00>;
+		qcom,nq-clkreq = <&tlmm 31 0x00>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <37 0>;
+		interrupt-names = "nfc_irq";
+		pinctrl-names = "nfc_active", "nfc_suspend";
+		pinctrl-0 = <&nfc_int_active &nfc_enable_active
+				&nfc_clk_req_active>;
+		pinctrl-1 = <&nfc_int_suspend &nfc_enable_suspend
+				&nfc_clk_req_suspend>;
+	};
+};*/
+//#else /* OPLUS_NFC_BRINGUP */
+&qupv3_se0_i2c {
+	status = "ok";
+	//qcom,clk-freq-out = <1000000>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+	nq@28 {
+		compatible = "nxp,pn544";
+		reg = <0x28>;
+		nxp,pn544-irq = <&tlmm 37 0x00>;
+		nxp,pn544-ven = <&tlmm 94 0x00>;
+		nxp,pn544-fw-dwnld = <&tlmm 36 0x00>;
+		qcom,nq-clkreq = <&tlmm 31 0x00>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <37 0>;
+		interrupt-names = "nfc_irq";
+		pinctrl-names = "nfc_active", "nfc_suspend";
+		pinctrl-0 = <&nfc_int_active &nfc_enable_active
+				&nfc_clk_req_active>;
+		pinctrl-1 = <&nfc_int_suspend &nfc_enable_suspend
+				&nfc_clk_req_suspend>;
+	};
+};
+//#endif /*OPLUS_NFC_BRINGUP*/
+
+&sde_dp{
+	qcom,dp-aux-switch = <&fsa4480>;
+};
+
+//#ifdef OPLUS_FEATURE_CHG_BASIC
+#include "oplus-charge.dtsi"
+//endif
+&tlmm {
+	gpio_wakeup: gpio_wakeup {
+		compatible = "gpio_wakeup";
+		gpio_table = <0 3 4 5 6 11 16 21 22 23 24 26 28 30 32 33 34
+				 36 38 39 42 45 47 49 52 53 55 56 57 58 59 62
+				 63 64 65 66 67 68 70 72 74 84 85 87 88
+				 91 92 93 94 95 96 98 101 104 106 107 109 110 113
+				 114 115 118>;
+	};
+};

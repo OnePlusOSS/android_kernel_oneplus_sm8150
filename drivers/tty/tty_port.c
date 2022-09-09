@@ -34,9 +34,19 @@ static int tty_port_default_receive_buf(struct tty_port *port,
 	if (!disc)
 		return 0;
 
+	#ifdef OPLUS_BUG_STABILITY
+	if(tty->driver_data != NULL)
+		ret = tty_ldisc_receive_buf(disc, p, (char *)f, count);
+	else {
+		ret = 0;
+		pr_info("oplus driver_data == NULL skip the buf process, uart_open is not finished\n");
+	}
+	#else
 	ret = tty_ldisc_receive_buf(disc, p, (char *)f, count);
 
+	#endif
 	tty_ldisc_deref(disc);
+
 
 	return ret;
 }

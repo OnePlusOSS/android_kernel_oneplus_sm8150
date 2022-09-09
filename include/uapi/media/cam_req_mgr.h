@@ -1,3 +1,6 @@
+#if defined(OP_8150_ADAPT)
+#include "cam_req_mgr_op.h"
+#else
 #ifndef __UAPI_LINUX_CAM_REQ_MGR_H
 #define __UAPI_LINUX_CAM_REQ_MGR_H
 
@@ -464,4 +467,5 @@ struct cam_req_mgr_message {
 		struct cam_req_mgr_frame_msg frame_msg;
 	} u;
 };
+#endif
 #endif /* __UAPI_LINUX_CAM_REQ_MGR_H */

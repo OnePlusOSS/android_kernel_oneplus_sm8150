@@ -45,6 +45,14 @@ config ANDROID_LOW_MEMORY_KILLER_AUTODETECT_OOM_ADJ_VALUES
 
 source "drivers/staging/android/ion/Kconfig"
 
+#ifdef OPLUS_FEATURE_HANS_FREEZE
+config OPLUS_HANS
+        bool "HANS kernel and HANS native communication channel"
+        default y if OPLUS_FEATURE_HANS_FREEZE
+        ---help---
+          Key events (signal/network package/binder) report to HAS native.
+#endif /*OPLUS_FEATURE_HANS_FREEZE*/
+
 endif # if ANDROID
 
 endmenu

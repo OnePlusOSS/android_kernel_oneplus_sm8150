@@ -957,7 +957,10 @@ static int __cam_req_mgr_check_sync_req_is_ready(
 	int32_t sync_num_slots = 0;
 	uint64_t sync_frame_duration = 0;
 	bool ready = true, sync_ready = true;
-
+#ifdef VENDOR_EDIT
+	uint64_t sof_timestamp_delta = 0;
+	uint64_t master_slave_diff = 0;
+#endif
 	if (!link->sync_link) {
 		CAM_ERR(CAM_CRM, "Sync link null");
 		return -EINVAL;
@@ -989,6 +992,12 @@ static int __cam_req_mgr_check_sync_req_is_ready(
 	else
 		sync_frame_duration = DEFAULT_FRAME_DURATION;
 
+#ifdef VENDOR_EDIT
+	sof_timestamp_delta =
+		link->sof_timestamp >= sync_link->sof_timestamp
+		? link->sof_timestamp - sync_link->sof_timestamp
+		: sync_link->sof_timestamp - link->sof_timestamp;
+#endif
 	CAM_DBG(CAM_CRM,
 		"sync link %x last frame duration is %d ns",
 		sync_link->link_hdl, sync_frame_duration);
@@ -1111,10 +1120,17 @@ static int __cam_req_mgr_check_sync_req_is_ready(
 	 * difference of two SOF timestamp less than
 	 * (sync_frame_duration / 5).
 	 */
+#ifndef VENDOR_EDIT
 	if ((link->sof_timestamp > sync_link->sof_timestamp) &&
 		(sync_link->sof_timestamp > 0) &&
 		(link->sof_timestamp - sync_link->sof_timestamp <
 		sync_frame_duration / 5) &&
+#else
+	master_slave_diff = sync_frame_duration;
+	do_div(master_slave_diff, 5);
+	if ((sync_link->sof_timestamp > 0) &&
+		(sof_timestamp_delta < master_slave_diff) &&
+#endif
 		(sync_rd_slot->sync_mode == CAM_REQ_MGR_SYNC_MODE_SYNC)) {
 
 		/*
@@ -1137,6 +1153,13 @@ static int __cam_req_mgr_check_sync_req_is_ready(
 				"sync link %x too quickly, skip next frame of sync link",
 				sync_link->link_hdl);
 			link->sync_link_sof_skip = true;
+#ifdef VENDOR_EDIT
+		}else if (sync_link->req.in_q->slot[sync_slot_idx].status !=
+			CRM_SLOT_STATUS_REQ_APPLIED) {
+			CAM_DBG(CAM_CRM,
+				"link %x other not applied", link->link_hdl);
+			return -EAGAIN;
+#endif
 		}
 	} else if ((sync_link->sof_timestamp > 0) &&
 		(link->sof_timestamp < sync_link->sof_timestamp) &&
@@ -2577,6 +2600,7 @@ static int cam_req_mgr_cb_notify_trigger(
 	struct  crm_task_payload         *task_data;
 	bool    send_sof = true;
 	int     i = 0;
+	int64_t sof_time_diff = 0;
 
 	if (!trigger_data) {
 		CAM_ERR(CAM_CRM, "sof_data is NULL");
@@ -2596,6 +2620,10 @@ static int cam_req_mgr_cb_notify_trigger(
 		if (link->dev_sof_evt[i].dev_hdl == trigger_data->dev_hdl) {
 			if (link->dev_sof_evt[i].sof_done == false) {
 				link->dev_sof_evt[i].sof_done = true;
+				link->dev_sof_evt[i].frame_id =
+						trigger_data->frame_id;
+				link->dev_sof_evt[i].timestamp =
+					trigger_data->sof_timestamp_val;
 			} else
 				CAM_INFO(CAM_CRM, "Received Spurious SOF");
 		} else if (link->dev_sof_evt[i].sof_done == false) {
@@ -2605,6 +2633,23 @@ static int cam_req_mgr_cb_notify_trigger(
 
 	if (!send_sof)
 		return 0;
+	if (link->num_sof_src > 1) {
+		for (i = 0; i < (link->num_sof_src - 1); i++) {
+			if (link->dev_sof_evt[i].timestamp >=
+				link->dev_sof_evt[i+1].timestamp) {
+				sof_time_diff = link->dev_sof_evt[i].timestamp -
+					link->dev_sof_evt[i+1].timestamp;
+			} else {
+				sof_time_diff =
+					link->dev_sof_evt[i+1].timestamp -
+					link->dev_sof_evt[i].timestamp;
+			}
+			if ((link->dev_sof_evt[i].frame_id !=
+				link->dev_sof_evt[i+1].frame_id) ||
+				sof_time_diff > TIMESTAMP_DIFF_THRESHOLD)
+				return 0;
+		}
+	}
 
 	for (i = 0; i < link->num_sof_src; i++)
 		link->dev_sof_evt[i].sof_done = false;
@@ -3266,7 +3311,11 @@ int cam_req_mgr_schedule_request(
 		CAM_INFO(CAM_CRM,
 			"request %lld is flushed, last_flush_id to flush %u",
 			sched_req->req_id, link->last_flush_id);
+#ifdef VENDOR_EDIT
 		rc = -EBADR;
+#else
+		rc = -EINVAL;
+#endif
 		goto end;
 	}
 

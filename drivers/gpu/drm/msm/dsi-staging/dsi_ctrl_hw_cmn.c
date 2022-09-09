@@ -102,13 +102,16 @@ void dsi_ctrl_hw_cmn_host_setup(struct dsi_ctrl_hw *ctrl,
 	dsi_setup_trigger_controls(ctrl, cfg);
 	dsi_split_link_setup(ctrl, cfg);
 
+	#ifdef OPLUS_BUG_STABILITY
+	DSI_W32(ctrl, DSI_TEST_PATTERN_GEN_VIDEO_ENABLE, 1);
+	#endif /* OPLUS_BUG_STABILITY */
 	/* Setup T_CLK_PRE extend register */
-	reg_value = DSI_R32(ctrl, DSI_TEST_PATTERN_GEN_VIDEO_ENABLE);
-	if (cfg->t_clk_pre_extend)
-		reg_value |= BIT(0);
-	else
-		reg_value &= ~BIT(0);
-	DSI_W32(ctrl, DSI_TEST_PATTERN_GEN_VIDEO_ENABLE, reg_value);
+	//reg_value = DSI_R32(ctrl, DSI_TEST_PATTERN_GEN_VIDEO_ENABLE);
+	//if (cfg->t_clk_pre_extend)
+	//	reg_value |= BIT(0);
+	//else
+	//	reg_value &= ~BIT(0);
+	//DSI_W32(ctrl, DSI_TEST_PATTERN_GEN_VIDEO_ENABLE, reg_value);
 
 	/* Setup clocking timing controls */
 	reg_value = ((cfg->t_clk_post & 0x3F) << 8);

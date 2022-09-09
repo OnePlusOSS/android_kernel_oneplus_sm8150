@@ -306,6 +306,11 @@ EXPORT_SYMBOL(sysctl_tcp_delack_seg);
 int sysctl_tcp_use_userconfig __read_mostly;
 EXPORT_SYMBOL(sysctl_tcp_use_userconfig);
 
+#ifdef OPLUS_BUG_STABILITY
+int sysctl_tcp_ts_control[2] __read_mostly = {0,0};
+EXPORT_SYMBOL(sysctl_tcp_ts_control);
+#endif /* OPLUS_BUG_STABILITY */
+
 /*
  * Current number of TCP sockets.
  */

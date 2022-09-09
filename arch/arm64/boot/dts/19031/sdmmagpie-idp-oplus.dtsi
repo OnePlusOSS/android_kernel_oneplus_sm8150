@@ -1,0 +1,127 @@
+/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+ 
+&vendor {
+	motor_pl: motor_pl {
+		compatible = "oplus-motor";
+		interrupt-parent = <&tlmm>;
+		interrupts = <68 0x2>;
+		motor,irq-gpio = <&tlmm 68 0x2008>;
+		pinctrl-names = "free_fall_input";
+		pinctrl-0 = <&free_fall_input>;
+		hall-irq-pos = <170>;
+		press-irq-makeup = <55 55>;
+		motor-retard-pos = <430>;
+		delay-cycle = <13 24 24>; //ms
+		slow-delay-cycle = <28 28 28>; //ms
+		full-speed-param = <70 15500>;
+		up-speed-param = <25 15500>;
+		down-speed-param = <2 156250>;
+		slow-full-speed-param = <62 31250>;
+		slow-up-speed-param = <15 104166>;
+		slow-down-speed-param = <2 156250>;
+		extre_stop_support;
+		terminal-offset = <20 24>;
+		cali-retard-offset = <30 30>;
+		hall-max-thrd = <0 0>;
+		stop-neg-point = <4 4>;
+		stop-pos-point = <4 4>;
+		hall-data-sign = <1>; //1 represent positive ,0 represent negative
+		stop-retry = <3>;
+		monotonicity-offset = <15>;
+		/*
+		support mag noise decrease:
+		511 - pattern[0] = irq_max
+		pattern[1] - 512 = irq_min
+		511 - pattern[2] = normal_max
+		pattern[3] - 512 = normal_min
+		average = 200
+		*/
+		mag_noise_support;
+		mag_noise_pattern = <100 513 1 513 200 1 1>;
+	};
+
+	motor_drv1: motor_drv1 {
+		compatible = "motor_drv-220";
+		pinctrl-names = "boost","pwm_config",
+						"pwm_config_as_gpio","enable_gpio",
+						"dir_gpio","standby_gpio",
+						"motor_active",	"motor_sleep";
+		pinctrl-0 = <&boost>;
+		pinctrl-1 = <&pwm_config>;
+		pinctrl-2 = <&pwm_config_as_gpio>;
+		pinctrl-3 = <&enable_gpio>;
+		pinctrl-4 = <&dir_gpio>;
+		pinctrl-5 = <&standby_gpio>;
+		pinctrl-6 = <&boost_active>;
+		pinctrl-7 = <&boost_sleep>;
+
+		pwms = <&pm6150l_pwm_1 1 1000000>;
+		boost-gpio = <&pm6150_gpios 2 GPIO_ACTIVE_HIGH>;
+		step-gpio = <&pm6150l_gpios 10 0>;
+		standby-gpio = <&pm6150l_gpios 11 0>;
+		dir-gpio = <&pm6150l_gpios 12 0>;
+		enable-gpio =  <&pm6150l_gpios 1 0>;
+		ratio-a = <24>;
+		ratio-b = <1840>; //18.40
+		ratio-c = <20>;
+		ratio-d = <32>;
+	};
+};
+
+&qupv3_se2_i2c {
+	status = "okay";
+	dhall0-m1120@0c {
+		compatible = "oplus,dhall-m1120";
+		reg = <0x0c>;
+		pinctrl-names = "hall0_interrupt_input";
+		pinctrl-0 = <&hall0_interrupt_input>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <93 0x2>;
+		dhall,irq-gpio = <&tlmm 93 0x2008>;
+		dhall,id = <0>;
+		vcc_1v8-supply = <&pm6150_l10>;
+		vdd_2v8-supply = <&pm6150l_l7>;
+	};
+
+	dhall1-m1120@0f {
+		compatible = "oplus,dhall-m1120";
+		reg = <0x0f>;
+		pinctrl-names = "hall1_interrupt_input";
+		pinctrl-0 = <&hall1_interrupt_input>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <88 0x2>;
+		dhall,irq-gpio = <&tlmm 88 0x2008>;
+		dhall,id = <1>;
+		vcc_1v8-supply = <&pm6150_l10>;
+		vdd_2v8-supply = <&pm6150l_l7>;
+	};
+};
+
+&soc {
+
+	gpio_keys {
+		/delete-property/ pinctrl-0;
+
+		pinctrl-0 = <&key_vol_up_default &key_vol_down_default>;
+
+		vol_down {
+			label = "volume_down";
+			gpios = <&tlmm 64 GPIO_ACTIVE_LOW>;
+			linux,input-type = <1>;
+			linux,code = <KEY_VOLUMEDOWN>;
+			linux,can-disable;
+			debounce-interval = <15>;
+			gpio-key,wakeup;
+		};
+	};
+};

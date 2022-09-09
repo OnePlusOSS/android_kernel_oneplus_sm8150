@@ -123,6 +123,66 @@ config SCSI_UFSHCD_CMD_LOGGING
 	  Select this if you want above mentioned debug information captured.
 	  If unsure, say N.
 
+config SCSI_UFS_HISI
+	tristate "Hisilicon specific hooks to UFS controller platform driver"
+	depends on (ARCH_HISI || COMPILE_TEST) && SCSI_UFSHCD_PLATFORM
+	---help---
+	  This selects the Hisilicon specific additions to UFSHCD platform driver.
+
+	  Select this if you have UFS controller on Hisilicon chipset.
+	  If unsure, say N.
+
+#ifdef VENDOR_EDIT
+config UFSFEATURE
+	bool "UFS feature activate"
+	depends on SCSI_UFSHCD
+	---help---
+	UFS feature activate such as hpb, tw and etc.
+
+config UFSHPB
+	bool "UFSHPB"
+	depends on SCSI_UFSHCD && UFSFEATURE
+	---help---
+	UFS HPB Feature Enable
+
+config HPB_SUP_ONLY_4
+	bool "Support 4KB"
+	depends on SCSI_UFSHCD && UFSFEATURE && UFSHPB
+	---help---
+	HPB-Read support 4KB chunk
+
+config HPB_SUP_8_TO_32
+	bool "Support 8KB - 32KB"
+	depends on SCSI_UFSHCD && UFSFEATURE && UFSHPB
+	---help---
+	HPB-Read support 8KB - 32KB chunk
+
+config HPB_SUP_OVER_36
+	bool "Support 36KB - 512KB"
+	depends on SCSI_UFSHCD && UFSFEATURE && UFSHPB
+	---help---
+	HPB-Read support 36KB - 512KB chunk
+
+config UFSTW
+	bool "UFSTW"
+	depends on SCSI_UFSHCD && UFSFEATURE
+	---help---
+	UFS TW Feature Enable
+
+config UFSTW_DEBUGDRV
+	bool "UFSTW Debug driver"
+	depends on SCSI_UFSHCD && UFSFEATURE && !UFSTW
+	---help---
+	UFSTW driver should be disabled for operating this driver.
+
+config UFSTW_IGNORE_GUARANTEE_BIT
+	bool "UFSTW_IGNORE_GUARANTEE_BIT"
+	default n
+	depends on SCSI_UFSHCD && UFSFEATURE && UFSTW
+	---help---
+	ignore the guarantee bit[31] of dTurboWriteBufferLifeTimeEst for PoC
+#endif
+
 config SCSI_UFS_CRYPTO
 	bool "UFS Crypto Engine Support"
 	depends on SCSI_UFSHCD && BLK_INLINE_ENCRYPTION

@@ -34,12 +34,16 @@ struct ion_system_heap {
 	struct ion_page_pool *secure_pools[VMID_LAST][MAX_ORDER];
 	/* Prevents unnecessary page splitting */
 	struct mutex split_page_mutex;
+#ifdef CONFIG_OPLUS_ION_BOOSTPOOL
+	struct ion_boost_pool *gr_pool, *cam_pool, *uncached_boost_pool;
+#endif /* CONFIG_OPLUS_ION_BOOSTPOOL */
 };
 
 struct page_info {
 	struct page *page;
 	bool from_pool;
 	unsigned int order;
+	bool from_boost_kmem_cache;
 	struct list_head list;
 };
 
@@ -49,4 +53,8 @@ void free_buffer_page(struct ion_system_heap *heap,
 		      struct ion_buffer *buffer, struct page *page,
 		      unsigned int order);
 
+int ion_system_heap_create_pools(struct ion_page_pool **pools,
+				 bool cached, bool boost_flag);
+
+void ion_system_heap_destroy_pools(struct ion_page_pool **pools);
 #endif /* _ION_SYSTEM_HEAP_H */

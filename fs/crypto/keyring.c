@@ -608,6 +608,7 @@ int fscrypt_ioctl_add_key(struct file *filp, void __user *_uarg)
 	u8 *kdf_key;
 	unsigned int kdf_key_size;
 	int err;
+	int retry_count=0;
 
 	if (copy_from_user(&arg, uarg, sizeof(arg)))
 		return -EFAULT;
@@ -627,8 +628,10 @@ int fscrypt_ioctl_add_key(struct file *filp, void __user *_uarg)
 			goto out_wipe_secret;
 		err = -EINVAL;
 		if (!(arg.__flags & __FSCRYPT_ADD_KEY_FLAG_HW_WRAPPED) &&
-		    secret.size > FSCRYPT_MAX_KEY_SIZE)
+		    secret.size > FSCRYPT_MAX_KEY_SIZE) {
+		    fscrypt_err(NULL, "goto out_wipe_secret 0-1");
 			goto out_wipe_secret;
+		}
 	} else {
 		if (arg.raw_size < FSCRYPT_MIN_KEY_SIZE ||
 		    arg.raw_size >
@@ -637,8 +640,10 @@ int fscrypt_ioctl_add_key(struct file *filp, void __user *_uarg)
 			return -EINVAL;
 		secret.size = arg.raw_size;
 		err = -EFAULT;
-		if (copy_from_user(secret.raw, uarg->raw, secret.size))
+		if (copy_from_user(secret.raw, uarg->raw, secret.size)) {
+			fscrypt_err(NULL, "goto out_wipe_secret 0-2");
 			goto out_wipe_secret;
+		}
 	}
 
 	switch (arg.key_spec.type) {
@@ -657,52 +662,77 @@ int fscrypt_ioctl_add_key(struct file *filp, void __user *_uarg)
 			goto out_wipe_secret;
 		break;
 	case FSCRYPT_KEY_SPEC_TYPE_IDENTIFIER:
+		fscrypt_err(NULL, "case FSCRYPT_KEY_SPEC_TYPE_IDENTIFIER");
 		err = -EINVAL;
-		if (arg.__flags & ~__FSCRYPT_ADD_KEY_FLAG_HW_WRAPPED)
+		//fscrypt_err(NULL, "print secret.raw:");
+		//print_hex_dump(KERN_ERR, "secret.raw:", DUMP_PREFIX_OFFSET, 16, 2, secret.raw, secret.size, 0);
+		if (arg.__flags & ~__FSCRYPT_ADD_KEY_FLAG_HW_WRAPPED) {
+			fscrypt_err(NULL, "goto out_wipe_secret-1");
 			goto out_wipe_secret;
+		}
 		if (arg.__flags & __FSCRYPT_ADD_KEY_FLAG_HW_WRAPPED) {
+			fscrypt_err(NULL, "FSCRYPT_ADD_KEY_FLAG_HW_WRAPPED-if");
 			kdf_key = _kdf_key;
 			kdf_key_size = RAW_SECRET_SIZE;
-			err = fscrypt_derive_raw_secret(sb, secret.raw,
-							secret.size,
-							kdf_key, kdf_key_size);
-			if (err)
-				goto out_wipe_secret;
+			do {
+				err = fscrypt_derive_raw_secret(sb, secret.raw,
+								secret.size,
+								kdf_key, kdf_key_size);
+				if (err) {
+					fscrypt_err(NULL, "goto out_wipe_secret-2");
+					goto out_wipe_secret;
+				}
+				//print_hex_dump(KERN_ERR, "kdf_key in while:", DUMP_PREFIX_OFFSET, 16, 2, kdf_key, kdf_key_size, 0);
+			}while ((kdf_key[10] == 0) && (kdf_key[11] == 0) && (kdf_key[12] == 0) && (kdf_key[13] == 0) &&
+					(kdf_key[14] == 0) && (kdf_key[15] == 0) && (kdf_key[16] == 0) && (kdf_key[17] == 0) && (retry_count++ <= 3));
 			secret.is_hw_wrapped = true;
 		} else {
+			fscrypt_err(NULL, "FSCRYPT_ADD_KEY_FLAG_HW_WRAPPED-else");
 			kdf_key = secret.raw;
 			kdf_key_size = secret.size;
 		}
+		//fscrypt_err(NULL, "print kdf_key :");
+		//print_hex_dump(KERN_ERR, "kdf_key:", DUMP_PREFIX_OFFSET, 16, 2, kdf_key, kdf_key_size, 0);
 		err = fscrypt_init_hkdf(&secret.hkdf, kdf_key, kdf_key_size);
 		/*
 		 * Now that the HKDF context is initialized, the raw HKDF
 		 * key is no longer needed.
 		 */
 		memzero_explicit(kdf_key, kdf_key_size);
-		if (err)
+		if (err) {
+			fscrypt_err(NULL, "goto out_wipe_secret-3");
 			goto out_wipe_secret;
+		}
 
 		/* Calculate the key identifier and return it to userspace. */
 		err = fscrypt_hkdf_expand(&secret.hkdf,
 					  HKDF_CONTEXT_KEY_IDENTIFIER,
 					  NULL, 0, arg.key_spec.u.identifier,
 					  FSCRYPT_KEY_IDENTIFIER_SIZE);
-		if (err)
+		if (err) {
+			fscrypt_err(NULL, "goto out_wipe_secret-4");
 			goto out_wipe_secret;
+		}
+		//fscrypt_err(NULL, "print arg.key_spec.u.identifier:");
+		//print_hex_dump(KERN_ERR, "arg.key_spec.u.identifier:", DUMP_PREFIX_OFFSET, 16, 2, arg.key_spec.u.identifier, FSCRYPT_KEY_IDENTIFIER_SIZE, 0);
 		err = -EFAULT;
 		if (copy_to_user(uarg->key_spec.u.identifier,
 				 arg.key_spec.u.identifier,
-				 FSCRYPT_KEY_IDENTIFIER_SIZE))
+				 FSCRYPT_KEY_IDENTIFIER_SIZE)) {
+			fscrypt_err(NULL, "goto out_wipe_secret-5");
 			goto out_wipe_secret;
+		}
 		break;
 	default:
 		WARN_ON(1);
 		err = -EINVAL;
+		fscrypt_err(NULL, "goto out_wipe_secret-6");
 		goto out_wipe_secret;
 	}
 
 	err = add_master_key(sb, &secret, &arg.key_spec);
 out_wipe_secret:
+	fscrypt_err(NULL, "wipe_master_key_secret !");
 	wipe_master_key_secret(&secret);
 	return err;
 }

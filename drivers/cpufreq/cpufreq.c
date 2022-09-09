@@ -204,6 +204,14 @@ struct cpufreq_policy *cpufreq_cpu_get_raw(unsigned int cpu)
 }
 EXPORT_SYMBOL_GPL(cpufreq_cpu_get_raw);
 
+#ifdef OPLUS_FEATURE_HEALTHINFO
+struct list_head *get_cpufreq_policy_list(void)
+{
+	return &cpufreq_policy_list;
+}
+EXPORT_SYMBOL(get_cpufreq_policy_list);
+#endif /* OPLUS_FEATURE_HEALTHINFO */
+
 unsigned int cpufreq_generic_get(unsigned int cpu)
 {
 	struct cpufreq_policy *policy = cpufreq_cpu_get_raw(cpu);
@@ -909,6 +917,19 @@ static ssize_t show_bios_limit(struct cpufreq_policy *policy, char *buf)
 	return sprintf(buf, "%u\n", policy->cpuinfo.max_freq);
 }
 
+#ifdef OPLUS_FEATURE_HEALTHINFO
+#ifdef CONFIG_OPLUS_HEALTHINFO
+static ssize_t show_freq_change_info(struct cpufreq_policy *policy, char *buf)
+{
+	ssize_t i = 0;
+
+	i += sprintf(buf, "%u,%s\n", policy->org_max, policy->change_comm);
+
+	return i;
+}
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
+
 cpufreq_freq_attr_ro_perm(cpuinfo_cur_freq, 0400);
 cpufreq_freq_attr_ro(cpuinfo_min_freq);
 cpufreq_freq_attr_ro(cpuinfo_max_freq);
@@ -919,6 +940,11 @@ cpufreq_freq_attr_ro(scaling_cur_freq);
 cpufreq_freq_attr_ro(bios_limit);
 cpufreq_freq_attr_ro(related_cpus);
 cpufreq_freq_attr_ro(affected_cpus);
+#ifdef OPLUS_FEATURE_HEALTHINFO
+#ifdef CONFIG_OPLUS_HEALTHINFO
+cpufreq_freq_attr_ro(freq_change_info);
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 cpufreq_freq_attr_rw(scaling_min_freq);
 cpufreq_freq_attr_rw(scaling_max_freq);
 cpufreq_freq_attr_rw(scaling_governor);
@@ -936,6 +962,11 @@ static struct attribute *default_attrs[] = {
 	&scaling_driver.attr,
 	&scaling_available_governors.attr,
 	&scaling_setspeed.attr,
+#ifdef OPLUS_FEATURE_HEALTHINFO
+#ifdef CONFIG_OPLUS_HEALTHINFO
+	&freq_change_info.attr,
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 	NULL
 };
 
@@ -2244,7 +2275,11 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 
 	pr_debug("setting new policy for CPU %u: %u - %u kHz\n",
 		 new_policy->cpu, new_policy->min, new_policy->max);
-
+#ifdef OPLUS_FEATURE_HEALTHINFO
+#ifdef CONFIG_OPLUS_HEALTHINFO
+	policy->org_max = new_policy->max;
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 	memcpy(&new_policy->cpuinfo, &policy->cpuinfo, sizeof(policy->cpuinfo));
 
 	/*
@@ -2281,6 +2316,12 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 
 	policy->min = new_policy->min;
 	policy->max = new_policy->max;
+
+#ifdef OPLUS_FEATURE_HEALTHINFO
+#ifdef CONFIG_OPLUS_HEALTHINFO
+	strncpy(policy->change_comm, current->comm, TASK_COMM_LEN);
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 
 	arch_set_max_freq_scale(policy->cpus, policy->max);
 

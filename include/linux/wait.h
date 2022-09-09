@@ -197,6 +197,7 @@ void __wake_up_sync(struct wait_queue_head *wq_head, unsigned int mode, int nr);
 #define wake_up_all(x)			__wake_up(x, TASK_NORMAL, 0, NULL)
 #define wake_up_locked(x)		__wake_up_locked((x), TASK_NORMAL, 1)
 #define wake_up_all_locked(x)		__wake_up_locked((x), TASK_NORMAL, 0)
+#define wake_up_sync(x)			__wake_up_sync((x), TASK_NORMAL, 1)
 
 #define wake_up_interruptible(x)	__wake_up(x, TASK_INTERRUPTIBLE, 1, NULL)
 #define wake_up_interruptible_nr(x, nr)	__wake_up(x, TASK_INTERRUPTIBLE, nr, NULL)
@@ -240,7 +241,6 @@ extern void init_wait_entry(struct wait_queue_entry *wq_entry, int flags);
  * on purpose; we use long where we can return timeout values and int
  * otherwise.
  */
-
 #define ___wait_event(wq_head, condition, state, exclusive, ret, cmd)		\
 ({										\
 	__label__ __out;							\

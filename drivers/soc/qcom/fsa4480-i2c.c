@@ -341,7 +341,11 @@ static void fsa4480_usbc_analog_work_fn(struct work_struct *work)
 {
 	struct fsa4480_priv *fsa_priv =
 		container_of(work, struct fsa4480_priv, usbc_analog_work);
-
+        #if defined(OPLUS_FEATURE_DP_MAX20328) && !defined(OPLUS_FEATURE_FSA4480)
+        #ifdef CONFIG_QCOM_MAX20328_I2C
+        return;
+        #endif
+        #endif /* OPLUS_FEATURE_DP_MAX20328 */
 	if (!fsa_priv) {
 		pr_err("%s: fsa container invalid\n", __func__);
 		return;

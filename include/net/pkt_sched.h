@@ -109,6 +109,7 @@ int sch_direct_xmit(struct sk_buff *skb, struct Qdisc *q,
 
 void __qdisc_run(struct Qdisc *q);
 
+
 static inline void qdisc_run(struct Qdisc *q)
 {
 	if (qdisc_run_begin(q))

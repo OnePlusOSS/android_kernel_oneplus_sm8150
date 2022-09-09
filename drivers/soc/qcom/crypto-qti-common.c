@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020, Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 Oplus. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -398,7 +399,7 @@ int crypto_qti_keyslot_program(void *priv_data,
 			       unsigned int slot,
 			       u8 data_unit_mask, int capid)
 {
-	int err = 0;
+	int err1 = 0, err2 = 0;
 	struct crypto_vops_qti_entry *ice_entry;
 
 	ice_entry = (struct crypto_vops_qti_entry *) priv_data;
@@ -407,21 +408,20 @@ int crypto_qti_keyslot_program(void *priv_data,
 		return -EINVAL;
 	}
 
-	err = crypto_qti_program_key(ice_entry, key, slot,
+	err1 = crypto_qti_program_key(ice_entry, key, slot,
 				data_unit_mask, capid);
-	if (err) {
-		pr_err("%s: program key failed with error %d\n", __func__, err);
-		err = crypto_qti_invalidate_key(ice_entry, slot);
-		if (err) {
+	if (err1) {
+		pr_err("%s: program key failed with error %d\n", __func__, err1);
+		err2 = crypto_qti_invalidate_key(ice_entry, slot);
+		if (err2) {
 			pr_err("%s: invalidate key failed with error %d\n",
-				__func__, err);
-			return err;
+				__func__, err2);
+			return err2;
 		}
 	}
 
-	return err;
+	return err1;
 }
-
 int crypto_qti_keyslot_evict(void *priv_data, unsigned int slot)
 {
 	int err = 0;

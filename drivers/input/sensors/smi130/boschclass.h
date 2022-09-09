@@ -109,7 +109,6 @@
  * performance or error has been made.
  *
  * @filename boschcalss.h
- * @date     2015/11/17 13:44
  * @Modification Date 2018/08/28 18:20
  * @id       "836294d"
  * @version  1.5.9

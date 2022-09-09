@@ -30,3 +30,6 @@ obj-y			+= test/
 
 ccflags-$(CONFIG_DEBUG_DRIVER) := -DDEBUG
 
+#ifdef OPLUS_FEATURE_TP_BASIC
+obj-$(CONFIG_OPLUS_FW_UPDATE)	+=  kernelFwUpdate/
+#endif /*OPLUS_FEATURE_TP_BASIC*/

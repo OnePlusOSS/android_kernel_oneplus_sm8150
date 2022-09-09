@@ -857,6 +857,17 @@ config QCOM_FSA4480_I2C
 	  for accessing the device, switching between USB and Audio
 	  modes, changing orientation.
 
+#ifdef OPLUS_ARCH_EXTENDS
+config QCOM_MAX20328_I2C
+	bool "Fairchild MAX20328 chip with I2C"
+	select REGMAP_I2C
+	depends on I2C
+	help
+	  Support for the Fairchild MAX20328 IC switch chip controlled
+	  using I2C. This driver provides common support
+	  for accessing the device, switching between USB and Audio
+	  modes, changing orientation.
+#endif /* OPLUS_ARCH_EXTENDS */
 if (MSM_PM || MSM_PM_LEGACY)
 menuconfig MSM_IDLE_STATS
 	bool "Collect idle statistics"
@@ -974,6 +985,12 @@ config QCOM_CDSP_RM
 	  improving CDSP performance. Using this driver, CDSP can set appropriate
 	  CPU L3 clock for improving IO-Coherent throughput and opt for QoS mode
 	  to improve RPC latency.
+
+config PROJECT_INFO
+	bool "detect project info"
+	default n
+        help
+           detect projcet info  If unsure, say n.
 
 config QCOM_CX_IPEAK
 	bool "Common driver to handle Cx iPeak limitation"

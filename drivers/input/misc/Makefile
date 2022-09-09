@@ -85,3 +85,12 @@ obj-$(CONFIG_INPUT_WM831X_ON)		+= wm831x-on.o
 obj-$(CONFIG_INPUT_XEN_KBDDEV_FRONTEND)	+= xen-kbdfront.o
 obj-$(CONFIG_INPUT_YEALINK)		+= yealink.o
 obj-$(CONFIG_INPUT_IDEAPAD_SLIDEBAR)	+= ideapad_slidebar.o
+
+ifeq ($(TARGET_PRODUCT),msmnile)
+ifeq ($(strip $(BRAND_SHOW_FLAG)), oneplus)
+obj-$(CONFIG_STMVL53L1)			+= vl53L1_op/
+ccflags-y += -DCONFIG_OPLUS_HAPTIC_OOS
+else
+obj-$(CONFIG_STMVL53L1)			+= vl53L1/
+endif
+endif

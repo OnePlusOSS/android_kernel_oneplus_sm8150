@@ -3,6 +3,15 @@
 obj-$(CONFIG_SCSI_UFS_DWC_TC_PCI) += tc-dwc-g210-pci.o ufshcd-dwc.o tc-dwc-g210.o
 obj-$(CONFIG_SCSI_UFS_DWC_TC_PLATFORM) += tc-dwc-g210-pltfrm.o ufshcd-dwc.o tc-dwc-g210.o
 obj-$(CONFIG_SCSI_UFS_QCOM) += ufs-qcom.o
+obj-$(CONFIG_SCSI_UFS_QCOM_ICE) += ufs-qcom-ice.o
+obj-$(CONFIG_SCSI_UFSHCD) += ufshcd-core.o
+ufshcd-core-objs := ufshcd.o ufs-sysfs.o
+#ifdef VENDOR_EDIT
+obj-$(CONFIG_UFSFEATURE) += ufsfeature.o
+obj-$(CONFIG_UFSHPB) += ufshpb.o
+obj-$(CONFIG_UFSTW) += ufstw.o
+obj-$(CONFIG_UFSTW_DEBUGDRV) += ufstw-ddrv.o
+#endif
 obj-$(CONFIG_SCSI_UFSHCD) += ufshcd-core.o
 ufshcd-core-y := ufshcd.o
 obj-$(CONFIG_SCSI_UFSHCD_PCI) += ufshcd-pci.o

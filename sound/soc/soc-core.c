@@ -1578,11 +1578,12 @@ static int soc_probe_component(struct snd_soc_card *card,
 				"ASoC: failed to probe component %d\n", ret);
 			goto err_probe;
 		}
-
+		#ifndef OPLUS_ARCH_EXTENDS
 		WARN(dapm->idle_bias_off &&
 			dapm->bias_level != SND_SOC_BIAS_OFF,
 			"codec %s can not start from non-off bias with idle_bias_off==1\n",
 			component->name);
+		#endif /* OPLUS_ARCH_EXTENDS */
 	}
 
 	/* machine specific init */

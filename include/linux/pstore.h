@@ -30,6 +30,10 @@
 #include <linux/time.h>
 #include <linux/types.h>
 
+#ifdef OPLUS_FEATURE_DUMPDEVICE
+#include <linux/pstore_ram.h>
+#endif /* OPLUS_FEATURE_DUMPDEVICE */
+
 struct module;
 
 /* pstore record types (see fs/pstore/inode.c for filename templates) */
@@ -44,6 +48,9 @@ enum pstore_type_id {
 	PSTORE_TYPE_PPC_COMMON	= 6,
 	PSTORE_TYPE_PMSG	= 7,
 	PSTORE_TYPE_PPC_OPAL	= 8,
+#ifdef OPLUS_FEATURE_DUMPDEVICE
+	PSTORE_TYPE_DEVICE_INFO	= 9,
+#endif /* OPLUS_FEATURE_DUMPDEVICE */
 	PSTORE_TYPE_UNKNOWN	= 255
 };
 
@@ -275,5 +282,37 @@ pstore_ftrace_write_timestamp(struct pstore_ftrace_record *rec, u64 val)
 	rec->ts = (rec->ts & TS_CPU_MASK) | (val << TS_CPU_SHIFT);
 }
 #endif
+
+#ifdef OPLUS_FEATURE_DUMPDEVICE
+/*move from ram.c*/
+struct ramoops_context {
+	struct persistent_ram_zone **dprzs;	/* Oops dump zones */
+	struct persistent_ram_zone *cprz;	/* Console zone */
+	struct persistent_ram_zone **fprzs;	/* Ftrace zones */
+	struct persistent_ram_zone *mprz;	/* PMSG zone */
+	struct persistent_ram_zone *dprz;
+	phys_addr_t phys_addr;
+	unsigned long size;
+	unsigned int memtype;
+	size_t record_size;
+	size_t console_size;
+	size_t ftrace_size;
+	size_t pmsg_size;
+	size_t device_info_size;
+	int dump_oops;
+	u32 flags;
+	struct persistent_ram_ecc_info ecc_info;
+	unsigned int max_dump_cnt;
+	unsigned int dump_write_cnt;
+	/* _read_cnt need clear on ramoops_pstore_open */
+	unsigned int dump_read_cnt;
+	unsigned int console_read_cnt;
+	unsigned int max_ftrace_cnt;
+	unsigned int ftrace_read_cnt;
+	unsigned int pmsg_read_cnt;
+	unsigned int device_info_read_cnt;
+	struct pstore_info pstore;
+};
+#endif /* OPLUS_FEATURE_DUMPDEVICE */
 
 #endif /*_LINUX_PSTORE_H*/

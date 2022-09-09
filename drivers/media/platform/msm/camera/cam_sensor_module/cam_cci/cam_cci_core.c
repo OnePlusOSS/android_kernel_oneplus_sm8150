@@ -13,6 +13,9 @@
 #include <linux/module.h>
 #include "cam_cci_core.h"
 #include "cam_cci_dev.h"
+#ifdef VENDOR_EDIT
+#define DUMP_CCI_REGISTERS 1
+#endif
 
 static int32_t cam_cci_convert_type_to_num_bytes(
 	enum camera_sensor_i2c_type type)
@@ -1348,6 +1351,9 @@ static int32_t cam_cci_i2c_write(struct v4l2_subdev *sd,
 	int32_t rc = 0;
 	struct cci_device *cci_dev;
 	enum cci_i2c_master_t master;
+#ifdef VENDOR_EDIT
+	int retry;
+#endif
 
 	cci_dev = v4l2_get_subdevdata(sd);
 
@@ -1409,6 +1415,14 @@ static int32_t cam_cci_i2c_write(struct v4l2_subdev *sd,
 		goto ERROR;
 	}
 	rc = cam_cci_data_queue(cci_dev, c_ctrl, queue, sync_en);
+#ifdef VENDOR_EDIT
+	for (retry = 3; retry > 0 && rc < 0; retry--) {
+		rc = cam_cci_data_queue(cci_dev, c_ctrl, queue, sync_en);
+		CAM_ERR(CAM_SENSOR,"Try cam_cci_data_queue again : %d",
+			rc);
+	}
+#endif
+
 	if (rc < 0) {
 		CAM_ERR(CAM_CCI, "failed rc: %d", rc);
 		goto ERROR;

@@ -41,6 +41,13 @@ static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 		mmc_hostname(host), present, present?"INSERT":"REMOVAL");
 
 	host->trigger_card_event = true;
+#ifdef VENDOR_EDIT
+        host->detect_change_retry = 5;
+#endif /* VENDOR_EDIT */
+#ifdef VENDOR_EDIT
+        host->card_stuck_in_programing_status = false;
+#endif /* VENDOR_EDIT */
+
 	mmc_detect_change(host, msecs_to_jiffies(200));
 
 	return IRQ_HANDLED;

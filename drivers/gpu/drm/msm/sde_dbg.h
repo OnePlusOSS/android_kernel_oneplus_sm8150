@@ -58,7 +58,7 @@ enum sde_dbg_dump_context {
 #ifdef CONFIG_DRM_SDE_EVTLOG_DEBUG
 #define SDE_EVTLOG_DEFAULT_ENABLE (SDE_EVTLOG_CRITICAL | SDE_EVTLOG_IRQ)
 #else
-#define SDE_EVTLOG_DEFAULT_ENABLE 0
+#define SDE_EVTLOG_DEFAULT_ENABLE (SDE_EVTLOG_CRITICAL | SDE_EVTLOG_IRQ)
 #endif
 
 /*
@@ -66,7 +66,7 @@ enum sde_dbg_dump_context {
  * sysfs node or panic. This prevents kernel log from evtlog message
  * flood.
  */
-#define SDE_EVTLOG_PRINT_ENTRY	256
+#define SDE_EVTLOG_PRINT_ENTRY	512
 
 /*
  * evtlog keeps this number of entries in memory for debug purpose. This
@@ -175,8 +175,7 @@ extern struct sde_dbg_evtlog *sde_dbg_base_evtlog;
 #define SDE_DBG_CTRL(...) sde_dbg_ctrl(__func__, ##__VA_ARGS__, \
 		SDE_DBG_DUMP_DATA_LIMITER)
 
-#if defined(CONFIG_DEBUG_FS)
-
+#if defined(CONFIG_DEBUG_FS) || defined(OPLUS_BUG_STABILITY)
 /**
  * sde_evtlog_init - allocate a new event log object
  * Returns:	evtlog or -ERROR
@@ -477,7 +476,7 @@ static inline void dsi_ctrl_debug_dump(u32 *entries, u32 size)
 {
 }
 
-#endif /* defined(CONFIG_DEBUG_FS) */
+#endif /* defined(CONFIG_DEBUG_FS) || defined(OPLUS_BUG_STABILITY)*/
 
 
 #endif /* SDE_DBG_H_ */

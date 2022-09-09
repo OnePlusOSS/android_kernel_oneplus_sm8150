@@ -1,0 +1,69 @@
+/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&soc {
+	devinfo {
+		compatible = "oplus-devinfo";
+
+		pinctrl-names = "active", "sleep";
+		pinctrl-0 = <&aboard_active_pin>;
+		pinctrl-1 = <&aboard_sleep_pin>;
+
+		main-sub {
+			compatible = "hw-match, main-sub";
+			aboard-gpio0 = <&pm6150_gpios 8 GPIO_ACTIVE_LOW>;
+			aboard-patterns = <1 1 0 0>;
+
+			/*main board*/
+			hw-combs = <15 14 13 12>;
+		};
+
+		device_0 {
+			compatible = "hw, devices, example";
+			label = "charger";
+			hw-id0 = <&tlmm 11 0x00>;
+			hw-id1 = <&tlmm 12 0x00>;
+			hw-combs = <0 2 3>;
+			hw-names = "qp", "hh", "ad";
+		};
+	};
+
+	oplus_rf_cable {
+		compatible = "oplus,rf_cable";
+		interrupt-parent = <&tlmm>;
+		rf,cable0-gpio = <&tlmm 70 0>;
+		rf,cable1-gpio = <&tlmm 88 0>;
+		rf,cable-support-timer = <0>;
+		pinctrl-names = "rf_cable_active";
+		pinctrl-0 = <&rf_cable0_active &rf_cable1_active>;
+	};
+
+	gpio_keys {
+		/delete-property/ pinctrl-0;
+
+		pinctrl-0 = <&key_vol_up_default &key_vol_down_default>;
+
+		vol_down {
+			label = "volume_down";
+			gpios = <&tlmm 64 GPIO_ACTIVE_LOW>;
+			linux,input-type = <1>;
+			linux,code = <KEY_VOLUMEDOWN>;
+			linux,can-disable;
+			debounce-interval = <15>;
+			gpio-key,wakeup;
+		};
+	};
+};
+
+&wdog {
+	qcom,bark-time = <20000>;
+};

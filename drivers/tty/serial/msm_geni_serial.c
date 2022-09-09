@@ -121,9 +121,9 @@
 #define WAIT_XFER_MAX_ITER	(2)
 #define WAIT_XFER_MAX_TIMEOUT_US	(10000)
 #define WAIT_XFER_MIN_TIMEOUT_US	(9000)
-#define IPC_LOG_PWR_PAGES	(6)
-#define IPC_LOG_MISC_PAGES	(10)
-#define IPC_LOG_TX_RX_PAGES	(10)
+#define IPC_LOG_PWR_PAGES	(10)
+#define IPC_LOG_MISC_PAGES	(30)
+#define IPC_LOG_TX_RX_PAGES	(30)
 #define DATA_BYTES_PER_LINE	(32)
 
 #define M_IRQ_BITS		(M_RX_FIFO_WATERMARK_EN | M_RX_FIFO_LAST_EN |\
@@ -198,6 +198,7 @@ struct msm_geni_serial_port {
 	void *ipc_log_pwr;
 	void *ipc_log_misc;
 	void *console_log;
+	void *ipc_log_irqstatus;
 	unsigned int cur_baud;
 	int ioctl_count;
 	int edge_count;
@@ -414,6 +415,21 @@ static bool geni_wait_for_cmd_done(struct uart_port *uport, bool is_irq_masked)
 
 	return timeout ? 0 : 1;
 }
+
+#ifdef OPLUS_FEATURE_POWERINFO_FTM
+static struct pinctrl *serial_pinctrl = NULL;
+static struct pinctrl_state *serial_pinctrl_state_disable = NULL;
+#endif
+
+#ifdef OPLUS_FEATURE_POWERINFO_FTM
+extern bool oem_disable_uart(void);
+bool boot_with_console(void)
+{
+	return !oem_disable_uart();
+}
+
+EXPORT_SYMBOL(boot_with_console);
+#endif
 
 static void msm_geni_serial_config_port(struct uart_port *uport, int cfg_flags)
 {
@@ -962,6 +978,12 @@ __msm_geni_serial_console_write(struct uart_port *uport, const char *s,
 	int bytes_to_send = count;
 	int fifo_depth = DEF_FIFO_DEPTH_WORDS;
 	int tx_wm = DEF_TX_WM;
+
+#ifdef OPLUS_FEATURE_POWERINFO_FTM
+	if (!boot_with_console()) {
+		return;
+	}
+#endif
 
 	for (i = 0; i < count; i++) {
 		if (s[i] == '\n')
@@ -2973,7 +2995,7 @@ static void console_unregister(struct uart_driver *drv)
 static void msm_geni_serial_debug_init(struct uart_port *uport, bool console)
 {
 	struct msm_geni_serial_port *msm_port = GET_DEV_PORT(uport);
-	char name[30];
+	char name[35];
 
 	msm_port->dbg = debugfs_create_dir(dev_name(uport->dev), NULL);
 	if (IS_ERR_OR_NULL(msm_port->dbg))
@@ -3015,6 +3037,15 @@ static void msm_geni_serial_debug_init(struct uart_port *uport, bool console)
 					IPC_LOG_MISC_PAGES, name, 0);
 			if (!msm_port->ipc_log_misc)
 				dev_info(uport->dev, "Err in Misc IPC Log\n");
+		}
+		memset(name, 0, sizeof(name));
+		if (!msm_port->ipc_log_irqstatus) {
+			scnprintf(name, sizeof(name), "%s%s",
+					dev_name(uport->dev), "_irqstatus");
+			msm_port->ipc_log_irqstatus = ipc_log_context_create(
+					IPC_LOG_MISC_PAGES, name, 0);
+			if (!msm_port->ipc_log_irqstatus)
+				dev_info(uport->dev, "Err in irqstatus IPC Log\n");
 		}
 	} else {
 		memset(name, 0, sizeof(name));
@@ -3154,6 +3185,30 @@ exit_ver_info:
 	return ret;
 }
 
+#ifdef OPLUS_FEATURE_POWERINFO_FTM
+static bool oplus_charge_id_reconfig(struct platform_device *pdev, struct uart_driver *drv)
+{
+	//TODO: add charger id control here
+	if (drv == &msm_geni_console_driver) {
+		pr_err("%s: console start get pinctrl\n", __FUNCTION__);
+		serial_pinctrl = devm_pinctrl_get(&pdev->dev);
+		if (IS_ERR_OR_NULL(serial_pinctrl)) {
+			dev_err(&pdev->dev, "No serial_pinctrl config specified!\n");
+		} else {
+			serial_pinctrl_state_disable =
+			pinctrl_lookup_state(serial_pinctrl, PINCTRL_SLEEP);
+			if (IS_ERR_OR_NULL(serial_pinctrl_state_disable)) {
+				dev_err(&pdev->dev, "No serial_pinctrl_state_disable config specified!\n");
+			} else {
+				pinctrl_select_state(serial_pinctrl, serial_pinctrl_state_disable);
+			}
+		}
+		return true;
+	}
+	return false;
+}
+#endif
+
 static int msm_geni_serial_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -3177,6 +3232,12 @@ static int msm_geni_serial_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "%s: No matching device found", __func__);
 		return -ENODEV;
 	}
+	
+#ifdef OPLUS_FEATURE_POWERINFO_FTM
+   if (!boot_with_console() && oplus_charge_id_reconfig(pdev, drv)) { 
+		return -ENODEV; 
+	}
+#endif
 
 	if (pdev->dev.of_node) {
 		if (drv->cons) {
@@ -3714,6 +3775,12 @@ static int __init msm_geni_serial_init(void)
 		msm_geni_console_port.uport.flags = UPF_BOOT_AUTOCONF;
 		msm_geni_console_port.uport.line = i;
 	}
+
+#ifdef OPLUS_FEATURE_POWERINFO_FTM
+	if (!boot_with_console()) {
+		msm_geni_console_driver.cons = NULL;
+	}
+#endif
 
 	ret = console_register(&msm_geni_console_driver);
 	if (ret)

@@ -35,6 +35,9 @@ obj-$(CONFIG_BLK_DEV_ZONED)	+= blk-zoned.o
 obj-$(CONFIG_BLK_WBT)		+= blk-wbt.o
 obj-$(CONFIG_BLK_DEBUG_FS)	+= blk-mq-debugfs.o
 obj-$(CONFIG_BLK_SED_OPAL)	+= sed-opal.o
+#ifdef OPLUS_FEATURE_FG_IO_OPT
+obj-$(CONFIG_OPLUS_FG_IO_OPT)	+= oplus_foreground_io_opt/
+#endif /*OPLUS_FEATURE_FG_IO_OPT*/
 obj-$(CONFIG_BLK_INLINE_ENCRYPTION)	+= keyslot-manager.o bio-crypt-ctx.o \
 					   blk-crypto.o
 obj-$(CONFIG_BLK_INLINE_ENCRYPTION_FALLBACK)	+= blk-crypto-fallback.o

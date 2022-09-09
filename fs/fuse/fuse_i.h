@@ -120,6 +120,16 @@ enum {
 };
 
 struct fuse_conn;
+/**
+ * Reference to lower filesystem file for read/write operations handled in
+ * passthrough mode.
+ * This struct also tracks the credentials to be used for handling read/write
+ * operations.
+ */
+struct fuse_passthrough {
+	struct file *filp;
+	struct cred *cred;
+};
 
 /** FUSE specific file data */
 struct fuse_file {
@@ -155,6 +165,9 @@ struct fuse_file {
 
 	/** Has flock been performed on this file? */
 	bool flock:1;
+
+	/** Container for data related to the passthrough functionality */
+	struct fuse_passthrough passthrough;
 };
 
 /** One input argument of a request */
@@ -212,6 +225,9 @@ struct fuse_out {
 
 	/** Array of arguments */
 	struct fuse_arg args[2];
+
+	/* Path used for completing d_canonical_path */
+	struct path *canonical_path;
 };
 
 /** FUSE page descriptor */
@@ -234,6 +250,9 @@ struct fuse_args {
 		unsigned argvar:1;
 		unsigned numargs;
 		struct fuse_arg args[2];
+
+		/* Path used for completing d_canonical_path */
+		struct path *canonical_path;
 	} out;
 };
 
@@ -370,9 +389,6 @@ struct fuse_req {
 	/** Inode used in the request or NULL */
 	struct inode *inode;
 
-	/** Path used for completing d_canonical_path */
-	struct path *canonical_path;
-
 	/** AIO control block */
 	struct fuse_io_priv *io;
 
@@ -384,11 +400,15 @@ struct fuse_req {
 
 	/** Request is stolen from fuse_file->reserved_req */
 	struct file *stolen_file;
+
 };
 
 struct fuse_iqueue {
 	/** Connection established */
 	unsigned connected;
+
+	/** Lock protecting accesses to members of this structure */
+	spinlock_t lock;
 
 	/** Readers of the connection are waiting on this */
 	wait_queue_head_t waitq;
@@ -544,6 +564,8 @@ struct fuse_conn {
 	/** handle fs handles killing suid/sgid/cap on write/chown/trunc */
 	unsigned handle_killpriv:1;
 
+	/** Passthrough mode for read/write IO */
+	unsigned int passthrough:1;
 	/*
 	 * The following bitfields are only for optimization purposes
 	 * and hence races in setting them will not cause malfunction
@@ -668,6 +690,12 @@ struct fuse_conn {
 
 	/** List of device instances belonging to this connection */
 	struct list_head devices;
+
+	/** IDR for passthrough requests */
+	struct idr passthrough_req;
+
+	/** Protects passthrough_req */
+	spinlock_t passthrough_req_lock;
 };
 
 static inline struct fuse_conn *get_fuse_conn_super(struct super_block *sb)
@@ -985,5 +1013,19 @@ extern const struct xattr_handler *fuse_acl_xattr_handlers[];
 struct posix_acl;
 struct posix_acl *fuse_get_acl(struct inode *inode, int type);
 int fuse_set_acl(struct inode *inode, struct posix_acl *acl, int type);
+
+/* passthrough.c */
+int fuse_passthrough_open(struct fuse_dev *fud, u32 lower_fd);
+int fuse_passthrough_setup(struct fuse_conn *fc, struct fuse_file *ff,
+			   struct fuse_open_out *openarg);
+void fuse_passthrough_release(struct fuse_passthrough *passthrough);
+ssize_t fuse_passthrough_read_iter(struct kiocb *iocb, struct iov_iter *to);
+ssize_t fuse_passthrough_write_iter(struct kiocb *iocb, struct iov_iter *from);
+ssize_t fuse_passthrough_mmap(struct file *file, struct vm_area_struct *vma);
+
+#ifdef CONFIG_OPLUS_FEATURE_ACM
+void acm_fuse_init_cache(void);
+void acm_fuse_free_cache(void);
+#endif
 
 #endif /* _FS_FUSE_I_H */

@@ -742,6 +742,12 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 		/* some quirks for attributes here */
 
 		switch (chip->usb_id) {
+#ifdef OPLUS_FEATURE_CHG_BASIC
+		case USB_ID(0x0451, 0x17ed): /* ISK UK400 */
+			if (stream == SNDRV_PCM_STREAM_PLAYBACK)
+				fp->attributes &= ~(UAC_EP_CS_ATTR_FILL_MAX);
+			break;
+#endif
 		case USB_ID(0x0a92, 0x0053): /* AudioTrak Optoplay */
 			/* Optoplay sets the sample rate attribute although
 			 * it seems not supporting it in fact.

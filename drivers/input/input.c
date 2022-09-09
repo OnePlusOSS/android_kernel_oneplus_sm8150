@@ -366,10 +366,19 @@ static int input_get_disposition(struct input_dev *dev,
 	return disposition;
 }
 
+#ifdef OPLUS_FEATURE_SAUPWK
+extern void __attribute__((weak)) oplus_sync_saupwk_event(unsigned int , unsigned int , int);
+#endif /* OPLUS_FEATURE_SAUPWK */
+
 static void input_handle_event(struct input_dev *dev,
 			       unsigned int type, unsigned int code, int value)
 {
 	int disposition = input_get_disposition(dev, type, code, &value);
+
+#ifdef OPLUS_FEATURE_SAUPWK
+	if(oplus_sync_saupwk_event)
+        oplus_sync_saupwk_event(type, code, value);
+#endif /* OPLUS_FEATURE_SAUPWK */
 
 	if (disposition != INPUT_IGNORE_EVENT && type != EV_SYN)
 		add_input_randomness(type, code, value);

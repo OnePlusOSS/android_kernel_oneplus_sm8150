@@ -119,6 +119,13 @@ u32 secure_tcp_ts_off(const struct net *net, __be32 saddr, __be32 daddr)
 	if (net->ipv4.sysctl_tcp_timestamps != 1)
 		return 0;
 
+	#ifdef OPLUS_BUG_STABILITY
+	if (net->ipv4.sysctl_tcp_random_timestamp == 0)
+	{
+		return 0;
+	}
+	#endif /* OPLUS_BUG_STABILITY */
+
 	ts_secret_init();
 	return siphash_2u32((__force u32)saddr, (__force u32)daddr,
 			    &ts_secret);

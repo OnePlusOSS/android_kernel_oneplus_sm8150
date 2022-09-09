@@ -1,0 +1,10 @@
+&soc {
+	oplus,audio-drv {
+		compatible = "oplus,asoc-audio";
+		//for nxp speaker
+		oplus,speaker-vendor = "nxp";
+		oplus,speaker-i2s-id = <3>;
+		oplus,speaker-codec-name = "tfa98xx.0-0035", "tfa98xx.0-0034";
+		oplus,speaker-codec-dai-name = "tfa98xx-aif-0-35", "tfa98xx-aif-0-34";
+	};
+};

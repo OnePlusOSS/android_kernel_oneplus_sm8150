@@ -33,6 +33,9 @@ typedef enum {
 	ptr_explicit,
 	ptr_ext4_sb_info_offset,
 	ptr_ext4_super_block_offset,
+#if defined(CONFIG_OPLUS_FEATURE_EXT4_ASYNC_DISCARD)
+	ptr_discard_cmd_control_offset,
+#endif
 } attr_ptr_t;
 
 static const char proc_dirname[] = "fs/ext4";
@@ -150,7 +153,10 @@ static struct ext4_attr ext4_attr_##_name = {			\
 
 #define EXT4_RW_ATTR_SBI_UI(_name,_elname)	\
 	EXT4_ATTR_OFFSET(_name, 0644, pointer_ui, ext4_sb_info, _elname)
-
+#if defined(CONFIG_OPLUS_FEATURE_EXT4_ASYNC_DISCARD)
+#define EXT4_RW_ATTR_DCC_UI(_name,_elname)	\
+	EXT4_ATTR_OFFSET(_name, 0644, pointer_ui, discard_cmd_control, _elname)
+#endif
 #define EXT4_ATTR_PTR(_name,_mode,_id,_ptr) \
 static struct ext4_attr ext4_attr_##_name = {			\
 	.attr = {.name = __stringify(_name), .mode = _mode },	\
@@ -185,6 +191,16 @@ EXT4_RW_ATTR_SBI_UI(warning_ratelimit_interval_ms, s_warning_ratelimit_state.int
 EXT4_RW_ATTR_SBI_UI(warning_ratelimit_burst, s_warning_ratelimit_state.burst);
 EXT4_RW_ATTR_SBI_UI(msg_ratelimit_interval_ms, s_msg_ratelimit_state.interval);
 EXT4_RW_ATTR_SBI_UI(msg_ratelimit_burst, s_msg_ratelimit_state.burst);
+#if defined(CONFIG_OPLUS_FEATURE_EXT4_ASYNC_DISCARD)
+EXT4_RW_ATTR_DCC_UI(DCC_dpolicy_param_tune, dpolicy_param_tune);
+EXT4_RW_ATTR_DCC_UI(DCC_discard_granularity, discard_granularity);
+EXT4_RW_ATTR_DCC_UI(Dpolicy_min_interval, dpolicy.min_interval);
+EXT4_RW_ATTR_DCC_UI(Dpolicy_mid_interval, dpolicy.mid_interval);
+EXT4_RW_ATTR_DCC_UI(Dpolicy_max_interval, dpolicy.max_interval);
+EXT4_RW_ATTR_DCC_UI(Dpolicy_io_aware_gran, dpolicy.io_aware_gran);
+EXT4_RW_ATTR_DCC_UI(Dpolicy_current_discard_gran, dpolicy.granularity);
+EXT4_RW_ATTR_DCC_UI(Dpolicy_max_requests, dpolicy.max_requests);
+#endif
 EXT4_RO_ATTR_ES_UI(errors_count, s_error_count);
 EXT4_RO_ATTR_ES_UI(first_error_time, s_first_error_time);
 EXT4_RO_ATTR_ES_UI(last_error_time, s_last_error_time);
@@ -217,6 +233,16 @@ static struct attribute *ext4_attrs[] = {
 	ATTR_LIST(errors_count),
 	ATTR_LIST(first_error_time),
 	ATTR_LIST(last_error_time),
+#if defined(CONFIG_OPLUS_FEATURE_EXT4_ASYNC_DISCARD)
+	ATTR_LIST(DCC_dpolicy_param_tune),
+	ATTR_LIST(DCC_discard_granularity),
+	ATTR_LIST(Dpolicy_min_interval),
+	ATTR_LIST(Dpolicy_mid_interval),
+	ATTR_LIST(Dpolicy_max_interval),
+	ATTR_LIST(Dpolicy_io_aware_gran),
+	ATTR_LIST(Dpolicy_current_discard_gran),
+	ATTR_LIST(Dpolicy_max_requests),
+#endif
 	NULL,
 };
 
@@ -261,6 +287,14 @@ static void *calc_ptr(struct ext4_attr *a, struct ext4_sb_info *sbi)
 		return (void *) (((char *) sbi) + a->u.offset);
 	case ptr_ext4_super_block_offset:
 		return (void *) (((char *) sbi->s_es) + a->u.offset);
+#if defined(CONFIG_OPLUS_FEATURE_EXT4_ASYNC_DISCARD)
+	case ptr_discard_cmd_control_offset:
+		if (!test_opt(sbi->s_buddy_cache->i_sb, ASYNC_DISCARD)){
+			return 0;
+		}
+
+		return (void *) (((char *) sbi->dcc_info) + a->u.offset);
+#endif
 	}
 	return NULL;
 }
@@ -394,6 +428,9 @@ static const struct file_operations ext4_seq_##name##_fops = { \
 
 PROC_FILE_SHOW_DEFN(es_shrinker_info);
 PROC_FILE_SHOW_DEFN(options);
+#if defined(CONFIG_OPLUS_FEATURE_EXT4_ASYNC_DISCARD)
+PROC_FILE_SHOW_DEFN(discard_info);
+#endif
 
 static const struct ext4_proc_files {
 	const char *name;
@@ -402,6 +439,9 @@ static const struct ext4_proc_files {
 	PROC_FILE_LIST(options),
 	PROC_FILE_LIST(es_shrinker_info),
 	PROC_FILE_LIST(mb_groups),
+#if defined(CONFIG_OPLUS_FEATURE_EXT4_ASYNC_DISCARD)
+	PROC_FILE_LIST(discard_info),
+#endif
 	{ NULL, NULL },
 };
 

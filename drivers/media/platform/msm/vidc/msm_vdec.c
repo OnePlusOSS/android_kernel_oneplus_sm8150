@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1309,13 +1309,30 @@ int msm_vdec_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		if (((ctrl->val >> 16) < inst->capability.frame_rate.min ||
 			(ctrl->val >> 16) > inst->capability.frame_rate.max) &&
 			ctrl->val != INT_MAX) {
-			dprintk(VIDC_ERR, "Invalid operating rate %u\n",
-				(ctrl->val >> 16));
-			rc = -ENOTSUPP;
+			if (!is_realtime_session(inst)) {
+				if ((ctrl->val >> 16) <
+					inst->capability.frame_rate.min) {
+					inst->clk_data.operating_rate =
+					inst->capability.frame_rate.min << 16;
+				} else {
+					inst->clk_data.operating_rate =
+					inst->capability.frame_rate.max << 16;
+				}
+				dprintk(VIDC_DBG,
+					"inst(%pK) operating rate capped from %d to %d\n",
+					inst, ctrl->val >> 16,
+					inst->clk_data.operating_rate >> 16);
+				inst->operating_rate_set = true;
+			} else {
+				dprintk(VIDC_ERR, "Invalid operating rate %u\n",
+					(ctrl->val >> 16));
+				rc = -ENOTSUPP;
+			}
 		} else if (ctrl->val == INT_MAX) {
 			dprintk(VIDC_DBG,
 				"inst(%pK) Request for turbo mode\n", inst);
 			inst->clk_data.turbo_mode = true;
+			inst->operating_rate_set = true;
 		} else if (msm_vidc_validate_operating_rate(inst, ctrl->val)) {
 			dprintk(VIDC_ERR, "Failed to set operating rate\n");
 			rc = -ENOTSUPP;
@@ -1325,6 +1342,7 @@ int msm_vdec_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 				inst, inst->clk_data.operating_rate >> 16,
 					ctrl->val >> 16);
 			inst->clk_data.operating_rate = ctrl->val;
+			inst->operating_rate_set = true;
 			inst->clk_data.turbo_mode = false;
 		}
 		break;

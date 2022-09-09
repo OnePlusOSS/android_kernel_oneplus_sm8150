@@ -61,7 +61,7 @@ config SECURITY_SELINUX_DISABLE
 config SECURITY_SELINUX_DEVELOP
 	bool "NSA SELinux Development Support"
 	depends on SECURITY_SELINUX
-	default y
+	default n
 	help
 	  This enables the development support option of NSA SELinux,
 	  which is useful for experimenting with SELinux and developing

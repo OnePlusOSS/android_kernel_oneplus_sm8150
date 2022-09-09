@@ -34,6 +34,9 @@
 #include <soc/qcom/socinfo.h>
 #include <linux/soc/qcom/smem.h>
 #include <soc/qcom/boot_stats.h>
+#ifdef OPLUS_ARCH_EXTENDS
+#include <soc/oplus/system/oplus_project.h>
+#endif
 
 #define BUILD_ID_LENGTH 32
 #define CHIP_ID_LENGTH 32
@@ -289,6 +292,10 @@ static union {
 
 /* max socinfo format version supported */
 #define MAX_SOCINFO_FORMAT SOCINFO_VERSION(0, 15)
+#ifdef OPLUS_ARCH_EXTENDS
+static char *fake_cpu_id = "SDM660";
+static char *real_cpu_id = "SDM720G";
+#endif
 
 static struct msm_soc_info cpu_of_id[] = {
 	[0]  = {MSM_CPU_UNKNOWN, "Unknown CPU"},
@@ -1840,10 +1847,36 @@ int __init socinfo_init(void)
 		pr_warn("New IDs added! ID => CPU mapping needs an update.\n");
 
 	cur_cpu = cpu_of_id[socinfo->v0_1.id].generic_soc_type;
-	boot_stats_init();
-	socinfo_print();
-	arch_read_hardware_id = msm_read_hardware_id;
-	socinfo_init_done = true;
+#ifdef OPLUS_ARCH_EXTENDS
+	if (is_confidential()) {
+		cpu_of_id[socinfo->v0_1.id].soc_id_string = fake_cpu_id;
+	} else {
+		cpu_of_id[socinfo->v0_1.id].soc_id_string = real_cpu_id;
+	}
+#endif
+       if (is_confidential()) {
+               if(get_project() == 132785)
+               {
+                       cpu_of_id[socinfo->v0_1.id].generic_soc_type = MSM_CPU_ATOLL_AB;
+                       cpu_of_id[socinfo->v0_1.id].soc_id_string = "SDM720G";
+               }
+       }
+
+// Ported from R 8150
+        if (( get_project() == 18115) || ( get_project() == 18116 )
+                || ( get_project() == 18501 ) || ( get_project() == 18821 )
+                || ( get_project() == 18857 )) {
+                        cpu_of_id[socinfo->v0_1.id].generic_soc_type = MSM_CPU_SM8150;
+                        cpu_of_id[socinfo->v0_1.id].soc_id_string = "SM8150";
+        } else if (( get_project() == 19081 ) || ( get_project() == 19801 )
+                        || ( get_project() == 18865 )) {
+                        cpu_of_id[socinfo->v0_1.id].generic_soc_type = MSM_CPU_SM8150;
+                        cpu_of_id[socinfo->v0_1.id].soc_id_string = "SM8150_Plus";
+        }
+        boot_stats_init();
+        socinfo_print();
+        arch_read_hardware_id = msm_read_hardware_id;
+        socinfo_init_done = true;
 
 	return 0;
 }

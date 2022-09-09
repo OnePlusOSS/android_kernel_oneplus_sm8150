@@ -5,6 +5,23 @@
 #
 mainmenu "Linux/$ARCH $KERNELVERSION Kernel Configuration"
 
+#ifdef CONFIG_OPLUS_SYSTEM_KERNEL
+config OPLUS_SYSTEM_KERNEL_QCOM
+  bool "config oplus system feature "
+  default y
+  help
+	define this config to Distinguish between qcom and mtk platform
+
+config OPLUS_FEATURE_PANIC_FLUSH
+	bool "fsync optimization "
+	default y
+	help
+		define this config to fsync optimization
+
+#endif /*CONFIG_OPLUS_SYSTEM_KERNEL*/
+
+
+
 config SRCARCH
 	string
 	option env="SRCARCH"

@@ -49,6 +49,7 @@ MODULE_PARM_DESC(max_user_congthresh,
  "Global limit for the maximum congestion threshold an "
  "unprivileged user can set");
 
+
 #define FUSE_SUPER_MAGIC 0x65735546
 
 #define FUSE_DEFAULT_BLKSIZE 512
@@ -584,6 +585,7 @@ static int fuse_show_options(struct seq_file *m, struct dentry *root)
 static void fuse_iqueue_init(struct fuse_iqueue *fiq)
 {
 	memset(fiq, 0, sizeof(struct fuse_iqueue));
+	spin_lock_init(&fiq->lock);
 	init_waitqueue_head(&fiq->waitq);
 	INIT_LIST_HEAD(&fiq->pending);
 	INIT_LIST_HEAD(&fiq->interrupts);
@@ -604,6 +606,7 @@ void fuse_conn_init(struct fuse_conn *fc)
 {
 	memset(fc, 0, sizeof(*fc));
 	spin_lock_init(&fc->lock);
+	spin_lock_init(&fc->passthrough_req_lock);
 	init_rwsem(&fc->killsb);
 	refcount_set(&fc->count, 1);
 	atomic_set(&fc->dev_count, 1);
@@ -613,6 +616,7 @@ void fuse_conn_init(struct fuse_conn *fc)
 	INIT_LIST_HEAD(&fc->bg_queue);
 	INIT_LIST_HEAD(&fc->entry);
 	INIT_LIST_HEAD(&fc->devices);
+	idr_init(&fc->passthrough_req);
 	atomic_set(&fc->num_waiting, 0);
 	fc->max_background = FUSE_DEFAULT_MAX_BACKGROUND;
 	fc->congestion_threshold = FUSE_DEFAULT_CONGESTION_THRESHOLD;
@@ -910,6 +914,12 @@ static void process_init_reply(struct fuse_conn *fc, struct fuse_req *req)
 				fc->async_dio = 1;
 			if (arg->flags & FUSE_WRITEBACK_CACHE)
 				fc->writeback_cache = 1;
+			if (arg->flags & FUSE_PASSTHROUGH) {
+				fc->passthrough = 1;
+				/* Prevent further stacking */
+				fc->sb->s_stack_depth =
+					FILESYSTEM_MAX_STACK_DEPTH;
+			}
 			if (arg->flags & FUSE_PARALLEL_DIROPS)
 				fc->parallel_dirops = 1;
 			if (arg->flags & FUSE_HANDLE_KILLPRIV)
@@ -951,7 +961,9 @@ static void fuse_send_init(struct fuse_conn *fc, struct fuse_req *req)
 		FUSE_FLOCK_LOCKS | FUSE_HAS_IOCTL_DIR | FUSE_AUTO_INVAL_DATA |
 		FUSE_DO_READDIRPLUS | FUSE_READDIRPLUS_AUTO | FUSE_ASYNC_DIO |
 		FUSE_WRITEBACK_CACHE | FUSE_NO_OPEN_SUPPORT |
-		FUSE_PARALLEL_DIROPS | FUSE_HANDLE_KILLPRIV | FUSE_POSIX_ACL;
+		FUSE_PARALLEL_DIROPS | FUSE_HANDLE_KILLPRIV | FUSE_POSIX_ACL |
+		FUSE_PASSTHROUGH;
+
 	req->in.h.opcode = FUSE_INIT;
 	req->in.numargs = 1;
 	req->in.args[0].size = sizeof(*arg);
@@ -967,9 +979,21 @@ static void fuse_send_init(struct fuse_conn *fc, struct fuse_req *req)
 	fuse_request_send_background(fc, req);
 }
 
+static int free_fuse_passthrough(int id, void *p, void *data)
+{
+	struct fuse_passthrough *passthrough = (struct fuse_passthrough *)p;
+
+	fuse_passthrough_release(passthrough);
+	kfree(p);
+
+	return 0;
+}
+
 static void fuse_free_conn(struct fuse_conn *fc)
 {
 	WARN_ON(!list_empty(&fc->devices));
+	idr_for_each(&fc->passthrough_req, free_fuse_passthrough, NULL);
+	idr_destroy(&fc->passthrough_req);
 	kfree_rcu(fc, rcu);
 }
 
@@ -1167,6 +1191,10 @@ static int fuse_fill_super(struct super_block *sb, void *data, int silent)
 
 	fuse_send_init(fc, init_req);
 
+#ifdef CONFIG_OPLUS_FEATURE_ACM
+	acm_fuse_init_cache();
+#endif
+
 	return 0;
 
  err_unlock:
@@ -1198,6 +1226,9 @@ static void fuse_sb_destroy(struct super_block *sb)
 	struct fuse_conn *fc = get_fuse_conn_super(sb);
 
 	if (fc) {
+#ifdef CONFIG_OPLUS_FEATURE_ACM
+		acm_fuse_free_cache();
+#endif
 		fuse_send_destroy(fc);
 
 		fuse_abort_conn(fc);

@@ -230,3 +230,7 @@ config BLK_MQ_RDMA
 	default y
 
 source block/Kconfig.iosched
+
+#ifdef OPLUS_FEATURE_FG_IO_OPT
+source block/oplus_foreground_io_opt/Kconfig
+#endif /*OPLUS_FEATURE_FG_IO_OPT*/

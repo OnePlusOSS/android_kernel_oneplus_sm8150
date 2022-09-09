@@ -22,6 +22,9 @@ struct ramdump_segment {
 	unsigned long size;
 };
 
+#ifdef OPLUS_FEATURE_MODEM_MINIDUMP
+extern bool SKIP_GENERATE_RAMDUMP;
+#endif
 #ifdef CONFIG_MSM_SUBSYSTEM_RESTART
 extern void *create_ramdump_device(const char *dev_name, struct device *parent);
 extern void destroy_ramdump_device(void *dev);

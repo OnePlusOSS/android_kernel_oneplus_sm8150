@@ -109,7 +109,6 @@
  * performance or error has been made.
  *
  * @filename smi130_acc.c
- * @date    2015/11/17 10:32
  * @Modification Date 2018/08/28 18:20
  * @id       "836294d"
  * @version  2.1.2

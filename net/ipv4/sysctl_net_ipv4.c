@@ -811,7 +811,16 @@ static struct ctl_table ipv4_table[] = {
 		.extra1		= &tcp_use_userconfig_min,
 		.extra2		= &tcp_use_userconfig_max,
 	},
-
+    #ifdef OPLUS_BUG_STABILITY
+	//ZhaoMengqingCONNECTIVITY.WIFI.INTERNET.1394484, 2019/04/02,add for: When find TCP SYN-ACK Timestamp value error, just do not use Timestamp
+	{
+		.procname	= "tcp_timestamps_control",
+		.data		= &sysctl_tcp_ts_control,
+		.maxlen		= sizeof(sysctl_tcp_ts_control),
+		.mode		= 0664,
+		.proc_handler	= proc_dointvec
+	},
+	#endif /* OPLUS_BUG_STABILITY */
 	{ }
 };
 
@@ -1220,6 +1229,16 @@ static struct ctl_table ipv4_net_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec
 	},
+
+	#ifdef OPLUS_BUG_STABILITY
+	{
+		.procname	= "tcp_random_timestamp",
+		.data		= &init_net.ipv4.sysctl_tcp_random_timestamp,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec
+	},
+	#endif /* OPLUS_BUG_STABILITY */
 	{ }
 };
 

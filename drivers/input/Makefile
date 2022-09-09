@@ -32,3 +32,7 @@ obj-$(CONFIG_INPUT_KEYCOMBO)	+= keycombo.o
 
 obj-$(CONFIG_RMI4_CORE)		+= rmi4/
 obj-$(CONFIG_SMI130)   += sensors/smi130/
+#ifdef VENDOR_EDIT
+obj-$(CONFIG_OPLUS_FINGERPRINT)  += oplus_fp_drivers/
+obj-$(CONFIG_OPLUS_FINGERPRINT)  += oplus_secure_common/
+#endif

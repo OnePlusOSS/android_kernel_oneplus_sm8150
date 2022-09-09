@@ -1,0 +1,6 @@
+#ifdef OPLUS_ARCH_EXTENDS
+config OPLUS_CRITICALLOG
+bool "config oplus kevent feedback"
+help
+    define this config to init oplus kevent feedback driver.
+#endif /* OPLUS_ARCH_EXTENDS */

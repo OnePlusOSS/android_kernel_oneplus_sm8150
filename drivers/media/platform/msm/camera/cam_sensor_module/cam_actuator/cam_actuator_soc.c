@@ -18,6 +18,7 @@
 #include <cam_req_mgr_util.h>
 #include "cam_actuator_soc.h"
 #include "cam_soc_util.h"
+#include "cam_actuator_dev.h"
 
 int32_t cam_actuator_parse_dt(struct cam_actuator_ctrl_t *a_ctrl,
 	struct device *dev)
@@ -64,6 +65,15 @@ int32_t cam_actuator_parse_dt(struct cam_actuator_ctrl_t *a_ctrl,
 		}
 		a_ctrl->io_master_info.cci_client->cci_device = a_ctrl->cci_num;
 	}
+#ifdef OPLUS_FEATURE_CAMERA_COMMON
+	if (!of_property_read_bool(of_node, "need-check-data")) {
+		a_ctrl->need_check_pid = false;
+	} else {
+		CAM_ERR(CAM_ACTUATOR, "need-check-pid defined for ultra wide camera af");
+		a_ctrl->need_check_pid = true;
+		a_ctrl->pid_data_updated = false;
+	}
+#endif
 
 	if (!soc_info->gpio_data) {
 		CAM_INFO(CAM_ACTUATOR, "No GPIO found");

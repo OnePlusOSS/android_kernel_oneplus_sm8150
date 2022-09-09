@@ -851,3 +851,57 @@ config FORCE_ALLOC_FROM_DMA_ZONE
 	  always using ZONE_DMA memory.
 
 	  If unsure, say "n".
+
+#ifdef OPLUS_FEATURE_MULTI_KSWAPD
+source "mm/multi_kswapd/Kconfig"
+#endif /*OPLUS_FEATURE_MULTI_KSWAPD*/
+
+#ifdef OPLUS_FEATURE_PROCESS_RECLAIM
+# inactive pages only
+config PROCESS_RECLAIM_ENHANCE
+	bool "Enable process reclaim enchance"
+	depends on PROCESS_RECLAIM
+	default y
+	help
+	 It allows to reclaim different type pages of the process by
+	 /proc/process_reclaim.
+
+	 (echo inactive_file > /proc/PID/reclaim) reclaims inactive file-backed
+		pages only.
+	 (echo inactive_anon > /proc/PID/reclaim) reclaims inactive anonymous
+		pages only.
+	 (echo inactive > /proc/PID/reclaim) reclaims inactive file-backed and
+		anonymous pages only.
+	 Any other vaule, please reference PROCESS_RECLAIM.
+#endif /* OPLUS_FEATURE_PROCESS_RECLAIM */
+
+#ifdef OPLUS_FEATURE_HEALTHINFO
+source "mm/oplus_healthinfo/Kconfig"
+#endif /* OPLUS_FEATURE_HEALTHINFO */
+
+#ifdef OPLUS_FEATURE_MULTI_FREEAREA
+config PHYSICAL_ANTI_FRAGMENTATION
+	bool "Physical memory anti-fragmentation"
+	default y
+	help
+	 Turn on the function of Physical memory anti-fragmentation.
+#endif /* OPLUS_FEATURE_MULTI_FREEAREA */
+
+config DAYAMIC_TUNNING_SWAPPINESS
+	bool "tunning swappiess depends on file_pages size"
+	default n
+	help
+	  tunning swappiess depends on file_pages size
+
+#ifdef OPLUS_FEATURE_MEMLEAK_DETECT
+#/* memleak detect of kmalloc/vmalloc/ion */
+source "mm/malloc_track/Kconfig.compat"
+source "mm/task_mem/Kconfig"
+#endif
+#ifdef OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY
+config VIRTUAL_RESERVE_MEMORY
+	bool "reserved vma for gpu emergency mmap"
+	default y
+	help
+	 support reserved vma for gpu emergency mmap.
+#endif /* OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY */

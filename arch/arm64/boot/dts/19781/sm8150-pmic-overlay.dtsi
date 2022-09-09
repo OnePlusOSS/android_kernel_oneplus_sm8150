@@ -1,0 +1,465 @@
+/*
+ * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include "pm8150.dtsi"
+#include "pm8150b.dtsi"
+#include "pm8150l.dtsi"
+#include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
+
+/* PMIC GPIO pin control configurations: */
+&pm8150_gpios {
+//#ifdef VENDOR_EDIT
+//delete because this GPIO used for camera
+//	key_home {
+//		key_home_default: key_home_default {
+//			pins = "gpio1";
+//			function = "normal";
+//			input-enable;
+//			bias-pull-up;
+//			power-source = <0>;
+//		};
+//	};
+//#endif
+
+	key_vol_up {
+		key_vol_up_default: key_vol_up_default {
+			pins = "gpio6";
+			function = "normal";
+			input-enable;
+			bias-disable;
+			power-source = <1>;
+		};
+	};
+
+		key_vol_down {
+		key_vol_down_default: key_vol_down_default {
+			pins = "gpio7";
+			function = "normal";
+			input-enable;
+			bias-disable;
+			power-source = <1>;
+		};
+	};
+
+	usb2_vbus_boost {
+		usb2_vbus_boost_default: usb2_vbus_boost_default {
+			pins = "gpio9";
+			function = "normal";
+			output-low;
+			power-source = <1>;	/* 1.8V input supply */
+		};
+	};
+
+	usb2_vbus_det {
+		usb2_vbus_det_default: usb2_vbus_det_default {
+			pins = "gpio10";
+			function = "normal";
+			input-enable;
+			bias-pull-down;
+			power-source = <1>;	/* 1.8V input supply */
+		};
+	};
+/*ifdef VENDOR_EDIT*/
+	cam_rear_reset_act {
+		cam_rear_reset_active: cam_rear_reset_active {
+			pins = "gpio1";
+			function = "normal";
+			power-source = <0>;
+			output-low;
+		};
+	};
+	cam_rear_reset_susp {
+		cam_rear_reset_suspend: cam_rear_reset_suspend {
+			pins = "gpio1";
+			function = "normal";
+			power-source = <0>;
+			output-low;
+		};
+	};
+/*endif*/
+};
+
+&pm8150l_gpios {
+	/* #ifdef VENDOR_EDIT */
+	/*
+	cam_sensor_eldo4 {
+		cam_sensor_eldo4_default: cam_sensor_eldo4_default {
+			pins = "gpio3";
+			function = "normal";
+			power-source = <0>;
+			output-low;
+		};
+	};
+
+	cam_sensor_eldo3 {
+		cam_sensor_eldo3_default: cam_sensor_eldo3_default {
+			pins = "gpio4";
+			function = "normal";
+			power-source = <0>;
+			output-low;
+		};
+	};
+	*/
+	/* #else */
+	cam_rear_vdig {
+		cam_rear_vdig_default: cam_rear_vdig_default {
+			pins = "gpio1";
+			function = "normal";
+			power-source = <0>;
+			output-low;
+		};
+	};
+
+	cam_rear_vana {
+		cam_rear_vana_default: cam_rear_vana_default {
+		/*#ifdef VENDOR_EDIT*/
+		//	pins = "gpio4";
+		/*#endif*/
+			function = "normal";
+			power-source = <0>;
+			output-low;
+		};
+	};
+	cam_rear_vaf_act {
+		cam_rear_vaf_active: cam_rear_vaf_active {
+			pins = "gpio3";
+			function = "normal";
+			power-source = <0>;
+			output-low;
+		};
+	};
+	cam_rear_vaf_susp {
+		cam_rear_vaf_suspend: cam_rear_vaf_suspend {
+			pins = "gpio3";
+			function = "normal";
+			power-source = <0>;
+			output-low;
+		};
+	};
+	/* #endif */
+};
+
+&pm8150b_charger {
+	dpdm-supply = <&usb2_phy0>;
+	smb5_vconn: qcom,smb5-vconn {
+		regulator-name = "smb5-vconn";
+	};
+	smb5_vbus: qcom,smb5-vbus {
+		regulator-name = "smb5-vbus";
+	};
+};
+
+&pm8150b_fg {
+	nvmem-names = "fg_sdam";
+	nvmem = <&pm8150_sdam_2>;
+};
+
+&pm8150b_qnovo {
+	pinctrl-names = "q_state1", "q_state2";
+	pinctrl-0 = <&qnovo_fet_ctrl_state1>;
+	pinctrl-1 = <&qnovo_fet_ctrl_state2>;
+};
+
+&pm8150b_gpios {
+	smb_stat {
+		smb_stat_default: smb_stat_default {
+			pins = "gpio6";
+			function = "normal";
+			input-enable;
+			bias-pull-up;
+			qcom,pull-up-strength = <PMIC_GPIO_PULL_UP_30>;
+			power-source = <0>;
+		};
+	};
+
+	qnovo_fet_ctrl {
+		qnovo_fet_ctrl_state1: qnovo_fet_ctrl_state1 {
+			pins = "gpio8";
+			function = "normal";
+			input-enable;
+			output-disable;
+			bias-disable;
+			power-source = <0>;
+		};
+
+		qnovo_fet_ctrl_state2: qnovo_fet_ctrl_state2 {
+			pins = "gpio8";
+			function = "normal";
+			input-enable;
+			output-disable;
+			bias-pull-down;
+			power-source = <0>;
+		};
+	};
+	/*ifdef VENDOR_EDIT*/
+	hw_sub1_gpio_active {
+		hw_sub1_pullup: hw_sub1_pullup {
+			pins = "gpio8";
+			function = "normal";
+			input-enable;
+			bias-pull-up;
+			power-source = <1>;
+		};
+	};
+
+	hw_sub1_gpio_sleep {
+		hw_sub1_pulldown: hw_sub1_pulldown {
+			pins = "gpio8";
+			function = "normal";
+			input-enable;
+			bias-pull-down;
+			power-source = <1>;
+		};
+	};
+	/*endif*/
+};
+
+&usb0 {
+	extcon = <&pm8150b_pdphy>, <&eud>;
+};
+
+&usb_qmp_dp_phy {
+	extcon = <&pm8150b_pdphy>;
+};
+
+&sde_dp {
+	extcon = <&pm8150b_pdphy>;
+};
+
+//#ifdef VENDOR_EDIT
+&pm8150b_gpios {
+    gpio7_adc {
+        gpio7_adc_default: gpio7_adc_default {
+        pins = "gpio7"; /* GPIO 7 */
+        function = "normal"; /* normal */
+        bias-high-impedance; /* DISABLE GPIO7 for ADC*/
+        };
+    };    
+    gpio1_adc {
+        gpio1_adc_default: gpio1_adc_default {
+        pins = "gpio1"; /* GPIO 1 */
+        function = "normal"; /* normal */
+        bias-high-impedance; /* DISABLE GPIO1 for ADC*/
+        };
+    };
+	gpio12_adc {
+        gpio12_adc_default: gpio12_adc_default {
+        pins = "gpio12"; /* GPIO 12 */
+        function = "normal"; /* normal */
+        bias-high-impedance; /* DISABLE GPIO1 for ADC*/
+        };
+    };
+};
+&pm8150_gpios {
+	dischg_enable: dischg_enable {
+		pins = "gpio9"; /* GPIO 9 */
+		function = "normal"; /* normal */
+		bias-disable; //No Pull
+		power-source = <0>;//VIN0 3.3
+		output-high; //digital output, no invert
+		qcom,drive-strength = <3>; //LOW strength
+		//drive-push-pull;//CMOS
+	};
+
+	dischg_disable: dischg_disable {
+		pins = "gpio9"; /* GPIO 9 */
+		function = "normal"; /* normal */
+		bias-disable; //No Pull
+		power-source = <0>;//VIN0 3.3
+		output-low; //digital output, no invert
+		qcom,drive-strength = <3>; //LOW strength
+		//drive-push-pull;//CMOS
+	};
+	mps_otg_en_active: mps_otg_en_active {
+			pins = "gpio4"; /* GPIO 4 */
+			function = "normal"; /* normal */
+			bias-disable; //No Pull
+			power-source = <1>;//VIN1 1.8
+			output-high; //digital output, no invert
+			qcom,drive-strength = <3>; //LOW strength
+			//drive-push-pull;//CMOS
+		};
+		mps_otg_en_sleep: mps_otg_en_sleep {
+			pins = "gpio4"; /* GPIO 4 */
+			function = "normal"; /* normal */
+			bias-disable; //No Pull
+			power-source = <1>;//VIN1 1.8
+			output-low; //digital output, no invert
+			qcom,drive-strength = <3>; //LOW strength
+			//drive-push-pull;//CMOS
+		};
+		mps_otg_en_default: mps_otg_en_default {
+			pins = "gpio4"; /* GPIO 4 */
+			function = "normal"; /* normal */
+			bias-disable; //No Pull
+			power-source = <1>;//VIN1 1.8
+			output-low; //digital output, no invert
+			qcom,drive-strength = <3>; //LOW strength
+			//drive-push-pull;//CMOS
+		};
+};
+
+&pm8150l_gpios {
+
+		otg_en_active: otg_en_active {
+			pins = "gpio10"; /* GPIO 10 */
+			function = "normal"; /* normal */
+			bias-disable; //No Pull
+			power-source = <1>;//VIN1 1.8
+			output-high; //digital output, no invert
+			qcom,drive-strength = <3>; //LOW strength
+			//drive-push-pull;//CMOS
+		};
+		otg_en_sleep: otg_en_sleep {
+			pins = "gpio10"; /* GPIO 10 */
+			function = "normal"; /* normal */
+			bias-disable; //No Pull
+			power-source = <1>;//VIN1 1.8
+			output-low; //digital output, no invert
+			qcom,drive-strength = <3>; //LOW strength
+			//drive-push-pull;//CMOS
+		};
+		otg_en_default: otg_en_default {
+			pins = "gpio10"; /* GPIO 10 */
+			function = "normal"; /* normal */
+			bias-pull-low; // Pull down
+			power-source = <1>;//VIN1 1.8
+			input-enable; //digital output, no invert
+			qcom,drive-strength = <3>; //LOW strength
+			//drive-push-pull;//CMOS
+		};
+	};
+//#endif
+
+&qupv3_se1_i2c {
+	status = "okay";
+	qcom,clk-freq-out = <400000>;
+
+	mp2650-charger@5c {
+		status = "okay";
+		compatible = "oplus,mp2650-charger";
+		reg = <0x5c 0>;
+
+		qcom,mps_otg_en-gpio = <&pm8150_gpios 4 0x00>;
+		pinctrl-names = "mps_otg_en_active", "mps_otg_en_sleep", "mps_otg_en_default";
+		pinctrl-0 = <&mps_otg_en_active>;
+		pinctrl-1 = <&mps_otg_en_sleep>;
+		pinctrl-2 = <&mps_otg_en_default>;
+
+	};
+};
+
+&qupv3_se15_i2c {
+	status = "okay";
+	
+	///qcom,clk-freq-out = <100000>;
+
+//#ifdef VENDOR_EDIT//Fanhong.Kong@ProDrv.CHG,add 2018/04/20 for SVOOC
+	//bq25882-charger@6b {
+	//	status = "okay";
+	//	compatible = "oplus,bq25882-charger";
+	//	reg = <0x6b 0>;
+	//};
+	da9313-divider@68 {
+		status = "okay";
+		compatible = "oplus,da9313-divider";
+		reg = <0x68 0>;
+	};
+//#endif /*VENDOR_EDIT*/
+	bq27541-battery@55 {
+		status = "okay";
+		compatible = "oplus,bq27541-battery";
+		reg = <0x55>;
+		qcom,modify-soc-smooth;
+		qcom,batt_bq28z610;
+		qcom,sha1_key_index = <1>;
+	};
+
+	oplus_short-ic@58 {
+		status = "okay";
+		compatible = "oplus,oplus_short-ic";
+		reg = <0x58>;
+		qcom,modify-soc-smooth;
+	};
+
+	stm8s_fastcg@26{
+		status = "okay";
+		compatible = "oplus,stm8s-fastcg";
+		reg = <0x26>;
+		qcom,vooc-low-temp = <120>;
+		qcom,oplus_batt_4400mv;
+		qcom,support_vooc_by_normal_charger_path;
+		qcom,vooc_fw_update_newmethod;
+		///qcom,vooc-fw-type = <0x22>;//5A
+		qcom,vooc-high-temp = <430>;
+		qcom,vooc-low-soc = <1>;
+		qcom,vooc-high-soc = <90>;
+		qcom,vooc-fw-type = <0x22>;//5A
+		qcom,vooc_multistep_adjust_current_support;
+		qcom,vooc_multistep_initial_batt_temp = <320>;
+		qcom,vooc_strategy_normal_current = <0x06>;
+		
+		qcom,vooc_strategy1_batt_high_temp0 = <425>;
+		qcom,vooc_strategy1_batt_high_temp1 = <430>;
+		qcom,vooc_strategy1_batt_high_temp2 = <435>;
+		qcom,vooc_strategy1_batt_low_temp2 = <420>;
+		qcom,vooc_strategy1_batt_low_temp1 = <415>;
+		qcom,vooc_strategy1_batt_low_temp0 = <400>;
+
+		qcom,vooc_strategy1_high_current0 = <0x04>;//4A
+		qcom,vooc_strategy1_high_current1 = <0x03>;//3A
+		qcom,vooc_strategy1_high_current2 = <0x02>;//2A
+		qcom,vooc_strategy1_low_current2 = <0x03>;//3A
+		qcom,vooc_strategy1_low_current1 = <0x04>;//4A
+		qcom,vooc_strategy1_low_current0 = <0x04>;//4A
+		
+		qcom,vooc_strategy2_batt_up_temp1 = <375>;
+		qcom,vooc_strategy2_batt_up_down_temp2 = <380>;
+		qcom,vooc_strategy2_batt_up_temp3 = <390>;
+		qcom,vooc_strategy2_batt_up_down_temp4 = <400>;
+		qcom,vooc_strategy2_batt_up_temp5 = <410>;
+		qcom,vooc_strategy2_batt_up_temp6 = <415>;
+		qcom,vooc_strategy2_high0_current = <0x05>;
+		qcom,vooc_strategy2_high1_current = <0x04>;
+		qcom,vooc_strategy2_high2_current = <0x03>;
+		qcom,vooc_strategy2_high3_current = <0x02>;
+
+		pinctrl-names = "switch1_act_switch2_act", "switch1_sleep_switch2_sleep",
+						"switch1_act_switch3_act", "switch1_sleep_switch3_sleep",
+						"switch1_act_switch2_sleep", "switch1_sleep_switch2_act",
+						"clock_active","clock_sleep",
+						"data_active","data_sleep",
+						"reset_active","reset_sleep";
+		pinctrl-0 = <&charging_switch1_active>;
+		pinctrl-1 = <&charging_switch1_sleep >;
+		pinctrl-2 = <&charging_switch1_active>;
+		pinctrl-3 = <&charging_switch1_sleep >;
+		pinctrl-4 = <&charging_switch1_active>;
+		pinctrl-5 = <&charging_switch1_sleep>;
+		pinctrl-6 = <&charging_clock_active >;
+		pinctrl-7 = <&charging_clock_sleep >;
+		pinctrl-8 = <&charging_data_active >;
+		pinctrl-9 = <&charging_data_sleep >;
+		pinctrl-10 = <&charging_reset_active >;
+		pinctrl-11 = <&charging_reset_sleep >;
+
+		qcom,charging_switch1-gpio = <&tlmm 59 0x00>;
+		//qcom,charging_switch2-gpio = <&tlmm 113 0x00>;
+		//qcom,charging_switch3-gpio = <&tlmm 38 0x00>;
+
+		qcom,charging_reset-gpio = <&tlmm 131 0x00>;
+		qcom,charging_clock-gpio = <&tlmm 92 0x00>;
+		qcom,charging_data-gpio = <&tlmm 93 0x00>;
+	};
+
+};

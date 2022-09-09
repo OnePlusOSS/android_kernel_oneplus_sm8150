@@ -1,0 +1,6 @@
+config OPLUS_COMMON_SOFT
+  bool "config oplus common software"
+  help
+	define this config to get project verion from sharemem.
+	Maybe this value is from CDT or dynamic identify by hardware
+	id.

@@ -1,0 +1,89 @@
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&tlmm {
+	vol_pins:vol_pins {
+		key_vol_down_default:key_vol_down_default {
+			mux {
+				pins = "gpio64";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio64";
+				drive-strength = <2>;
+				input-enable;
+				bias-pull-up;
+			};
+		};
+	};
+
+	rf_cable_pins:rf_cable_pins {
+		rf_cable0_active: rf_cable0_active {
+			mux {
+				pins = "gpio70";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio70";
+				drive-strength = <2>;
+				input-enable;
+				bias-pull-up;
+			};
+		};
+
+		rf_cable1_active: rf_cable1_active {
+			mux {
+				pins = "gpio88";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio88";
+				drive-strength = <2>;
+				input-enable;
+				bias-pull-up;
+			};
+		};
+	};
+};
+
+
+&pm6150_gpios {
+	dspg_sleep_clk {
+		dspg_sleep_clk_default: dspg_sleep_clk_default{
+			pins = "gpio6";
+			function = "func1"; /* Special Function 1 */
+			bias-disable; /* No Pull */
+			power-source = <0>; /* VIN0 */
+			output-low; /* digital output, no invert */
+			input-disable; /* prevent GPIO from being set to DIO */
+		};
+	};
+
+	aboard_gpio_pins {
+		aboard_active_pin:aboard_active_pin {
+			pins = "gpio8";
+			function = "normal";
+			bias-pull-up; /* No Pull */
+			power-source = <0>; /* VIN0 */
+			input-enable;
+		};
+
+		aboard_sleep_pin:aboard_sleep_pin {
+			pins = "gpio8";
+			function = "normal";
+			bias-high-impedance; /* No Pull */
+			power-source = <0>; /* VIN0 */
+			input-enable;
+		};
+	};
+};

@@ -183,6 +183,30 @@ bool f2fs_need_SSR(struct f2fs_sb_info *sbi)
 			SM_I(sbi)->min_ssr_sections + reserved_sections(sbi));
 }
 
+block_t of2fs_seg_freefrag(struct f2fs_sb_info *sbi, unsigned int segno,
+				block_t* blocks, unsigned int n)
+{
+	struct seg_entry *se = get_seg_entry(sbi, segno);
+	unsigned long *cur_map = (unsigned long *)se->cur_valid_map;
+	unsigned int pos, pos0;
+	block_t total_blocks = 0;
+	// free and valid segment is not fragment
+	if (!se->valid_blocks || se->valid_blocks == sbi->blocks_per_seg)
+		return total_blocks;
+	pos0 = __find_rev_next_zero_bit(cur_map, sbi->blocks_per_seg, 0);
+	while (pos0 < sbi->blocks_per_seg) {
+		unsigned int blks, order;
+		pos = __find_rev_next_bit(cur_map, sbi->blocks_per_seg, pos0 + 1);
+		blks = pos - pos0;
+		order = ilog2(blks);
+		if (order < n)
+			blocks[order] += blks;
+		total_blocks += blks;
+		pos0 = __find_rev_next_zero_bit(cur_map, sbi->blocks_per_seg, pos + 1);
+	}
+	return total_blocks;
+}
+
 void f2fs_register_inmem_page(struct inode *inode, struct page *page)
 {
 	struct inmem_pages *new;

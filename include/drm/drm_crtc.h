@@ -129,6 +129,7 @@ struct drm_crtc_state {
 	u32 connector_mask;
 	u32 encoder_mask;
 
+	int fd;
 	/**
 	 * @adjusted_mode:
 	 *

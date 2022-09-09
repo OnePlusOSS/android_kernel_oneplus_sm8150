@@ -23,6 +23,9 @@
 #include "dsi_display.h"
 #include "sde_crtc.h"
 #include "sde_rm.h"
+#ifdef OPLUS_BUG_STABILITY
+#include "oplus_display_private_api.h"
+#endif /* OPLUS_BUG_STABILITY */
 
 #define BL_NODE_NAME_SIZE 32
 
@@ -34,6 +37,12 @@
 
 #define SDE_ERROR_CONN(c, fmt, ...) SDE_ERROR("conn%d " fmt,\
 		(c) ? (c)->base.base.id : -1, ##__VA_ARGS__)
+
+#ifdef OPLUS_BUG_STABILITY
+static u32 dither_matrix[DITHER_MATRIX_SZ] = {
+	15, 7, 13, 5, 3, 11, 1, 9, 12, 4, 14, 6, 0, 8, 2, 10
+};
+#endif /* OPLUS_BUG_STABILITY */
 
 static const struct drm_prop_enum_list e_topology_name[] = {
 	{SDE_RM_TOPOLOGY_NONE,	"sde_none"},
@@ -64,6 +73,10 @@ static const struct drm_prop_enum_list e_qsync_mode[] = {
 	{SDE_RM_QSYNC_ONE_SHOT_MODE,	"one_shot"},
 };
 
+#ifdef OPLUS_BUG_STABILITY
+extern int oplus_debug_max_brightness;
+#endif /* OPLUS_BUG_STABILITY */
+
 static int sde_backlight_device_update_status(struct backlight_device *bd)
 {
 	int brightness;
@@ -85,9 +98,48 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 	if (brightness > display->panel->bl_config.bl_max_level)
 		brightness = display->panel->bl_config.bl_max_level;
 
+#ifndef OPLUS_BUG_STABILITY
 	/* map UI brightness into driver backlight level with rounding */
 	bl_lvl = mult_frac(brightness, display->panel->bl_config.bl_max_level,
 			display->panel->bl_config.brightness_max_level);
+#else /* OPLUS_BUG_STABILITY */
+	if (oplus_debug_max_brightness) {
+		bl_lvl = mult_frac(brightness, oplus_debug_max_brightness,
+				display->panel->bl_config.brightness_max_level);
+	} else if (brightness == 0) {
+		bl_lvl = 0;
+	} else {
+		if (display->panel->oplus_priv.bl_remap && display->panel->oplus_priv.bl_remap_count) {
+			int i = 0;
+			int count = display->panel->oplus_priv.bl_remap_count;
+			struct oplus_brightness_alpha *lut = display->panel->oplus_priv.bl_remap;
+
+			for (i = 0; i < display->panel->oplus_priv.bl_remap_count; i++){
+				if (display->panel->oplus_priv.bl_remap[i].brightness >= brightness)
+					break;
+			}
+
+			if (i == 0)
+				bl_lvl = lut[0].alpha;
+			else if (i == count)
+				bl_lvl = lut[count - 1].alpha;
+			else
+				bl_lvl = interpolate(brightness, lut[i-1].brightness,
+						lut[i].brightness, lut[i-1].alpha,
+						lut[i].alpha);
+		} else if (brightness > display->panel->bl_config.brightness_normal_max_level) {
+			bl_lvl = interpolate(brightness,
+					display->panel->bl_config.brightness_normal_max_level,
+					display->panel->bl_config.brightness_max_level,
+					display->panel->bl_config.bl_normal_max_level,
+					display->panel->bl_config.bl_max_level);
+		} else {
+			bl_lvl = mult_frac(brightness, display->panel->bl_config.bl_normal_max_level,
+					display->panel->bl_config.brightness_normal_max_level);
+		}
+	}
+	SDE_DEBUG("brightness = %d, bl_lvl = %d\n", brightness, bl_lvl);
+#endif /* OPLUS_BUG_STABILITY */
 
 	if (!bl_lvl && brightness)
 		bl_lvl = 1;
@@ -143,7 +195,11 @@ static int sde_backlight_setup(struct sde_connector *c_conn,
 	display = (struct dsi_display *) c_conn->display;
 	bl_config = &display->panel->bl_config;
 	props.max_brightness = bl_config->brightness_max_level;
+#ifndef OPLUS_BUG_STABILITY
+	props.brightness = bl_config->brightness_max_level;
+#else /* OPLUS_BUG_STABILITY */
 	props.brightness = bl_config->brightness_default_level;
+#endif /* OPLUS_BUG_STABILITY */
 	snprintf(bl_node_name, BL_NODE_NAME_SIZE, "panel%u-backlight",
 							display_count);
 	c_conn->bl_device = backlight_device_register(bl_node_name, dev->dev,
@@ -236,13 +292,64 @@ void sde_connector_unregister_event(struct drm_connector *connector,
 	(void)sde_connector_register_event(connector, event_idx, 0, 0);
 }
 
+#ifdef OPLUS_BUG_STABILITY
+static int _sde_connector_get_default_dither_cfg_v1(
+		struct sde_connector *c_conn, void *cfg)
+{
+	struct drm_msm_dither *dither_cfg = (struct drm_msm_dither *)cfg;
+	enum dsi_pixel_format dst_format = DSI_PIXEL_FORMAT_MAX;
+
+	if (!c_conn || !cfg) {
+		SDE_ERROR("invalid argument(s), c_conn %pK, cfg %pK\n",
+				c_conn, cfg);
+		return -EINVAL;
+	}
+
+	if (!c_conn->ops.get_dst_format) {
+		SDE_DEBUG("get_dst_format is unavailable\n");
+		return 0;
+	}
+
+	dst_format = c_conn->ops.get_dst_format(&c_conn->base, c_conn->display);
+	switch (dst_format) {
+	case DSI_PIXEL_FORMAT_RGB888:
+		dither_cfg->c0_bitdepth = 8;
+		dither_cfg->c1_bitdepth = 8;
+		dither_cfg->c2_bitdepth = 8;
+		dither_cfg->c3_bitdepth = 8;
+		break;
+	case DSI_PIXEL_FORMAT_RGB666:
+	case DSI_PIXEL_FORMAT_RGB666_LOOSE:
+		dither_cfg->c0_bitdepth = 6;
+		dither_cfg->c1_bitdepth = 6;
+		dither_cfg->c2_bitdepth = 6;
+		dither_cfg->c3_bitdepth = 6;
+		break;
+	default:
+		SDE_DEBUG("no default dither config for dst_format %d\n",
+			dst_format);
+		return -ENODATA;
+	}
+
+	memcpy(&dither_cfg->matrix, dither_matrix,
+			sizeof(u32) * DITHER_MATRIX_SZ);
+	dither_cfg->temporal_en = 0;
+	return 0;
+}
+#endif /* OPLUS_BUG_STABILITY */
+
 static void _sde_connector_install_dither_property(struct drm_device *dev,
 		struct sde_kms *sde_kms, struct sde_connector *c_conn)
 {
 	char prop_name[DRM_PROP_NAME_LEN];
 	struct sde_mdss_cfg *catalog = NULL;
-	u32 version = 0;
-
+#ifdef OPLUS_BUG_STABILITY
+	struct drm_property_blob *blob_ptr;
+	void *cfg;
+	int ret = 0;
+	u32 version = 0, len = 0;
+	bool defalut_dither_needed = false;
+#endif /* OPLUS_BUG_STABILITY */
 	if (!dev || !sde_kms || !c_conn) {
 		SDE_ERROR("invld args (s), dev %pK, sde_kms %pK, c_conn %pK\n",
 				dev, sde_kms, c_conn);
@@ -259,55 +366,65 @@ static void _sde_connector_install_dither_property(struct drm_device *dev,
 		msm_property_install_blob(&c_conn->property_info, prop_name,
 			DRM_MODE_PROP_BLOB,
 			CONNECTOR_PROP_PP_DITHER);
+#ifdef OPLUS_BUG_STABILITY
+		len = sizeof(struct drm_msm_dither);
+		cfg = kzalloc(len, GFP_KERNEL);
+		if (!cfg)
+			return;
+
+		ret = _sde_connector_get_default_dither_cfg_v1(c_conn, cfg);
+		if (!ret)
+			defalut_dither_needed = true;
+#endif /* OPLUS_BUG_STABILITY */
 		break;
 	default:
 		SDE_ERROR("unsupported dither version %d\n", version);
 		return;
 	}
+
+#ifdef OPLUS_BUG_STABILITY
+	if (defalut_dither_needed) {
+		blob_ptr = drm_property_create_blob(dev, len, cfg);
+		if (IS_ERR_OR_NULL(blob_ptr))
+			goto exit;
+		c_conn->blob_dither = blob_ptr;
+	}
+exit:
+	kfree(cfg);
+#endif /* OPLUS_BUG_STABILITY */
+
 }
 
+#ifdef OPLUS_BUG_STABILITY
 int sde_connector_get_dither_cfg(struct drm_connector *conn,
 			struct drm_connector_state *state, void **cfg,
-			size_t *len, bool idle_pc)
+			size_t *len)
 {
 	struct sde_connector *c_conn = NULL;
 	struct sde_connector_state *c_state = NULL;
 	size_t dither_sz = 0;
-	bool is_dirty;
 	u32 *p = (u32 *)cfg;
 
-	if (!conn || !state || !p) {
-		SDE_ERROR("invalid arguments\n");
+	if (!conn || !state || !p)
 		return -EINVAL;
-	}
 
 	c_conn = to_sde_connector(conn);
 	c_state = to_sde_connector_state(state);
 
-	is_dirty = msm_property_is_dirty(&c_conn->property_info,
-			&c_state->property_state,
-			CONNECTOR_PROP_PP_DITHER);
-
-	if (!is_dirty && !idle_pc) {
-		return -ENODATA;
-	} else if (is_dirty || idle_pc) {
-		*cfg = msm_property_get_blob(&c_conn->property_info,
-				&c_state->property_state,
-				&dither_sz,
-				CONNECTOR_PROP_PP_DITHER);
-		/*
-		 * In idle_pc use case return early, when dither is
-		 * already disabled.
-		 */
-		if (idle_pc && *cfg == NULL)
-			return -ENODATA;
-		/* disable dither based on user config data */
-		else if (*cfg == NULL)
-			return 0;
+	/* try to get user config data first */
+	*cfg = msm_property_get_blob(&c_conn->property_info,
+					&c_state->property_state,
+					&dither_sz,
+					CONNECTOR_PROP_PP_DITHER);
+	/* if user config data doesn't exist, use default dither blob */
+	if (*cfg == NULL && c_conn->blob_dither) {
+		*cfg = c_conn->blob_dither->data;
+		dither_sz = c_conn->blob_dither->length;
 	}
 	*len = dither_sz;
 	return 0;
 }
+#endif /* OPLUS_BUG_STABILITY */
 
 int sde_connector_get_mode_info(struct drm_connector_state *conn_state,
 	struct msm_mode_info *mode_info)
@@ -463,6 +580,9 @@ static int _sde_connector_update_bl_scale(struct sde_connector *c_conn)
 	struct dsi_display *dsi_display;
 	struct dsi_backlight_config *bl_config;
 	int rc = 0;
+#ifdef OPLUS_BUG_STABILITY
+	struct backlight_device *bd;
+#endif /* OPLUS_BUG_STABILITY */
 
 	if (!c_conn) {
 		SDE_ERROR("Invalid params sde_connector null\n");
@@ -477,10 +597,23 @@ static int _sde_connector_update_bl_scale(struct sde_connector *c_conn)
 		return -EINVAL;
 	}
 
+#ifdef OPLUS_BUG_STABILITY
+	bd = c_conn->bl_device;
+	if (!bd) {
+		SDE_ERROR("Invalid params backlight_device null\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&bd->update_lock);
+#endif /* OPLUS_BUG_STABILITY */
+
 	bl_config = &dsi_display->panel->bl_config;
 
 	if (!c_conn->allow_bl_update) {
 		c_conn->unset_bl_level = bl_config->bl_level;
+#ifdef OPLUS_BUG_STABILITY
+		mutex_unlock(&bd->update_lock);
+#endif /* OPLUS_BUG_STABILITY */
 		return 0;
 	}
 
@@ -503,9 +636,19 @@ static int _sde_connector_update_bl_scale(struct sde_connector *c_conn)
 	rc = c_conn->ops.set_backlight(&c_conn->base,
 			dsi_display, bl_config->bl_level);
 	c_conn->unset_bl_level = 0;
+#ifdef OPLUS_BUG_STABILITY
+	mutex_unlock(&bd->update_lock);
+#endif /* OPLUS_BUG_STABILITY */
 
 	return rc;
 }
+
+#ifdef OPLUS_BUG_STABILITY
+int _sde_connector_update_bl_scale_(struct sde_connector *c_conn)
+{
+	return _sde_connector_update_bl_scale(c_conn);
+}
+#endif /* OPLUS_BUG_STABILITY */
 
 void sde_connector_set_qsync_params(struct drm_connector *connector)
 {
@@ -1169,6 +1312,7 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 		/*
 		 * update the the offset to a timeline for commit completion
 		 */
+		SDE_EVT32(connector->base.id, c_conn->allow_bl_update);
 		rc = sde_fence_create(c_conn->retire_fence, &fence_fd, 1);
 		if (rc) {
 			SDE_ERROR("fence create failed rc:%d\n", rc);
@@ -2329,6 +2473,11 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 		msm_property_install_enum(&c_conn->property_info, "qsync_mode",
 				0, 0, e_qsync_mode, ARRAY_SIZE(e_qsync_mode),
 				CONNECTOR_PROP_QSYNC_MODE);
+
+#ifdef OPLUS_BUG_STABILITY
+        msm_property_install_range(&c_conn->property_info,"CONNECTOR_CUST",
+            0x0, 0, INT_MAX, 0, CONNECTOR_PROP_CUSTOM);
+#endif /* OPLUS_BUG_STABILITY */
 
 	msm_property_install_range(&c_conn->property_info, "bl_scale",
 		0x0, 0, MAX_BL_SCALE_LEVEL, MAX_BL_SCALE_LEVEL,

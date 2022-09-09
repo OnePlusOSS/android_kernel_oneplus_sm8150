@@ -4166,7 +4166,43 @@ void sde_dbg_ctrl(const char *name, ...)
 	va_end(args);
 }
 
+#if defined(OPLUS_BUG_STABILITY)
+ssize_t oplus_sde_evtlog_dump_read(struct file *file, char __user *buff,
+		size_t count, loff_t *ppos)
+{
+	ssize_t len = 0;
+	char evtlog_buf[SDE_EVTLOG_BUF_MAX];
 
+	if (!buff || !ppos)
+		return -EINVAL;
+
+	mutex_lock(&sde_dbg_base.mutex);
+	sde_dbg_base.cur_evt_index = 0;
+	sde_dbg_base.evtlog->first = sde_dbg_base.evtlog->curr + 1;
+	sde_dbg_base.evtlog->last =
+		sde_dbg_base.evtlog->first + SDE_EVTLOG_ENTRY;
+
+	len = sde_evtlog_dump_to_buffer(sde_dbg_base.evtlog,
+			evtlog_buf, SDE_EVTLOG_BUF_MAX,
+			!sde_dbg_base.cur_evt_index, true);
+	sde_dbg_base.cur_evt_index++;
+	mutex_unlock(&sde_dbg_base.mutex);
+
+	if (len < 0 || len > count) {
+		pr_err("len is more than user buffer size");
+		return 0;
+	}
+
+	if (copy_to_user(buff, evtlog_buf, len))
+		return -EFAULT;
+	*ppos += len;
+
+	return len;
+}
+EXPORT_SYMBOL(oplus_sde_evtlog_dump_read);
+#endif /*OPLUS_BUG_STABILITY*/
+
+#ifdef CONFIG_DEBUG_FS
 /*
  * sde_dbg_debugfs_open - debugfs open handler for evtlog dump
  * @inode: debugfs inode
@@ -5100,19 +5136,15 @@ int sde_dbg_debugfs_register(struct device *dev)
 			&sde_recovery_vbif_dbgbus_fops);
 
 	if (dbg->dbgbus_sde.entries) {
-		dbg->dbgbus_sde.cmn.name = DBGBUS_NAME_SDE;
 		snprintf(debug_name, sizeof(debug_name), "%s_dbgbus",
 				dbg->dbgbus_sde.cmn.name);
-		dbg->dbgbus_sde.cmn.enable_mask = DEFAULT_DBGBUS_SDE;
 		debugfs_create_u32(debug_name, 0600, debugfs_root,
 				&dbg->dbgbus_sde.cmn.enable_mask);
 	}
 
 	if (dbg->dbgbus_vbif_rt.entries) {
-		dbg->dbgbus_vbif_rt.cmn.name = DBGBUS_NAME_VBIF_RT;
 		snprintf(debug_name, sizeof(debug_name), "%s_dbgbus",
 				dbg->dbgbus_vbif_rt.cmn.name);
-		dbg->dbgbus_vbif_rt.cmn.enable_mask = DEFAULT_DBGBUS_VBIFRT;
 		debugfs_create_u32(debug_name, 0600, debugfs_root,
 				&dbg->dbgbus_vbif_rt.cmn.enable_mask);
 	}
@@ -5132,6 +5164,15 @@ int sde_dbg_debugfs_register(struct device *dev)
 	return 0;
 }
 
+#else
+
+int sde_dbg_debugfs_register(struct device *dev)
+{
+	return 0;
+}
+
+#endif /*CONFIG_DEBUG_FS*/
+
 static void _sde_dbg_debugfs_destroy(void)
 {
 }
@@ -5147,10 +5188,14 @@ void sde_dbg_init_dbg_buses(u32 hwversion)
 		dbg->dbgbus_sde.entries = dbg_bus_sde_8998;
 		dbg->dbgbus_sde.cmn.entries_size = ARRAY_SIZE(dbg_bus_sde_8998);
 		dbg->dbgbus_sde.cmn.flags = DBGBUS_FLAGS_DSPP;
+		dbg->dbgbus_sde.cmn.name = DBGBUS_NAME_SDE;
+		dbg->dbgbus_sde.cmn.enable_mask = DEFAULT_DBGBUS_SDE;
 
 		dbg->dbgbus_vbif_rt.entries = vbif_dbg_bus_msm8998;
 		dbg->dbgbus_vbif_rt.cmn.entries_size =
 				ARRAY_SIZE(vbif_dbg_bus_msm8998);
+		dbg->dbgbus_vbif_rt.cmn.name = DBGBUS_NAME_VBIF_RT;
+		dbg->dbgbus_vbif_rt.cmn.enable_mask = DEFAULT_DBGBUS_VBIFRT;
 		dbg->dbgbus_dsi.entries = NULL;
 		dbg->dbgbus_dsi.size = 0;
 	} else if (IS_SDM845_TARGET(hwversion) || IS_SDM670_TARGET(hwversion)) {
@@ -5158,11 +5203,15 @@ void sde_dbg_init_dbg_buses(u32 hwversion)
 		dbg->dbgbus_sde.cmn.entries_size =
 				ARRAY_SIZE(dbg_bus_sde_sdm845);
 		dbg->dbgbus_sde.cmn.flags = DBGBUS_FLAGS_DSPP;
+		dbg->dbgbus_sde.cmn.name = DBGBUS_NAME_SDE;
+		dbg->dbgbus_sde.cmn.enable_mask = DEFAULT_DBGBUS_SDE;
 
 		/* vbif is unchanged vs 8998 */
 		dbg->dbgbus_vbif_rt.entries = vbif_dbg_bus_msm8998;
 		dbg->dbgbus_vbif_rt.cmn.entries_size =
 				ARRAY_SIZE(vbif_dbg_bus_msm8998);
+		dbg->dbgbus_vbif_rt.cmn.name = DBGBUS_NAME_VBIF_RT;
+		dbg->dbgbus_vbif_rt.cmn.enable_mask = DEFAULT_DBGBUS_VBIFRT;
 		dbg->dbgbus_dsi.entries = dsi_dbg_bus_sdm845;
 		dbg->dbgbus_dsi.size = ARRAY_SIZE(dsi_dbg_bus_sdm845);
 	} else if (IS_SM8150_TARGET(hwversion) || IS_SM6150_TARGET(hwversion) ||
@@ -5173,12 +5222,16 @@ void sde_dbg_init_dbg_buses(u32 hwversion)
 		dbg->dbgbus_sde.cmn.entries_size =
 				ARRAY_SIZE(dbg_bus_sde_sm8150);
 		dbg->dbgbus_sde.cmn.flags = DBGBUS_FLAGS_DSPP;
+		dbg->dbgbus_sde.cmn.name = DBGBUS_NAME_SDE;
+		dbg->dbgbus_sde.cmn.enable_mask = DEFAULT_DBGBUS_SDE;
 
 		dbg->dbgbus_vbif_rt.entries = vbif_dbg_bus_msm8998;
 		dbg->dbgbus_vbif_rt.cmn.entries_size =
 				ARRAY_SIZE(vbif_dbg_bus_msm8998);
 		dbg->dbgbus_dsi.entries = dsi_dbg_bus_sdm845;
 		dbg->dbgbus_dsi.size = ARRAY_SIZE(dsi_dbg_bus_sdm845);
+		dbg->dbgbus_vbif_rt.cmn.name = DBGBUS_NAME_VBIF_RT;
+		dbg->dbgbus_vbif_rt.cmn.enable_mask = DEFAULT_DBGBUS_VBIFRT;
 	} else {
 		pr_err("unsupported chipset id %X\n", hwversion);
 	}
