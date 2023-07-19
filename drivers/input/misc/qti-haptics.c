@@ -212,6 +212,7 @@ struct qti_hap_config {
 	enum lra_auto_res_mode	lra_auto_res_mode;
 	enum wf_src		ext_src;
 	u16			vmax_mv;
+	u16			motor_vmax_mv;
 	u16			play_rate_us;
 	bool			lra_allow_variable_play_rate;
 	bool			use_ext_wf_src;
@@ -521,10 +522,17 @@ static int qti_haptics_module_en(struct qti_hap_chip *chip, bool en)
 static int qti_haptics_config_vmax(struct qti_hap_chip *chip, int vmax_mv)
 {
 	u8 addr, mask, val;
+	struct qti_hap_config *config = &chip->config;
 	int rc;
 
 	addr = REG_HAP_VMAX_CFG;
 	mask = HAP_VMAX_MV_MASK;
+
+	dev_err(chip->dev, "vmax_mv = %d", vmax_mv);
+	if (config->motor_vmax_mv && (config->motor_vmax_mv < vmax_mv)) {
+		vmax_mv = config->motor_vmax_mv;
+		dev_err(chip->dev, "limit vmax_mv to protect motor");
+	}
 #ifdef CONFIG_OPLUS_HAPTIC_OOS
 	if (chip->test_mode)/*op for factory test*/
 		val = (HAP_VMAX_MV / HAP_VMAX_MV_LSB) << HAP_VMAX_MV_SHIFT;
@@ -1347,6 +1355,12 @@ static int qti_haptics_parse_dt(struct qti_hap_chip *chip)
 	if (!rc)
 		config->vmax_mv = (tmp > HAP_VMAX_MV_MAX) ?
 			HAP_VMAX_MV_MAX : tmp;
+
+	config->motor_vmax_mv = 0;
+	rc = of_property_read_u32(node, "qcom,motor-vmax-mv", &tmp);
+	if (!rc)
+		config->motor_vmax_mv = (tmp > HAP_VMAX_MV_MAX) ?
+                        HAP_VMAX_MV_MAX : tmp;
 
 	config->play_rate_us = HAP_PLAY_RATE_US_DEFAULT;
 	rc = of_property_read_u32(node, "qcom,play-rate-us", &tmp);
