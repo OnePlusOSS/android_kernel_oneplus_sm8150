@@ -1381,6 +1381,34 @@ static const struct file_operations proc_charger_factorymode_test_ops =
     .owner = THIS_MODULE,
 };
 
+static ssize_t proc_integrate_gauge_fcc_flag_read(struct file *filp,
+		char __user *buff, size_t count, loff_t *off)
+{
+	char page[256] = {0};
+	char read_data[32] = {0};
+	int len = 0;
+
+	read_data[0] = '1';
+	len = sprintf(page, "%s", read_data);
+	if(len > *off) {
+		len -= *off;
+	} else {
+		len = 0;
+	}
+	if (copy_to_user(buff, page, (len < count ? len : count))) {
+		return -EFAULT;
+	}
+	*off += len < count ? len : count;
+	return (len < count ? len : count);
+}
+
+static const struct file_operations proc_integrate_gauge_fcc_flag_ops =
+{
+	.read	= proc_integrate_gauge_fcc_flag_read,
+	.open	= simple_open,
+	.owner	= THIS_MODULE,
+};
+
 static ssize_t proc_hmac_write(struct file *filp,
 		const char __user *buf, size_t len, loff_t *data)
 {
@@ -1657,6 +1685,14 @@ static int init_charger_proc(struct oplus_chg_chip *chip)
 
 	prEntry_tmp = proc_create_data("charger_factorymode_test", 0666, prEntry_da,
 				       &proc_charger_factorymode_test_ops, chip);
+	if (prEntry_tmp == NULL) {
+		ret = -1;
+		chg_debug("%s: Couldn't create proc entry, %d\n", __func__,
+			  __LINE__);
+	}
+
+	prEntry_tmp = proc_create_data("integrate_gauge_fcc_flag", 0664, prEntry_da,
+				       &proc_integrate_gauge_fcc_flag_ops, chip);
 	if (prEntry_tmp == NULL) {
 		ret = -1;
 		chg_debug("%s: Couldn't create proc entry, %d\n", __func__,

@@ -1869,7 +1869,8 @@ int __init socinfo_init(void)
                         cpu_of_id[socinfo->v0_1.id].generic_soc_type = MSM_CPU_SM8150;
                         cpu_of_id[socinfo->v0_1.id].soc_id_string = "SM8150";
         } else if (( get_project() == 19081 ) || ( get_project() == 19801 )
-                        || ( get_project() == 18865 )) {
+                        || ( get_project() == 18865 )
+                        || ( get_project() == 19863 ) || ( get_project() == 19861 )) {
                         cpu_of_id[socinfo->v0_1.id].generic_soc_type = MSM_CPU_SM8150;
                         cpu_of_id[socinfo->v0_1.id].soc_id_string = "SM8150_Plus";
         }

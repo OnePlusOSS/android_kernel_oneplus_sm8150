@@ -2244,8 +2244,7 @@ static ssize_t oplus_display_notify_fp_press(struct device *dev,
 		}
 		if (!display->panel->oplus_priv.prj_flag)
 			set_mode = oplus_display_mode ? vid_mode : cmd_mode;
-
-		set_mode = onscreenfp_status ? vid_mode : set_mode;
+			set_mode = onscreenfp_status ? vid_mode : set_mode;
 		if (!crtc_state->active || !crtc_state->enable)
 			goto error;
 
@@ -2263,6 +2262,9 @@ static ssize_t oplus_display_notify_fp_press(struct device *dev,
 		wake_up(&oplus_aod_wait);
 	}
 #endif /* OPLUS_FEATURE_AOD_RAMLESS */
+
+	if (!crtc_state->active || !crtc_state->enable)
+		goto error;
 
 	err = drm_atomic_commit(state);
 	drm_atomic_state_put(state);
@@ -2996,7 +2998,6 @@ static ssize_t oplus_display_set_video(struct device *dev,
 	int vblank_get = -EINVAL;
 	int err = 0;
 	int i;
-	int power_stat = get_oplus_display_power_status();
 
 	if (!display || !display->panel) {
 		pr_err("failed to find dsi display\n");
@@ -3008,13 +3009,6 @@ static ssize_t oplus_display_set_video(struct device *dev,
 
 	if (!dsi_connector || !dsi_connector->state || !dsi_connector->state->crtc) {
 		pr_err("[%s]: display not ready\n", __func__);
-		return count;
-	}
-
-	if(atomic_read(&aod_onscreenfp_status) &&
-			((OPLUS_DISPLAY_POWER_DOZE == power_stat) ||
-			 (OPLUS_DISPLAY_POWER_DOZE_SUSPEND == power_stat))) {
-		pr_info("%s, drop this set_video\n", __func__);
 		return count;
 	}
 

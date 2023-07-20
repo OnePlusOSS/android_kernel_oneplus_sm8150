@@ -103,7 +103,7 @@
         };
 	oplus_sensor {
 		compatible = "oplus,sensor-devinfo";
-		als-row-coe = <540>;
+		als-row-coe = <110>;
 		/*enum {LSM6DSM = 0x01, BMI160 = 0x02, LSM6DS3 = 0x04};*/
 		gsensor@0 {
 			sensor-name = <0x01>;//LSM6DSM
@@ -1026,11 +1026,11 @@
                         qcom,temp_normal_fastchg_current_ma = <2100>;
                         qcom,temp_normal_vfloat_mv = <4435>;
 
-                        qcom,warm_bat_decidegc = <450>;         /*45C~53C*/ /*8pin Bat Vooc project need add 3 degree C*/
+                        qcom,warm_bat_decidegc = <450>;         /*45C~50C*/ /*8pin Bat Vooc project need add 3 degree C*/
                         qcom,temp_warm_vfloat_mv = <4130>;
                         qcom,temp_warm_fastchg_current_ma = <1100>;
 
-                        qcom,hot_bat_decidegc = <530>;
+                        qcom,hot_bat_decidegc = <500>;
 
                         qcom,non_standard_vfloat_mv = <3980>;
                         qcom,non_standard_fastchg_current_ma = <512>;

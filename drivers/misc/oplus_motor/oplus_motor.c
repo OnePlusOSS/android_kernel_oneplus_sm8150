@@ -4093,4 +4093,4 @@ static int __init motor_platform_init(void)
 late_initcall(motor_platform_init);
 MODULE_DESCRIPTION("camera motor platform driver");
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("mofei@oplus.com");
+MODULE_AUTHOR("mofei");

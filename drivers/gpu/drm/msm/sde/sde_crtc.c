@@ -2165,6 +2165,18 @@ static void _sde_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 					mixer, &cstate->dim_layer[i]);
 
 #ifdef OPLUS_BUG_STABILITY
+		{
+			struct dsi_display *display = get_main_display();
+				if (!display || !display->panel)
+				goto end;
+			if ((old_state->mode.vrefresh != crtc->mode.vrefresh) && !display->panel->is_hbm_enabled) {
+				SDE_ATRACE_BEGIN("delay_config_dimlayer_one_frame");
+				pr_err("do not config dimlayer at the fps switch");
+				SDE_ATRACE_END("delay_config_dimlayer_one_frame");
+				goto end;
+			}
+		}
+
 		if (cstate->fingerprint_dim_layer) {
 			bool is_dim_valid = true;
 			uint32_t zpos_max = 0;

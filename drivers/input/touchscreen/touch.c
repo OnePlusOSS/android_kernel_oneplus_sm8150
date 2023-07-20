@@ -156,7 +156,7 @@ int tp_util_get_vendor(struct hw_resource *hw_res, struct panel_info *panel_data
 		}
 	}
 
-	if (g_tp_prj_id == 18865 || g_tp_prj_id == 19801) {
+	if (g_tp_prj_id == 18865 || g_tp_prj_id == 19801 || g_tp_prj_id == 19863 || g_tp_prj_id == 19861) {
 		pr_err("[TP] %s project is :%d\n", __func__, g_tp_prj_id);
 		get_cmdlinelcd_id();
 		if (lcd_id) {

@@ -43,9 +43,9 @@
 
 #include "peripheral-loader.h"
 
-#ifdef OPLUS_BUG_STABILITY
+//#ifdef OPLUS_BUG_STABILITY
 #include <soc/oplus/system/oplus_project.h>
-#endif /*OPLUS_BUG_STABILITY */
+//#endif /*OPLUS_BUG_STABILITY */
 
 #define DISABLE_SSR 0x9889deed
 /* If set to 0x9889deed, call to subsystem_restart_dev() returns immediately */
@@ -1003,6 +1003,11 @@ void *__subsystem_get(const char *name, const char *fw_name)
 
 	if (!name)
 		return NULL;
+
+        //19861 is 8150P + X55, need delay modem start to ensure wifi work normally
+        //This patch is from 19861 R version
+        if (fw_name && !strcmp(fw_name, "modem") && (get_project() == 19861))
+                msleep(3000);
 
 	subsys = retval = find_subsys_device(name);
 	if (!subsys)

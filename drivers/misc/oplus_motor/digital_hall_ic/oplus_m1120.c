@@ -1113,5 +1113,5 @@ module_exit(m1120_exit);
 
 MODULE_DESCRIPTION("M1120 hallswitch driver");
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("mofei@oplus.com");
+MODULE_AUTHOR("mofei");
 

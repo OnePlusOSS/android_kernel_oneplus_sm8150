@@ -1979,7 +1979,7 @@ static int _sde_encoder_update_rsc_client(
 
 	sde_kms = to_sde_kms(priv->kms);
 #ifdef OPLUS_FEATURE_AOD_RAMLESS
-	if ( display && display->panel && display->panel->oplus_priv.prj_flag ) {
+	if ( display && display->panel && display->panel->oplus_priv.is_aod_ramless ) {
 		connector_list = &sde_kms->dev->mode_config.connector_list;
 	}
 #endif /* OPLUS_FEATURE_AOD_RAMLESS */
@@ -2023,7 +2023,7 @@ static int _sde_encoder_update_rsc_client(
 			(rsc_state == SDE_RSC_VID_STATE))
 		rsc_state = SDE_RSC_CLK_STATE;
 #ifdef OPLUS_FEATURE_AOD_RAMLESS
-	if ( display && display->panel && display->panel->oplus_priv.prj_flag ) {
+	if ( display && display->panel && display->panel->oplus_priv.is_aod_ramless ) {
 		list_for_each_entry(conn_iter, connector_list, head)
 			if (conn_iter->encoder == drm_enc)
 				conn = conn_iter;
@@ -2126,7 +2126,7 @@ static int _sde_encoder_update_rsc_client(
 			ret = sde_encoder_wait_for_event(drm_enc,
 					MSM_ENC_VBLANK);
 #ifdef OPLUS_FEATURE_AOD_RAMLESS
-			if ( display && display->panel && display->panel->oplus_priv.prj_flag ) {
+			if ( display && display->panel && display->panel->oplus_priv.is_aod_ramless ) {
 				if (ret == -EWOULDBLOCK) {
 					SDE_EVT32(DRMID(drm_enc), wait_vblank_crtc_id, crtc->base.id);
 					msleep(PRIMARY_VBLANK_WORST_CASE_MS);

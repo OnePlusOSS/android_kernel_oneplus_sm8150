@@ -1330,5 +1330,5 @@ module_exit(ist8801_exit);
 
 MODULE_DESCRIPTION("ist8801 hallswitch driver");
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("zengchao@oplus.com");
+MODULE_AUTHOR("zengchao");
 

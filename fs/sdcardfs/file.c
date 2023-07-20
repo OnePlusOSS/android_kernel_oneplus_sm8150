@@ -241,12 +241,13 @@ static int sdcardfs_open(struct inode *inode, struct file *file)
 	char *iname;
 #endif /* CONFIG_OPLUS_FEATURE_FUSE_FS_SHORTCIRCUIT */
 
+	if (!(file->f_flags & O_CREAT)) {
 	/* don't open unhashed/deleted files */
-	if (d_unhashed(dentry)) {
-		err = -ENOENT;
-		goto out_err;
+		if (d_unhashed(dentry)) {
+			err = -ENOENT;
+			goto out_err;
+		}
 	}
-
 	if (!check_caller_access_to_name(d_inode(parent), &dentry->d_name)) {
 		err = -EACCES;
 		goto out_err;

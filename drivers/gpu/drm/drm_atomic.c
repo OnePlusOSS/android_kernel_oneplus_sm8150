@@ -31,6 +31,7 @@
 #include <drm/drm_mode.h>
 #include <drm/drm_print.h>
 #include <linux/sync_file.h>
+#include <msm/sde_dbg.h>
 
 #include "drm_crtc_internal.h"
 
@@ -393,6 +394,7 @@ int drm_atomic_set_mode_prop_for_crtc(struct drm_crtc_state *state,
 	if (blob == state->mode_blob)
 		return 0;
 
+	SDE_EVT32(state->mode_blob, SDE_EVTLOG_FUNC_ENTRY);
 	drm_property_blob_put(state->mode_blob);
 	state->mode_blob = NULL;
 
@@ -409,12 +411,15 @@ int drm_atomic_set_mode_prop_for_crtc(struct drm_crtc_state *state,
 		state->enable = true;
 		DRM_DEBUG_ATOMIC("Set [MODE:%s] for CRTC state %p\n",
 				 state->mode.name, state);
+		SDE_EVT32(state->enable, state->mode.name, state);
 	} else {
 		state->enable = false;
 		DRM_DEBUG_ATOMIC("Set [NOMODE] for CRTC state %p\n",
 				 state);
+		SDE_EVT32(state->enable, state);
 	}
 
+	SDE_EVT32(SDE_EVTLOG_FUNC_EXIT);
 	return 0;
 }
 EXPORT_SYMBOL(drm_atomic_set_mode_prop_for_crtc);

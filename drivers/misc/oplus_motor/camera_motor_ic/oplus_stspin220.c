@@ -871,5 +871,5 @@ module_init(stspin220_init);
 module_exit(stspin220_exit);
 MODULE_DESCRIPTION("camera motor driver");
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("mofei@oplus.com");
+MODULE_AUTHOR("mofei");
 

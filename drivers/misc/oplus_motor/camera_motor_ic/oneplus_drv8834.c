@@ -820,5 +820,5 @@ module_init(drv8834_init);
 module_exit(drv8834_exit);
 MODULE_DESCRIPTION("camera motor driver");
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("mofei@oneplus.com");
+MODULE_AUTHOR("mofei");
 

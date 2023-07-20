@@ -23,6 +23,7 @@
 #include <linux/export.h>
 #include <drm/drmP.h>
 #include <drm/drm_property.h>
+#include <msm/sde_dbg.h>
 
 #include "drm_crtc_internal.h"
 
@@ -513,6 +514,7 @@ static void drm_property_free_blob(struct kref *kref)
 	struct drm_property_blob *blob =
 		container_of(kref, struct drm_property_blob, base.refcount);
 
+	SDE_EVT32(0x1111, kref_read(&blob->base.refcount));
 	mutex_lock(&blob->dev->mode_config.blob_lock);
 	list_del(&blob->head_global);
 	mutex_unlock(&blob->dev->mode_config.blob_lock);
@@ -567,6 +569,7 @@ drm_property_create_blob(struct drm_device *dev, size_t length,
 		return ERR_PTR(-EINVAL);
 	}
 
+	SDE_EVT32(0x1111, kref_read(&blob->base.refcount));
 	mutex_lock(&dev->mode_config.blob_lock);
 	list_add_tail(&blob->head_global,
 	              &dev->mode_config.property_blob_list);
@@ -602,6 +605,7 @@ void drm_property_destroy_user_blobs(struct drm_device *dev,
 	 */
 	list_for_each_entry_safe(blob, bt, &file_priv->blobs, head_file) {
 		list_del_init(&blob->head_file);
+		SDE_EVT32(0x1111, kref_read(&blob->base.refcount));
 		drm_property_blob_put(blob);
 	}
 }
@@ -850,6 +854,7 @@ int drm_mode_destroyblob_ioctl(struct drm_device *dev,
 
 err:
 	mutex_unlock(&dev->mode_config.blob_lock);
+	SDE_EVT32(0x1111, kref_read(&blob->base.refcount));
 	drm_property_blob_put(blob);
 
 	return ret;

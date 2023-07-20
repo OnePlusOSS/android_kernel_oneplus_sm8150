@@ -1030,5 +1030,5 @@ module_exit(m1120_down_driver_exit_down);
 
 MODULE_DESCRIPTION("M1120 hallswitch driver");
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("quentin.lin@oneplus.com");
+MODULE_AUTHOR("quentin.lin");
 

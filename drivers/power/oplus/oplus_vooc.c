@@ -69,6 +69,9 @@ int __attribute__((weak)) register_devinfo(char *name, struct manufacture_info *
 	return 1;
 }
 extern int oplus_vooc_convert_fast_chg_type(int fast_chg_type);
+#ifdef OPLUS_CUSTOM_OP_DEF
+extern int oplus_update_vooc_unplug_status(void);
+#endif
 
 static bool oplus_vooc_is_battemp_exit(void)
 {
@@ -932,6 +935,9 @@ static void oplus_vooc_fastchg_func(struct work_struct *work)
 		data == VOOC_NOTIFY_TEMP_OVER ||
 		data == VOOC_NOTIFY_BTB_TEMP_OVER) {
 		oplus_chg_vooc_mcu_error(data);
+#ifdef OPLUS_CUSTOM_OP_DEF
+		oplus_update_vooc_unplug_status();
+#endif
 	}
 
 	if (data == VOOC_NOTIFY_FAST_PRESENT) {
@@ -1012,6 +1018,9 @@ static void oplus_vooc_fastchg_func(struct work_struct *work)
 		adapter_fw_ver_info = false;
 		adapter_model_factory = false;
 		oplus_set_fg_i2c_err_occured(false);
+#ifdef OPLUS_CUSTOM_OP_DEF
+		oplus_update_vooc_unplug_status();
+#endif
 		if (chip->fastchg_dummy_started) {
 			chg_vol = oplus_chg_get_charger_voltage();
 			if (chg_vol >= 0 && chg_vol < 2000) {
@@ -1504,6 +1513,9 @@ out:
 			&& (chip->fastchg_dummy_started == false)) {
 		oplus_chg_set_charger_type_unknown();
 		oplus_chg_wake_update_work();
+#ifdef OPLUS_CUSTOM_OP_DEF
+		oplus_update_vooc_unplug_status();
+#endif
 	} else if (data == VOOC_NOTIFY_NORMAL_TEMP_FULL
 			|| data == VOOC_NOTIFY_TEMP_OVER
 			|| data == VOOC_NOTIFY_BAD_CONNECTED
@@ -1560,6 +1572,9 @@ out:
 		|| (data == VOOC_NOTIFY_BAD_CONNECTED)
 		|| (data == VOOC_NOTIFY_DATA_UNKNOWN)
 		|| (data == VOOC_NOTIFY_TEMP_OVER) || oplus_vooc_is_battemp_exit()) {
+#ifdef OPLUS_CUSTOM_OP_DEF
+		oplus_update_vooc_unplug_status();
+#endif
 		if (oplus_vooc_get_reply_bits() != 7 || data != VOOC_NOTIFY_LOW_TEMP_FULL) {
 			if (!oplus_vooc_is_battemp_exit()) {
 				oplus_vooc_reset_temp_range(chip);

@@ -1013,11 +1013,186 @@ static int tid_smaps_open(struct inode *inode, struct file *file)
 	return do_maps_open(inode, file, &proc_tid_smaps_op);
 }
 
+static void __show_smap(struct seq_file *m, const struct mem_size_stats *mss)
+{
+	seq_printf(m,
+		"Rss:            %lu kB\n"
+		"Pss:            %lu kB\n"
+		"Shared_Clean:   %lu kB\n"
+		"Shared_Dirty:   %lu kB\n"
+		"Private_Clean:  %lu kB\n"
+		"Private_Dirty:  %lu kB\n"
+		"Referenced:     %lu kB\n"
+		"Anonymous:      %lu kB\n"
+		"LazyFree:       %lu kB\n"
+		"AnonHugePages:  %lu kB\n"
+		"ShmemPmdMapped: %lu kB\n"
+		"Shared_Hugetlb: %lu kB\n"
+		"Private_Hugetlb: %lu kB\n"
+		"Swap:           %lu kB\n"
+		"SwapPss:        %lu kB\n"
+		"Locked:         %lu kB\n",
+		(mss->resident >> 10),
+		(mss->pss >> PSS_SHIFT >> 10),
+		(mss->shared_clean >> 10),
+		(mss->shared_dirty >> 10),
+		(mss->private_clean >> 10),
+		(mss->private_dirty >> 10),
+		(mss->referenced >> 10),
+		(mss->anonymous >> 10),
+		(mss->lazyfree >> 10),
+		(mss->anonymous_thp >> 10),
+		(mss->shmem_thp >> 10),
+		(mss->shared_hugetlb >> 10),
+		(mss->private_hugetlb >> 10),
+		(mss->swap >> 10),
+		((mss->swap_pss >> PSS_SHIFT) >> 10),
+		(mss->pss_locked >> PSS_SHIFT >> 10));
+}
+
+static void smap_gather_stats(struct vm_area_struct *vma,
+			     struct mem_size_stats *mss)
+{
+	struct mm_walk smaps_walk = {
+		.pmd_entry = smaps_pte_range,
+#ifdef CONFIG_HUGETLB_PAGE
+		.hugetlb_entry = smaps_hugetlb_range,
+#endif
+		.mm = vma->vm_mm,
+	};
+
+	smaps_walk.private = mss;
+
+#ifdef CONFIG_SHMEM
+	/* In case of smaps_rollup, reset the value from previous vma */
+	mss->check_shmem_swap = false;
+	if (vma->vm_file && shmem_mapping(vma->vm_file->f_mapping)) {
+		/*
+		 * For shared or readonly shmem mappings we know that all
+		 * swapped out pages belong to the shmem object, and we can
+		 * obtain the swap value much more efficiently. For private
+		 * writable mappings, we might have COW pages that are
+		 * not affected by the parent swapped out pages of the shmem
+		 * object, so we have to distinguish them during the page walk.
+		 * Unless we know that the shmem object (or the part mapped by
+		 * our VMA) has no swapped out pages at all.
+		 */
+		unsigned long shmem_swapped = shmem_swap_usage(vma);
+
+		if (!shmem_swapped || (vma->vm_flags & VM_SHARED) ||
+					!(vma->vm_flags & VM_WRITE)) {
+			mss->swap += shmem_swapped;
+		} else {
+			mss->check_shmem_swap = true;
+			smaps_walk.pte_hole = smaps_pte_hole;
+		}
+	}
+#endif
+	/* mmap_sem is held in m_start */
+	walk_page_vma(vma, &smaps_walk);
+}
+
+static int show_smaps_rollup(struct seq_file *m, void *v)
+{
+	struct proc_maps_private *priv = m->private;
+	struct mem_size_stats mss;
+	struct mm_struct *mm;
+	struct vm_area_struct *vma;
+	unsigned long last_vma_end = 0;
+	int ret = 0;
+
+	priv->task = get_proc_task(priv->inode);
+	if (!priv->task)
+		return -ESRCH;
+
+	mm = priv->mm;
+	if (!mm || !mmget_not_zero(mm)) {
+		ret = -ESRCH;
+		goto out_put_task;
+	}
+
+	memset(&mss, 0, sizeof(mss));
+
+	down_read(&mm->mmap_sem);
+
+	hold_task_mempolicy(priv);
+
+	for (vma = priv->mm->mmap; vma; vma = vma->vm_next) {
+		smap_gather_stats(vma, &mss);
+		last_vma_end = vma->vm_end;
+	}
+
+	show_vma_header_prefix(m, priv->mm->mmap->vm_start,
+			       last_vma_end, 0, 0, 0, 0);
+	seq_pad(m, ' ');
+	seq_puts(m, "[rollup]\n");
+
+	__show_smap(m, &mss);
+
+	release_task_mempolicy(priv);
+	up_read(&mm->mmap_sem);
+
+	mmput(mm);
+out_put_task:
+	put_task_struct(priv->task);
+	priv->task = NULL;
+
+	return ret;
+}
+
+static int smaps_rollup_open(struct inode *inode, struct file *file)
+{
+	int ret;
+	struct proc_maps_private *priv;
+
+	priv = kzalloc(sizeof(*priv), GFP_KERNEL_ACCOUNT);
+	if (!priv)
+		return -ENOMEM;
+
+	ret = single_open(file, show_smaps_rollup, priv);
+	if (ret)
+		goto out_free;
+
+	priv->inode = inode;
+	priv->mm = proc_mem_open(inode, PTRACE_MODE_READ);
+	if (IS_ERR(priv->mm)) {
+		ret = PTR_ERR(priv->mm);
+
+		single_release(inode, file);
+		goto out_free;
+	}
+
+	return 0;
+
+out_free:
+	kfree(priv);
+	return ret;
+}
+
+static int smaps_rollup_release(struct inode *inode, struct file *file)
+{
+	struct seq_file *seq = file->private_data;
+	struct proc_maps_private *priv = seq->private;
+
+	if (priv->mm)
+		mmdrop(priv->mm);
+
+	kfree(priv);
+	return single_release(inode, file);
+}
+
+
 const struct file_operations proc_pid_smaps_operations = {
 	.open		= pid_smaps_open,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
 	.release	= proc_map_release,
+};
+const struct file_operations proc_pid_smaps_rollup_signal_operations = {
+	.open		= smaps_rollup_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= smaps_rollup_release,
 };
 
 const struct file_operations proc_pid_smaps_rollup_operations = {

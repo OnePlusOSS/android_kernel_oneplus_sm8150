@@ -5414,6 +5414,13 @@ irqreturn_t usbin_uv_irq_handler(int irq, void *data)
 	int rc;
 	u8 stat = 0, max_pulses = 0;
 
+#ifdef OPLUS_CUSTOM_OP_DEF
+	if (oplus_vooc_get_fastchg_started()) {
+                chg_err("return directly because VOOC charging started\n");
+                return IRQ_HANDLED;
+        }
+#endif
+
 	smblib_dbg(chg, PR_INTERRUPT, "IRQ: %s\n", irq_data->name);
 
 	if ((chg->wa_flags & WEAK_ADAPTER_WA)
@@ -5610,6 +5617,14 @@ void smblib_usb_plugin_hard_reset_locked(struct smb_charger *chg)
 #ifdef OPLUS_FEATURE_CHG_BASIC//Fanhong.Kong@ProDrv.CHG,add 2018/06/02 for SVOOC OTG
 	struct oplus_chg_chip *chip = g_oplus_chip;
 #endif/*OPLUS_FEATURE_CHG_BASIC*/
+
+#ifdef OPLUS_CUSTOM_OP_DEF
+	if (oplus_vooc_get_fastchg_started()) {
+                chg_err("return directly because VOOC charging started\n");
+                return;
+        }
+#endif
+
 	rc = smblib_read(chg, USBIN_BASE + INT_RT_STS_OFFSET, &stat);
 	if (rc < 0) {
 		smblib_err(chg, "Couldn't read USB_INT_RT_STS rc=%d\n", rc);
@@ -5722,6 +5737,14 @@ void smblib_usb_plugin_locked(struct smb_charger *chg)
 #ifdef OPLUS_FEATURE_CHG_BASIC//Fanhong.Kong@ProDrv.CHG,add 2018/06/02 for SVOOC OTG
 	struct oplus_chg_chip *chip = g_oplus_chip;
 #endif/*OPLUS_FEATURE_CHG_BASIC*/
+
+#ifdef OPLUS_CUSTOM_OP_DEF
+	if (oplus_vooc_get_fastchg_started()) {
+                chg_err("return directly because VOOC charging started\n");
+                return;
+        }
+#endif
+
 	rc = smblib_read(chg, USBIN_BASE + INT_RT_STS_OFFSET, &stat);
 	if (rc < 0) {
 		smblib_err(chg, "Couldn't read USB_INT_RT_STS rc=%d\n", rc);
@@ -5734,6 +5757,7 @@ void smblib_usb_plugin_locked(struct smb_charger *chg)
 
 #ifdef OPLUS_FEATURE_CHG_BASIC
 	printk(KERN_ERR "!!!!! smblib_usb_plugin_locked: [%d]\n", vbus_rising);
+	oplus_chg_check_break(vbus_rising);
 #endif
 
 	if (vbus_rising) {
@@ -6153,6 +6177,14 @@ irqreturn_t usb_source_change_irq_handler(int irq, void *data)
 #endif
 #ifdef OPLUS_FEATURE_CHG_BASIC//Fanhong.Kong@ProDrv.CHG,add 2018/06/02 for SVOOC OTG
 	struct oplus_chg_chip *chip = g_oplus_chip;
+
+
+#ifdef OPLUS_CUSTOM_OP_DEF
+	if (oplus_vooc_get_fastchg_started()) {
+                chg_err("return directly because VOOC charging started\n");
+                return IRQ_HANDLED;
+        }
+#endif
 
 	if (chg->typec_mode == POWER_SUPPLY_TYPEC_SINK
 		&& chip->vbatt_num == 2 ) {
@@ -6693,6 +6725,14 @@ irqreturn_t typec_state_change_irq_handler(int irq, void *data)
 	struct oplus_chg_chip *chip = g_oplus_chip;
 #endif
 
+
+#ifdef OPLUS_CUSTOM_OP_DEF
+	if (oplus_vooc_get_fastchg_started()) {
+                chg_err("return directly because VOOC charging started\n");
+                return IRQ_HANDLED;
+        }
+#endif
+
 	if (chg->connector_type == POWER_SUPPLY_CONNECTOR_MICRO_USB) {
 		smblib_dbg(chg, PR_INTERRUPT,
 				"Ignoring for micro USB\n");
@@ -6764,6 +6804,13 @@ irqreturn_t typec_attach_detach_irq_handler(int irq, void *data)
 	int rc;
 
 	smblib_dbg(chg, PR_INTERRUPT, "IRQ: %s\n", irq_data->name);
+
+#ifdef OPLUS_CUSTOM_OP_DEF
+	if (oplus_vooc_get_fastchg_started()) {
+                chg_err("return directly because VOOC charging started\n");
+                return IRQ_HANDLED;
+        }
+#endif
 
 	rc = smblib_read(chg, TYPE_C_STATE_MACHINE_STATUS_REG, &stat);
 	if (rc < 0) {
@@ -6954,6 +7001,13 @@ irqreturn_t switcher_power_ok_irq_handler(int irq, void *data)
 #endif
 	int rc, usb_icl;
 	u8 stat;
+
+#ifdef OPLUS_CUSTOM_OP_DEF
+	if (oplus_vooc_get_fastchg_started()) {
+                chg_err("return directly because VOOC charging started\n");
+                return IRQ_HANDLED;
+        }
+#endif
 
 	if (!(chg->wa_flags & BOOST_BACK_WA))
 		return IRQ_HANDLED;
@@ -14540,6 +14594,77 @@ bool oplus_chg_is_usb_present(void)
 	return vbus_rising;
 }
 
+#ifdef OPLUS_CUSTOM_OP_DEF
+#define VBUS_MIN_VOLTAGE_MV 2500
+
+void oplus_typec_state_change_irq_handler(void)
+{
+	int typec_mode;
+	struct smb_charger *chg = NULL;
+	struct oplus_chg_chip *chip = g_oplus_chip;
+
+	if (!chip)
+		return;
+
+	chg = &chip->pmic_spmi.smb5_chip->chg;
+	if (!chg)
+		return;
+
+	if (chg->connector_type == POWER_SUPPLY_CONNECTOR_MICRO_USB) {
+		smblib_dbg(chg, PR_INTERRUPT,
+				"Ignoring for micro USB\n");
+		return;
+	}
+
+	typec_mode = smblib_get_prop_typec_mode(chg);
+	if (typec_mode != chg->typec_mode) {
+		smblib_handle_rp_change(chg, typec_mode);
+		chg->typec_mode = typec_mode;
+	}
+
+	smblib_dbg(chg, PR_INTERRUPT, "%s: cc-state-change; Type-C %s detected\n",
+				__func__, smblib_typec_mode_name[chg->typec_mode]);
+	power_supply_changed(chg->usb_psy);
+}
+
+void oplus_handle_usb_plugin(struct smb_charger *chg)
+{
+	if (!chg)
+                return;
+
+	mutex_lock(&chg->smb_lock);
+	smblib_usb_plugin_locked(chg);
+	oplus_typec_state_change_irq_handler();
+	mutex_unlock(&chg->smb_lock);
+}
+
+int oplus_update_vooc_unplug_status(void)
+{
+        int rc;
+        union power_supply_propval prop_val;
+	struct smb_charger *chg = NULL;
+	struct oplus_chg_chip *chip = g_oplus_chip;
+
+	if (!chip)
+		return 0;
+
+	chg = &chip->pmic_spmi.smb5_chip->chg;
+
+	if (!chg)
+                return 0;
+
+	rc = smblib_get_prop_usb_voltage_now(chg, &prop_val);
+	if (rc < 0) {
+		pr_err("failed to read usb_voltage rc=%d\n", rc);
+	} else if (prop_val.intval <= VBUS_MIN_VOLTAGE_MV) {
+		oplus_handle_usb_plugin(chg);
+		smblib_update_usb_type(chg);
+		power_supply_changed(chg->usb_psy);
+	}
+
+	return 0;
+}
+#endif
 
 int qpnp_get_battery_voltage(void)
 {

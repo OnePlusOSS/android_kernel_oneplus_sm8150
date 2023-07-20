@@ -1127,9 +1127,8 @@ int mipi_dsi_dcs_set_display_brightness(struct mipi_dsi_device *dsi,
 					mipi_dsi_dcs_write(dsi, MIPI_DCS_WRITE_CONTROL_DISPLAY,
 							   &value, sizeof(value));
 				if(brightness > 1) {
-					if((cmp_display_panel_name("S6E3HC2") ||          /*For OP7 models don't send 'qcom,mdss-dsi-hbm-backlight-off-command'*/
-					   cmp_display_panel_name("S6E3FC2") || cmp_display_panel_name("SOFEF03F"))
-					   && fod_dimlayer_flag == 0)      /*while disabling dimlayer after fod scene*/
+					if(cmp_display_panel_name("S6E3HC2")          /*For 18821 and 19801 models don't send 'qcom,mdss-dsi-hbm-backlight-off-command'*/
+					&& fod_dimlayer_flag == 0)      /*while disabling dimlayer after fod scene*/
 						fod_dimlayer_flag = -1;                                      /*Reset the flag to undefined value*/
 					else
 						oplus_dsi_hbm_backlight_setting(false);

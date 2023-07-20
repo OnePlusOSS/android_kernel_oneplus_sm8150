@@ -331,6 +331,7 @@ int sde_connector_update_hbm(struct drm_connector *connector)
 	struct sde_connector_state *c_state;
 	int rc = 0;
 	int fingerprint_mode;
+	static int oplus_old_refresh_rate = 0;
 
 	if (!c_conn) {
 		SDE_ERROR("Invalid params sde_connector null\n");
@@ -354,6 +355,17 @@ int sde_connector_update_hbm(struct drm_connector *connector)
 	    !c_conn->encoder->crtc->state) {
 		return 0;
 	}
+
+	if (sde_crtc_get_fingerprint_mode(c_conn->encoder->crtc->state) && !dsi_display->panel->is_hbm_enabled &&
+			dsi_display->panel->cur_mode->timing.refresh_rate != oplus_old_refresh_rate) {
+		SDE_ATRACE_BEGIN("delay_hbm_on_one_frame");
+		pr_err("do not send HBM ON while switch fps");
+		oplus_old_refresh_rate = dsi_display->panel->cur_mode->timing.refresh_rate;
+		SDE_ATRACE_END("delay_hbm_on_one_frame");
+		return 0;
+	}
+
+	oplus_old_refresh_rate = dsi_display->panel->cur_mode->timing.refresh_rate;
 
 	fingerprint_mode = sde_crtc_get_fingerprint_mode(c_conn->encoder->crtc->state);
 

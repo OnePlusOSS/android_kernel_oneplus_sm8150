@@ -724,6 +724,16 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 	}
 	//#endif /* OPLUS_BUG_STABILITY */
 
+	if (!strcmp(panel->name, "samsung s6e3fc2x01 cmd mode dsi panel") ||
+	    !strcmp(panel->name, "samsung sofef03f_m fhd cmd mode dsc dsi panel") ||
+	    !strcmp(panel->name, "samsung dsc cmd mode oneplus dsi panel")) {     /*Adjust power regulator before poc for OP7*/
+		rc = dsi_pwr_enable_regulator(&panel->power_info, true);
+		if (rc) {
+			pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
+			goto exit;
+		}
+	}
+
 	if (gpio_is_valid(panel->poc)) {
 		rc = gpio_direction_output(panel->poc, 1);
 		pr_err("enable poc gpio\n");
@@ -733,10 +743,14 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 		}
 	}
 
-	rc = dsi_pwr_enable_regulator(&panel->power_info, true);
-	if (rc) {
-		pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
-		goto exit;
+	if (strcmp(panel->name, "samsung s6e3fc2x01 cmd mode dsi panel") &&
+	    strcmp(panel->name, "samsung sofef03f_m fhd cmd mode dsc dsi panel") &&
+	    strcmp(panel->name, "samsung dsc cmd mode oneplus dsi panel")) {
+		rc = dsi_pwr_enable_regulator(&panel->power_info, true);
+		if (rc) {
+			pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
+			goto exit;
+		}
 	}
 
 	rc = dsi_panel_set_pinctrl_state(panel, true);
@@ -768,6 +782,10 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 		}
 	}
 
+	if(!strcmp(panel->name, "samsung s6e3fc2x01 cmd mode dsi panel") ||
+	   !strcmp(panel->name, "samsung dsc cmd mode oneplus dsi panel")) {
+		msleep(5);
+	}
 	rc = dsi_panel_reset(panel);
 	if (rc) {
 		pr_err("[%s] failed to reset panel, rc=%d\n", panel->name, rc);
@@ -4712,8 +4730,9 @@ int dsi_panel_pre_prepare(struct dsi_panel *panel)
 		}
 	}
 
-	/* If LP11_INIT is set, panel will be powered up during prepare() */
-	if (panel->lp11_init)
+	/* If LP11_INIT is set, panel will be powered up during prepare() except for 18857, 18821 and 19801*/
+	if (panel->lp11_init && (strcmp(panel->name, "samsung s6e3fc2x01 cmd mode dsi panel") &&
+	    strcmp(panel->name, "samsung dsc cmd mode oneplus dsi panel")))
 		goto error;
 
 	rc = dsi_panel_power_on(panel);
@@ -4898,14 +4917,16 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 
 	mutex_lock(&panel->panel_lock);
 
-	if (panel->lp11_init) {
+	if (panel->lp11_init && (strcmp(panel->name, "samsung s6e3fc2x01 cmd mode dsi panel") &&
+	    strcmp(panel->name, "samsung dsc cmd mode oneplus dsi panel"))) {  /*For 18857, 18821 and 19801 has been turned on during pre_prepare*/
 		rc = dsi_panel_power_on(panel);
 		if (rc) {
 			pr_err("[%s] panel power on failed, rc=%d\n",
-			       panel->name, rc);
+				panel->name, rc);
 			goto error;
 		}
 	}
+
 	#ifdef OPLUS_BUG_STABILITY
 	if(!strcmp(panel->name, "samsung sofef03f_m amoled fhd+ panel with DSC")){
 		if (panel->reset_config.lcd_delay_lp11_state)
