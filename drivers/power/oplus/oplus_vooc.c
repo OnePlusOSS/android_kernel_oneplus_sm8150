@@ -1572,9 +1572,6 @@ out:
 		|| (data == VOOC_NOTIFY_BAD_CONNECTED)
 		|| (data == VOOC_NOTIFY_DATA_UNKNOWN)
 		|| (data == VOOC_NOTIFY_TEMP_OVER) || oplus_vooc_is_battemp_exit()) {
-#ifdef OPLUS_CUSTOM_OP_DEF
-		oplus_update_vooc_unplug_status();
-#endif
 		if (oplus_vooc_get_reply_bits() != 7 || data != VOOC_NOTIFY_LOW_TEMP_FULL) {
 			if (!oplus_vooc_is_battemp_exit()) {
 				oplus_vooc_reset_temp_range(chip);
