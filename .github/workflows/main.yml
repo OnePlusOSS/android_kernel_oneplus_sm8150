@@ -82,19 +82,21 @@ jobs:
         run: |
           set -euxo pipefail
 
-          echo "===== 正在准备外置闭源驱动占位，解决上一级目录 cp 报错 ====="
+          echo "===== 正在准备外置闭源驱动占位，解决上一级目录及 drivers 目录报错 ====="
           mkdir -p ../oneplus/oneplus_touchscreen ../oneplus/fingerprint
           touch ../oneplus/oneplus_touchscreen/placeholder.c
           touch ../oneplus/fingerprint/placeholder.c
 
-          # 彻底清除 drivers/input/Kconfig 中对触控和指纹的硬编码引用
+          # 1. 彻底清除 drivers/input/Kconfig 中对触控和指纹的硬编码引用
           if [ -f "drivers/input/Kconfig" ]; then
             sed -i '/oneplus_touchscreen/d' drivers/input/Kconfig
             sed -i '/fingerprint/d' drivers/input/Kconfig
           fi
 
-          # 确保本地目录存在
-          mkdir -p drivers/input/oneplus_touchscreen drivers/input/fingerprint
+          # 2. 确保 drivers/oneplus 目录及占位 Kconfig 存在，解决 drivers/Kconfig 报错
+          mkdir -p drivers/oneplus drivers/input/oneplus_touchscreen drivers/input/fingerprint
+          echo '# dummy Kconfig' > drivers/oneplus/Kconfig
+          echo 'obj- := dummy.o' > drivers/oneplus/Makefile
           echo '# dummy Kconfig' > drivers/input/oneplus_touchscreen/Kconfig
           echo '# dummy Kconfig' > drivers/input/fingerprint/Kconfig
           echo 'obj- := dummy.o' > drivers/input/oneplus_touchscreen/Makefile
