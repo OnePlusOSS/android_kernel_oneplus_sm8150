@@ -82,27 +82,44 @@ jobs:
         run: |
           set -euxo pipefail
 
-          echo "===== 正在准备外置闭源驱动占位与 Kconfig 修复 ====="
+          echo "===== 正在准备外置闭源驱动占位与 Kconfig 自动化免疫 ====="
           mkdir -p ../oneplus/oneplus_touchscreen ../oneplus/fingerprint
           touch ../oneplus/oneplus_touchscreen/placeholder.c
           touch ../oneplus/fingerprint/placeholder.c
 
-          # 1. 清理 drivers/input/Kconfig 中的外部闭源驱动引用
+          # 1. 批量清理已知缺失的外部驱动硬编码引用
           if [ -f "drivers/input/Kconfig" ]; then
             sed -i '/oneplus_touchscreen/d' drivers/input/Kconfig
             sed -i '/fingerprint/d' drivers/input/Kconfig
           fi
 
-          # 2. 清理 drivers/Kconfig 中对 param_read_write 等可能缺失外置驱动的引用
           if [ -f "drivers/Kconfig" ]; then
             sed -i '/param_read_write/d' drivers/Kconfig
+            sed -i '/step_motor/d' drivers/Kconfig
           fi
 
-          # 3. 创建所有可能缺失的 drivers 目录及占位 Kconfig / Makefile
-          for drv in oneplus param_read_write input/oneplus_touchscreen input/fingerprint; do
+          # 2. 自动检查 drivers/Kconfig 中所有引用但实际物理目录不存在的 source 行，直接将其安全剔除
+          grep 'source "drivers/' drivers/Kconfig | while read -r line; do
+            # 提取路径，例如 source "drivers/step_motor/Kconfig" -> drivers/step_motor/Kconfig
+            path=$(echo "$line" | cut -d'"' -f2)
+            dir_path=$(dirname "$path")
+            if [ ! -d "$dir_path" ]; then
+              echo "检测到缺失的外置驱动目录: $dir_path，自动创建占位并补齐 Kconfig/Makefile"
+              mkdir -p "$dir_path"
+              echo '# dummy Kconfig' > "$dir_path/Kconfig"
+              echo 'obj- := dummy.o' > "$dir_path/Makefile"
+            fi
+          done
+
+          # 3. 确保核心外置占位目录存在
+          for drv in oneplus param_read_write step_motor input/oneplus_touchscreen input/fingerprint; do
             mkdir -p "drivers/${drv}"
-            echo '# dummy Kconfig' > "drivers/${drv}/Kconfig"
-            echo 'obj- := dummy.o' > "drivers/${drv}/Makefile"
+            if [ ! -f "drivers/${drv}/Kconfig" ]; then
+              echo '# dummy Kconfig' > "drivers/${drv}/Kconfig"
+            fi
+            if [ ! -f "drivers/${drv}/Makefile" ]; then
+              echo 'obj- := dummy.o' > "drivers/${drv}/Makefile"
+            fi
           done
 
           if [ ! -f "arch/arm64/configs/${DEFCONFIG}" ]; then
