@@ -85,9 +85,7 @@ jobs:
           new_lines = []
           for i, line in enumerate(lines):
               if "unterminated call" not in line and "call" in line and not line.strip().startswith("#"):
-                  # 检查是否有未闭合的括号或者特定的老旧语法，安全起见针对 970 行左右的 call 进行注释
                   if 950 <= i + 1 <= 990:
-                      print(f"自动修复 Makefile 第 {i+1} 行有风险的 call 语法: {line.strip()}")
                       new_lines.append("# " + line)
                       continue
               new_lines.append(line)
@@ -99,10 +97,16 @@ jobs:
         run: |
           set -euxo pipefail
 
-          echo "===== 正在准备外置闭源驱动占位与 Drivers/FS Kconfig 自动化免疫 ====="
+          echo "===== 正在准备外置闭源驱动占位、OEM 头文件与 Kconfig 自动化免疫 ====="
           mkdir -p ../oneplus/oneplus_touchscreen ../oneplus/fingerprint
           touch ../oneplus/oneplus_touchscreen/placeholder.c
           touch ../oneplus/fingerprint/placeholder.c
+
+          # 补齐缺失的 OEM 头文件（如 linux/oem/im.h 等）
+          mkdir -p include/linux/oem
+          touch include/linux/oem/im.h
+          touch include/linux/oem/oem_log.h
+          echo '#ifndef __LINUX_OEM_IM_H\n#define __LINUX_OEM_IM_H\n#endif' > include/linux/oem/im.h
 
           # 1. 自动检查 drivers/Kconfig 中所有引用但实际物理目录不存在的 source 行，直接自动补齐占位
           if [ -f "drivers/Kconfig" ]; then
@@ -110,7 +114,6 @@ jobs:
               path=$(echo "$line" | cut -d'"' -f2)
               dir_path=$(dirname "$path")
               if [ ! -d "$dir_path" ]; then
-                echo "检测到缺失的 drivers 驱动目录: $dir_path，自动创建占位"
                 mkdir -p "$dir_path"
                 echo '# dummy Kconfig' > "$dir_path/Kconfig"
                 echo 'obj- := dummy.o' > "$dir_path/Makefile"
@@ -124,7 +127,6 @@ jobs:
               path=$(echo "$line" | cut -d'"' -f2)
               dir_path=$(dirname "$path")
               if [ ! -d "$dir_path" ]; then
-                echo "检测到缺失的 fs 文件系统目录: $dir_path，自动创建占位"
                 mkdir -p "$dir_path"
                 echo '# dummy Kconfig' > "$dir_path/Kconfig"
                 echo 'obj- := dummy.o' > "$dir_path/Makefile"
