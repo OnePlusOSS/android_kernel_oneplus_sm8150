@@ -1,0 +1,240 @@
+name: Build OnePlus 7 Official Kernel (APatch + NoMount + ZRAM WB)
+
+on:
+  workflow_dispatch:
+    inputs:
+      defconfig:
+        description: '内核 defconfig 路径'
+        required: true
+        default: 'vendor/sm8150-perf_defconfig'
+      make_target:
+        description: '编译目标'
+        required: true
+        default: 'Image.gz'
+      kernel_ref:
+        description: '内核源码分支 (oneplus/SM8150_R_10.0 代表 Android 11)'
+        required: true
+        default: 'oneplus/SM8150_R_10.0'
+      nomount_branch:
+        description: 'NoMount 分支'
+        required: true
+        default: 'dev'
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: op7-official-kernel-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ARCH: arm64
+  CROSS_COMPILE: aarch64-linux-gnu-
+  DEFCONFIG: ${{ github.event.inputs.defconfig || 'vendor/sm8150-perf_defconfig' }}
+  MAKE_TARGET: ${{ github.event.inputs.make_target || 'Image.gz' }}
+  KERNEL_REF: ${{ github.event.inputs.kernel_ref || 'oneplus/SM8150_R_10.0' }}
+  NOMOUNT_BRANCH: ${{ github.event.inputs.nomount_branch || 'dev' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+
+    steps:
+      - name: Checkout Official Kernel Source
+        uses: actions/checkout@v4
+        with:
+          repository: yangliang235/android_kernel_oneplus_sm8150
+          ref: ${{ env.KERNEL_REF }}
+          fetch-depth: 1
+
+      - name: Install build dependencies (with GCC 9)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential bc bison flex libssl-dev libelf-dev \
+            zip unzip git curl python3 \
+            gcc-9-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            device-tree-compiler
+
+          # 强制使用 GCC 9，防止高版本编译器导致老内核开机崩溃
+          echo "CC=aarch64-linux-gnu-gcc-9" >> $GITHUB_ENV
+          echo "LD=aarch64-linux-gnu-ld.bfd" >> $GITHUB_ENV
+
+      - name: Integrate NoMount into kernel source
+        run: |
+          set -euxo pipefail
+          curl -fsSL "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/${NOMOUNT_BRANCH}/kernel/setup.sh" | bash -s "${NOMOUNT_BRANCH}"
+          echo "===== 确认 NoMount 集成 ====="
+          test -d fs/nomount
+          ls fs/nomount
+
+      - name: Remove -Werror from Makefiles
+        run: |
+          set -euxo pipefail
+          find . -type f \( -name 'Makefile' -o -name '*.mk' \) -exec grep -l -- '-Werror' {} + 2>/dev/null | while read -r f; do
+            sed -i 's/-Werror[^ ]*//g' "$f"
+          done
+
+      - name: Configure kernel and create fragments
+        run: |
+          set -euxo pipefail
+
+          echo "===== 正在准备外置闭源驱动占位，解决上一级目录 cp 报错 ====="
+          mkdir -p ../oneplus/oneplus_touchscreen ../oneplus/fingerprint
+          touch ../oneplus/oneplus_touchscreen/placeholder.c
+          touch ../oneplus/fingerprint/placeholder.c
+
+          # 彻底清除 drivers/input/Kconfig 中对触控和指纹的硬编码引用
+          if [ -f "drivers/input/Kconfig" ]; then
+            sed -i '/oneplus_touchscreen/d' drivers/input/Kconfig
+            sed -i '/fingerprint/d' drivers/input/Kconfig
+          fi
+
+          # 确保本地目录存在
+          mkdir -p drivers/input/oneplus_touchscreen drivers/input/fingerprint
+          echo '# dummy Kconfig' > drivers/input/oneplus_touchscreen/Kconfig
+          echo '# dummy Kconfig' > drivers/input/fingerprint/Kconfig
+          echo 'obj- := dummy.o' > drivers/input/oneplus_touchscreen/Makefile
+          echo 'obj- := dummy.o' > drivers/input/fingerprint/Makefile
+
+          if [ ! -f "arch/arm64/configs/${DEFCONFIG}" ]; then
+            echo "错误：找不到指定配置文件 arch/arm64/configs/${DEFCONFIG}"
+            exit 1
+          fi
+
+          make ARCH=arm64 O=out "${DEFCONFIG}"
+
+          # 创建 fragment 目录并写入配置片段
+          mkdir -p fragment
+          
+          # APatch 核心底层依赖
+          {
+            echo 'CONFIG_KPROBES=y'
+            echo 'CONFIG_HAVE_KPROBES=y'
+            echo 'CONFIG_KRETPROBES=y'
+            echo 'CONFIG_MODULES=y'
+            echo 'CONFIG_MODULE_UNLOAD=y'
+          } > fragment/apatch.fragment
+
+          # NoMount 内核驱动
+          echo 'CONFIG_NOMOUNT=y' > fragment/nomount.fragment
+
+          # ZRAM Writeback 内存回写配置片段
+          {
+            echo 'CONFIG_ZRAM=y'
+            echo 'CONFIG_ZRAM_WRITEBACK=y'
+            echo 'CONFIG_ZRAM_MEMORY_TRACKING=y'
+          } > fragment/zram.fragment
+
+          # 禁用强行栈保护，规避编译报错
+          {
+            echo 'CONFIG_CC_STACKPROTECTOR_NONE=y'
+            echo '# CONFIG_CC_STACKPROTECTOR_STRONG is not set'
+          } > fragment/stackprotector.fragment
+
+          # 清理可能冲突的配置
+          ./scripts/config --file out/.config -d MODVERSIONS || true
+          ./scripts/config --file out/.config -d CC_STACKPROTECTOR_STRONG
+          ./scripts/config --file out/.config -e CC_STACKPROTECTOR_NONE
+          ./scripts/config --file out/.config -d WERROR || true
+          ./scripts/config --file out/.config -d CC_WERROR || true
+
+          # 合并所有配置片段
+          ./scripts/kconfig/merge_config.sh -m -O out out/.config \
+            fragment/apatch.fragment \
+            fragment/nomount.fragment \
+            fragment/zram.fragment \
+            fragment/stackprotector.fragment
+
+          make ARCH=arm64 O=out olddefconfig
+
+          echo "===== 关键配置检查 ====="
+          grep -E 'CONFIG_(KPROBES|MODULES|NOMOUNT|ZRAM_WRITEBACK)' out/.config || true
+
+      - name: Build kernel (Image.gz & dtbs)
+        run: |
+          set -o pipefail
+          make ARCH=arm64 \
+            CROSS_COMPILE="${CROSS_COMPILE}" \
+            CC="${CC}" \
+            O=out \
+            WERROR=0 \
+            KCFLAGS="-Wno-error" \
+            -j"$(nproc)" \
+            "${MAKE_TARGET}" dtbs 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+
+          if [ "$status" -ne 0 ]; then
+            echo "===== 编译失败 ====="
+            grep -i "error:" build.log || true
+            exit "$status"
+          fi
+
+      - name: Prepare AnyKernel3 flashable zip
+        run: |
+          set -euxo pipefail
+
+          KERNEL_IMAGE="out/arch/arm64/boot/${MAKE_TARGET}"
+          if [ ! -f "${KERNEL_IMAGE}" ]; then
+            echo "找不到内核镜像: ${KERNEL_IMAGE}"
+            exit 1
+          fi
+
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+
+          # 复制编译好的 Image.gz
+          cp "${KERNEL_IMAGE}" AnyKernel3/
+
+          # 拼接并打包编译生成的 dtb 设备树
+          DTB_FIND=$(find out/arch/arm64/boot/dts/ -name "*.dtb" 2>/dev/null | head -n 1 || true)
+          if [ -f "out/arch/arm64/boot/dtb" ]; then
+            cp "out/arch/arm64/boot/dtb" AnyKernel3/
+          elif [ -n "$DTB_FIND" ]; then
+            cat out/arch/arm64/boot/dts/qcom/*.dtb > AnyKernel3/dtb 2>/dev/null || cp "$DTB_FIND" AnyKernel3/dtb
+          else
+            echo "警告：未找到 dtb 文件"
+          fi
+
+          {
+            echo 'kernel.string=OnePlus 7 Official APatch NoMount ZRAM-WB Kernel'
+            echo 'do.devicecheck=1'
+            echo 'do.modules=0'
+            echo 'do.systemless=1'
+            echo 'do.cleanup=1'
+            echo 'do.cleanuponabort=0'
+            echo 'device.name1=guacamole'
+            echo 'device.name2=guacamoleb'
+            echo 'device.name3=hotdog'
+            echo 'device.name4=hotdogb'
+            echo 'device.name5=hotdogg'
+            echo 'block=/dev/block/bootdevice/by-name/boot;'
+            echo 'is_slot_device=auto;'
+            echo 'ramdisk_compression=auto;'
+            echo 'patch_vbmeta=0;'
+            echo 'patch_dtbo=0;'
+            echo 'patch_dtb=1;'
+          } > AnyKernel3/anykernel.sh
+
+          rm -rf AnyKernel3/.git AnyKernel3/README.md AnyKernel3/LICENSE
+
+          ZIP_NAME="op7-official-apatch-nomount-zramwb-${{ github.run_number }}.zip"
+          cd AnyKernel3
+          zip -r9 "../${ZIP_NAME}" *
+          cd ..
+
+          mkdir -p artifact
+          mv "${ZIP_NAME}" artifact/
+          cp out/.config artifact/kernel.config
+
+          echo "===== artifact 内容 ====="
+          ls -lh artifact
+
+      - name: Upload flashable zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: op7-official-apatch-nomount-zramwb-zip-${{ github.run_number }}
+          path: artifact/
+          if-no-files-found: error
