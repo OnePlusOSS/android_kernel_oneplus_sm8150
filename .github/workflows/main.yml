@@ -102,13 +102,25 @@ jobs:
           touch ../oneplus/oneplus_touchscreen/placeholder.c
           touch ../oneplus/fingerprint/placeholder.c
 
-          # 补齐缺失的 OEM 头文件（如 linux/oem/im.h 等）
+          # 1. 完美补齐缺失的 OEM 头文件及函数桩
           mkdir -p include/linux/oem
-          touch include/linux/oem/im.h
-          touch include/linux/oem/oem_log.h
-          echo '#ifndef __LINUX_OEM_IM_H\n#define __LINUX_OEM_IM_H\n#endif' > include/linux/oem/im.h
+          cat << 'EOF' > include/linux/oem/im.h
+          #ifndef __LINUX_OEM_IM_H
+          #define __LINUX_OEM_IM_H
+          static inline int im_render_grouping_enable(void) { return 0; }
+          static inline void im_list_del_task(void *p) {}
+          #endif
+          EOF
 
-          # 1. 自动检查 drivers/Kconfig 中所有引用但实际物理目录不存在的 source 行，直接自动补齐占位
+          cat << 'EOF' > include/linux/iolimit_cgroup.h
+          #ifndef __LINUX_IOLIMIT_CGROUP_H
+          #define __LINUX_IOLIMIT_CGROUP_H
+          #endif
+          EOF
+
+          touch include/linux/oem/oem_log.h
+
+          # 2. 自动检查 drivers/Kconfig 中所有引用但实际物理目录不存在的 source 行，直接自动补齐占位
           if [ -f "drivers/Kconfig" ]; then
             grep 'source "drivers/' drivers/Kconfig | while read -r line; do
               path=$(echo "$line" | cut -d'"' -f2)
@@ -121,7 +133,7 @@ jobs:
             done
           fi
 
-          # 2. 自动检查 fs/Kconfig 中所有引用但实际物理目录不存在的 source 行，直接自动补齐占位
+          # 3. 自动检查 fs/Kconfig 中所有引用但实际物理目录不存在的 source 行，直接自动补齐占位
           if [ -f "fs/Kconfig" ]; then
             grep 'source "fs/' fs/Kconfig | while read -r line; do
               path=$(echo "$line" | cut -d'"' -f2)
@@ -134,7 +146,7 @@ jobs:
             done
           fi
 
-          # 3. 确保核心外置占位目录万无一失
+          # 4. 确保核心外置占位目录万无一失
           for drv in oneplus param_read_write step_motor input/oneplus_touchscreen input/fingerprint; do
             mkdir -p "drivers/${drv}"
             [ ! -f "drivers/${drv}/Kconfig" ] && echo '# dummy Kconfig' > "drivers/${drv}/Kconfig" || true
@@ -213,8 +225,8 @@ jobs:
           status=${PIPESTATUS[0]}
 
           if [ "$status" -ne 0 ]; then
-            echo "===== 编译失败 ====="
-            grep -i "error:" build.log || true
+            echo "===== 编译失败，完整错误日志如下 ====="
+            tail -n 100 build.log || true
             exit "$status"
           fi
 
