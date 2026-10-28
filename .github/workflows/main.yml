@@ -97,30 +97,36 @@ jobs:
         run: |
           set -euxo pipefail
 
-          echo "===== 正在准备外置闭源驱动占位、OEM 头文件与 Kconfig 自动化免疫 ====="
+          echo "===== 正在准备外置闭源驱动占位、完美头文件桩与 Kconfig 自动化免疫 ====="
           mkdir -p ../oneplus/oneplus_touchscreen ../oneplus/fingerprint
           touch ../oneplus/oneplus_touchscreen/placeholder.c
           touch ../oneplus/fingerprint/placeholder.c
 
-          # 1. 完美补齐缺失的 OEM 头文件及函数桩
+          # 1. 完善 OEM 桩头文件 (im.h)
           mkdir -p include/linux/oem
           cat << 'EOF' > include/linux/oem/im.h
           #ifndef __LINUX_OEM_IM_H
           #define __LINUX_OEM_IM_H
+          #define IM_KWORKER 0
           static inline int im_render_grouping_enable(void) { return 0; }
           static inline void im_list_del_task(void *p) {}
+          static inline void im_set_flag(void *task, int flag) {}
           #endif
           EOF
 
+          # 2. 完善 IO Limit 桩头文件 (iolimit_cgroup.h)
           cat << 'EOF' > include/linux/iolimit_cgroup.h
           #ifndef __LINUX_IOLIMIT_CGROUP_H
           #define __LINUX_IOLIMIT_CGROUP_H
+          extern int iolimit_enable;
+          static inline void io_read_bandwidth_control(unsigned long size) {}
+          static inline void io_write_bandwidth_control(unsigned long size) {}
           #endif
           EOF
 
           touch include/linux/oem/oem_log.h
 
-          # 2. 自动检查 drivers/Kconfig 中所有引用但实际物理目录不存在的 source 行，直接自动补齐占位
+          # 3. 自动检查 drivers/Kconfig 中所有引用但实际物理目录不存在的 source 行，直接自动补齐占位
           if [ -f "drivers/Kconfig" ]; then
             grep 'source "drivers/' drivers/Kconfig | while read -r line; do
               path=$(echo "$line" | cut -d'"' -f2)
@@ -133,7 +139,7 @@ jobs:
             done
           fi
 
-          # 3. 自动检查 fs/Kconfig 中所有引用但实际物理目录不存在的 source 行，直接自动补齐占位
+          # 4. 自动检查 fs/Kconfig 中所有引用但实际物理目录不存在的 source 行，直接自动补齐占位
           if [ -f "fs/Kconfig" ]; then
             grep 'source "fs/' fs/Kconfig | while read -r line; do
               path=$(echo "$line" | cut -d'"' -f2)
@@ -146,7 +152,7 @@ jobs:
             done
           fi
 
-          # 4. 确保核心外置占位目录万无一失
+          # 5. 确保核心外置占位目录万无一失
           for drv in oneplus param_read_write step_motor input/oneplus_touchscreen input/fingerprint; do
             mkdir -p "drivers/${drv}"
             [ ! -f "drivers/${drv}/Kconfig" ] && echo '# dummy Kconfig' > "drivers/${drv}/Kconfig" || true
